@@ -1,0 +1,56 @@
+# Advanced configuration for Things 3 MCP Server
+server:
+  timeout: 60
+  cache_ttl: 600
+  log_level: INFO
+  retry_count: 3
+  max_concurrent: 10
+  host: "localhost"
+  port: 3000
+
+things:
+  app_name: "Things3"
+  url_scheme: "things"
+  verify_running: true
+  launch_if_needed: false
+
+caching:
+  enabled: true
+  ttl: 600
+  max_size: 1000
+  persist_to_disk: true
+  disk_cache_path: "./cache"
+  cleanup_interval: 3600
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/things_mcp.log"
+  rotate: true
+  max_size: "10MB"
+  backup_count: 5
+  console_output: true
+
+performance:
+  connection_pool_size: 5
+  applescript_timeout: 30
+  url_scheme_timeout: 10
+  batch_size: 100
+  enable_profiling: false
+
+error_handling:
+  retry_exponential_base: 2
+  retry_max_delay: 30
+  fail_fast: false
+  detailed_errors: true
+
+security:
+  validate_applescript: true
+  sanitize_inputs: true
+  max_script_length: 10000
+
+monitoring:
+  enable_metrics: true
+  metrics_port: 9090
+  health_check_interval: 60
+  alert_on_errors: true
