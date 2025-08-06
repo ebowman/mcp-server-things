@@ -83,13 +83,23 @@ class ThingsMCPServer:
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
             when: Optional[str] = Field(None, description="New schedule"),
             deadline: Optional[str] = Field(None, description="New deadline"),
-            completed: Optional[bool] = Field(None, description="Mark as completed"),
-            canceled: Optional[bool] = Field(None, description="Mark as canceled")
+            completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
             """Update an existing todo in Things."""
             try:
                 # Convert comma-separated tags to list  
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                
+                # Convert string booleans to actual booleans
+                completed_bool = None
+                if completed is not None:
+                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
+                    
+                canceled_bool = None
+                if canceled is not None:
+                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                
                 return await self.tools.update_todo(
                     todo_id=id,
                     title=title,
@@ -97,8 +107,8 @@ class ThingsMCPServer:
                     tags=tag_list,
                     when=when,
                     deadline=deadline,
-                    completed=completed,
-                    canceled=canceled
+                    completed=completed_bool,
+                    canceled=canceled_bool
                 )
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
@@ -175,13 +185,23 @@ class ThingsMCPServer:
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
             when: Optional[str] = Field(None, description="New schedule"),
             deadline: Optional[str] = Field(None, description="New deadline"),
-            completed: Optional[bool] = Field(None, description="Mark as completed"),
-            canceled: Optional[bool] = Field(None, description="Mark as canceled")
+            completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
             """Update an existing project in Things."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                
+                # Convert string booleans to actual booleans
+                completed_bool = None
+                if completed is not None:
+                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
+                    
+                canceled_bool = None
+                if canceled is not None:
+                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                
                 return await self.tools.update_project(
                     project_id=id,
                     title=title,
@@ -189,8 +209,8 @@ class ThingsMCPServer:
                     tags=tag_list,
                     when=when,
                     deadline=deadline,
-                    completed=completed,
-                    canceled=canceled
+                    completed=completed_bool,
+                    canceled=canceled_bool
                 )
             except Exception as e:
                 logger.error(f"Error updating project: {e}")
