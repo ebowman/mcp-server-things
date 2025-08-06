@@ -562,7 +562,8 @@ class ThingsTools:
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, f"todo_{todo_id}")
+            # Don't cache individual todo fetches as they can change frequently
+            result = await self.applescript.execute_applescript(script, cache_key=None)
             
             if result.get("success"):
                 # Parse the result using our AppleScript parser
@@ -570,16 +571,9 @@ class ThingsTools:
                 
                 if raw_records:
                     record = raw_records[0]  # Should be just one record
-                    # Parse tag names if present
-                    tags = []
-                    tag_names = record.get("tag_names", "")
-                    if tag_names and isinstance(tag_names, str):
-                        # Tags are returned as a concatenated string like "tag1tag2tag3"
-                        # or as a comma-separated list
-                        # We need to parse them properly
-                        tags = [tag.strip() for tag in tag_names.split(",") if tag.strip()]
-                    elif tag_names:
-                        tags = tag_names if isinstance(tag_names, list) else []
+                    # The parser already converts tag_names to 'tags' key and parses them
+                    # So we can use the tags directly from the parsed record
+                    tags = record.get("tags", [])
                     
                     todo_data = {
                         "id": record.get("id", todo_id),

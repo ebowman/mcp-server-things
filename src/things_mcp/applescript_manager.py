@@ -396,19 +396,35 @@ class AppleScriptManager:
             current_record = {}
             
             # First, let's handle tag_names specially since it can contain commas
-            # Find all tag_names fields and temporarily replace their commas
-            import re
+            # Strategy: find tag_names: and extract value until we hit another known field
             temp_output = output.strip()
             
-            # Find tag_names:value patterns and protect the commas within them
-            tag_pattern = r'tag_names:([^,]+(,\s*[^:,]+)*)'
-            matches = list(re.finditer(tag_pattern, temp_output))
+            # Known field names that can follow tag_names
+            known_fields = ['creation_date:', 'modification_date:', 'due_date:', 'status:', 
+                          'notes:', 'id:', 'name:', 'area:', 'project:', 'start_date:']
             
-            # Replace commas in tag values with a placeholder
-            for match in reversed(matches):  # Reverse to maintain positions
-                tag_value = match.group(1)
-                protected_value = tag_value.replace(',', '§COMMA§')
-                temp_output = temp_output[:match.start(1)] + protected_value + temp_output[match.end(1):]
+            # Find tag_names and protect its commas
+            if 'tag_names:' in temp_output:
+                start_idx = temp_output.find('tag_names:') + len('tag_names:')
+                
+                # Find the next field after tag_names
+                end_idx = len(temp_output)  # Default to end of string
+                for field in known_fields:
+                    field_idx = temp_output.find(field, start_idx)
+                    if field_idx != -1 and field_idx < end_idx:
+                        # Found a field that comes after tag_names
+                        # Back up to the comma before this field
+                        comma_idx = temp_output.rfind(',', start_idx, field_idx)
+                        if comma_idx != -1:
+                            end_idx = comma_idx
+                        else:
+                            end_idx = field_idx
+                
+                # Extract and protect the tag value
+                tag_value = temp_output[start_idx:end_idx].strip()
+                if tag_value:
+                    protected_value = tag_value.replace(',', '§COMMA§')
+                    temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
             
             # Now split by commas safely
             parts = self._split_applescript_output(temp_output)
@@ -433,9 +449,14 @@ class AppleScriptManager:
                         current_record = {}
                     
                     # Parse different value types
-                    if key == 'creation_date' or key == 'modification_date':
+                    if key in ['creation_date', 'modification_date', 'due_date', 'start_date']:
                         # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
-                        current_record[key] = self._parse_applescript_date(value)
+                        # The value might be incomplete due to comma splitting, so skip if it looks incomplete
+                        if 'date' in value.lower() or 'day' in value.lower():
+                            current_record[key] = self._parse_applescript_date(value)
+                        else:
+                            # This is probably a partial date due to splitting, skip it
+                            continue
                     elif key == 'tag_names':
                         # Restore commas in tag names and parse
                         value = value.replace('§COMMA§', ',')
