@@ -4,8 +4,11 @@ import asyncio
 import logging
 import subprocess
 import time
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +26,44 @@ class AppleScriptManager:
         self.timeout = timeout
         self.retry_count = retry_count
         self._cache = {}
-        self._cache_ttl = 300  # 5 minutes
+        self._cache_ttl = 30  # 30 seconds - much shorter for real-time updates
+        self.auth_token = self._load_auth_token()
         logger.info("AppleScript manager initialized")
     
-    def is_things_running(self) -> bool:
+    def _load_auth_token(self) -> Optional[str]:
+        """Load Things auth token from file if it exists."""
+        auth_files = [
+            Path(__file__).parent.parent.parent / '.things-auth',
+            Path(__file__).parent.parent.parent / 'things-auth.txt',
+            Path.home() / '.things-auth'
+        ]
+        
+        for auth_file in auth_files:
+            if auth_file.exists():
+                try:
+                    token = auth_file.read_text().strip()
+                    # Handle format: THINGS_AUTH_TOKEN=xxx or just xxx
+                    if '=' in token:
+                        token = token.split('=', 1)[1].strip()
+                    logger.info(f"Loaded Things auth token from {auth_file}")
+                    return token
+                except Exception as e:
+                    logger.warning(f"Failed to read auth token from {auth_file}: {e}")
+        
+        logger.warning("No Things auth token found. Some operations may require manual authorization.")
+        return None
+    
+    async def is_things_running(self) -> bool:
         """Check if Things 3 is currently running."""
         try:
             script = 'tell application "Things3" to return true'
-            result = self._execute_script(script)
+            result = await self._execute_script(script)
             return result.get("success", False)
         except Exception as e:
             logger.error(f"Error checking Things 3 status: {e}")
             return False
     
-    def execute_applescript(self, script: str, cache_key: Optional[str] = None) -> Dict[str, Any]:
+    async def execute_applescript(self, script: str, cache_key: Optional[str] = None) -> Dict[str, Any]:
         """Execute an AppleScript command.
         
         Args:
@@ -50,15 +77,15 @@ class AppleScriptManager:
         if cache_key and self._get_cached_result(cache_key):
             return self._get_cached_result(cache_key)
         
-        result = self._execute_script_with_retry(script)
+        result = await self._execute_script_with_retry(script)
         
-        # Cache successful results
-        if cache_key and result.get("success"):
+        # Cache successful results (but not for searches or adds)
+        if cache_key and result.get("success") and not any(x in cache_key for x in ['search', 'add', 'update', 'delete']):
             self._cache_result(cache_key, result)
         
         return result
     
-    def execute_url_scheme(self, action: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def execute_url_scheme(self, action: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a Things URL scheme command.
         
         Args:
@@ -70,9 +97,10 @@ class AppleScriptManager:
         """
         try:
             url = self._build_things_url(action, parameters or {})
-            script = f'open location "{url}"'
+            # Use do shell script with open -g to avoid bringing Things to foreground
+            script = f'''do shell script "open -g '{url}'"'''
             
-            result = self._execute_script(script)
+            result = await self._execute_script(script)
             
             # For URL schemes, success is usually indicated by no error
             if result.get("success"):
@@ -95,7 +123,7 @@ class AppleScriptManager:
                 "error": str(e)
             }
     
-    def get_todos(self, project_uuid: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_todos(self, project_uuid: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get todos from Things 3.
         
         Args:
@@ -142,19 +170,24 @@ class AppleScriptManager:
                 '''
             
             cache_key = f"todos_{project_uuid or 'all'}"
-            result = self.execute_applescript(script, cache_key)
+            result = await self.execute_applescript(script, cache_key)
             
             if result.get("success"):
-                return self._parse_applescript_list(result.get("output", ""))
+                try:
+                    return self._parse_applescript_list(result.get("output", ""))
+                except ValueError as e:
+                    logger.error(f"Failed to parse todos: {e}")
+                    raise
             else:
-                logger.error(f"Failed to get todos: {result.get('error')}")
-                return []
+                error_msg = f"AppleScript failed to get todos: {result.get('error')}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
         
         except Exception as e:
             logger.error(f"Error getting todos: {e}")
-            return []
+            raise
     
-    def get_projects(self) -> List[Dict[str, Any]]:
+    async def get_projects(self) -> List[Dict[str, Any]]:
         """Get all projects from Things 3."""
         try:
             script = '''
@@ -174,19 +207,24 @@ class AppleScriptManager:
             end tell
             '''
             
-            result = self.execute_applescript(script, "projects_all")
+            result = await self.execute_applescript(script, "projects_all")
             
             if result.get("success"):
-                return self._parse_applescript_list(result.get("output", ""))
+                try:
+                    return self._parse_applescript_list(result.get("output", ""))
+                except ValueError as e:
+                    logger.error(f"Failed to parse projects: {e}")
+                    raise
             else:
-                logger.error(f"Failed to get projects: {result.get('error')}")
-                return []
+                error_msg = f"AppleScript failed to get projects: {result.get('error')}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
         
         except Exception as e:
             logger.error(f"Error getting projects: {e}")
-            return []
+            raise
     
-    def get_areas(self) -> List[Dict[str, Any]]:
+    async def get_areas(self) -> List[Dict[str, Any]]:
         """Get all areas from Things 3."""
         try:
             script = '''
@@ -194,35 +232,46 @@ class AppleScriptManager:
                 set areaList to {}
                 repeat with theArea in areas
                     set areaRecord to {}
-                    set areaRecord to areaRecord & {id:id of theArea}
-                    set areaRecord to areaRecord & {name:name of theArea}
-                    set areaRecord to areaRecord & {notes:notes of theArea}
-                    set areaRecord to areaRecord & {creation_date:creation date of theArea}
-                    set areaRecord to areaRecord & {modification_date:modification date of theArea}
-                    set areaList to areaList & {areaRecord}
+                    try
+                        set areaRecord to areaRecord & {id:id of theArea}
+                        set areaRecord to areaRecord & {name:name of theArea}
+                        try
+                            set areaRecord to areaRecord & {notes:notes of theArea}
+                        on error
+                            set areaRecord to areaRecord & {notes:missing value}
+                        end try
+                        set areaRecord to areaRecord & {creation_date:creation date of theArea}
+                        set areaRecord to areaRecord & {modification_date:modification date of theArea}
+                        set areaList to areaList & {areaRecord}
+                    end try
                 end repeat
                 return areaList
             end tell
             '''
             
-            result = self.execute_applescript(script, "areas_all")
+            result = await self.execute_applescript(script, "areas_all")
             
             if result.get("success"):
-                return self._parse_applescript_list(result.get("output", ""))
+                try:
+                    return self._parse_applescript_list(result.get("output", ""))
+                except ValueError as e:
+                    logger.error(f"Failed to parse areas: {e}")
+                    raise
             else:
-                logger.error(f"Failed to get areas: {result.get('error')}")
-                return []
+                error_msg = f"AppleScript failed to get areas: {result.get('error')}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
         
         except Exception as e:
             logger.error(f"Error getting areas: {e}")
-            return []
+            raise
     
-    def _execute_script_with_retry(self, script: str) -> Dict[str, Any]:
+    async def _execute_script_with_retry(self, script: str) -> Dict[str, Any]:
         """Execute script with retry logic."""
         last_error = None
         
         for attempt in range(self.retry_count):
-            result = self._execute_script(script)
+            result = await self._execute_script(script)
             
             if result.get("success"):
                 return result
@@ -232,42 +281,49 @@ class AppleScriptManager:
             if attempt < self.retry_count - 1:
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Script execution failed, retrying in {wait_time}s: {last_error}")
-                time.sleep(wait_time)
+                await asyncio.sleep(wait_time)
         
         return {
             "success": False,
             "error": f"Failed after {self.retry_count} attempts: {last_error}"
         }
     
-    def _execute_script(self, script: str) -> Dict[str, Any]:
+    async def _execute_script(self, script: str) -> Dict[str, Any]:
         """Execute a single AppleScript command."""
         try:
-            # Use osascript to execute the AppleScript
-            process = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout
+            # Use asyncio subprocess to execute the AppleScript
+            process = await asyncio.create_subprocess_exec(
+                "osascript", "-e", script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), 
+                    timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return {
+                    "success": False,
+                    "error": f"Script execution timed out after {self.timeout} seconds"
+                }
             
             if process.returncode == 0:
                 return {
                     "success": True,
-                    "output": process.stdout.strip(),
+                    "output": stdout.decode().strip(),
                     "execution_time": time.time()
                 }
             else:
                 return {
                     "success": False,
-                    "error": process.stderr.strip() or "Unknown AppleScript error",
+                    "error": stderr.decode().strip() or "Unknown AppleScript error",
                     "return_code": process.returncode
                 }
         
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": f"Script execution timed out after {self.timeout} seconds"
-            }
         except Exception as e:
             return {
                 "success": False,
@@ -276,7 +332,12 @@ class AppleScriptManager:
     
     def _build_things_url(self, action: str, parameters: Dict[str, Any]) -> str:
         """Build a Things URL scheme string."""
-        url = f"things:////{action}"
+        url = f"things:///{action}"
+        
+        # Add auth token if available and not already in parameters
+        if self.auth_token and 'auth-token' not in parameters:
+            parameters = parameters.copy() if parameters else {}
+            parameters['auth-token'] = self.auth_token
         
         if parameters:
             # URL encode parameters
@@ -316,20 +377,231 @@ class AppleScriptManager:
     def _parse_applescript_list(self, output: str) -> List[Dict[str, Any]]:
         """Parse AppleScript list output into Python dictionaries.
         
-        This is a simplified parser for basic AppleScript record lists.
-        In a production environment, you might want a more robust parser.
+        Parses AppleScript record format like:
+        id:todo1, name:First Todo, notes:Notes 1, status:open, id:todo2, name:Second Todo, notes:Notes 2, status:completed
+        
+        Raises:
+            ValueError: If the output is empty or cannot be parsed
+            Exception: For other parsing errors
         """
-        try:
-            # This is a basic implementation - AppleScript parsing can be complex
-            # For now, return empty list and log for debugging
-            logger.debug(f"AppleScript output to parse: {output}")
+        if not output or not output.strip():
+            logger.warning("AppleScript returned empty output")
+            return []  # Return empty list for empty output, don't raise error
             
-            # TODO: Implement proper AppleScript record parsing
-            # For now, return mock data structure
-            return []
+        logger.debug(f"AppleScript output to parse: {output}")
+        
+        try:
+            # Parse the comma-separated output
+            records = []
+            current_record = {}
+            
+            # Split by commas but be careful with commas inside quoted values
+            parts = self._split_applescript_output(output.strip())
+            
+            if not parts:
+                logger.warning("No parts found in AppleScript output after splitting")
+                return []
+            
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                    
+                if ':' in part:
+                    key, value = part.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # If we encounter an 'id' key and already have a record, save it
+                    if key == 'id' and current_record:
+                        records.append(current_record)
+                        current_record = {}
+                    
+                    # Parse different value types
+                    if key == 'creation_date' or key == 'modification_date':
+                        # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
+                        current_record[key] = self._parse_applescript_date(value)
+                    elif key == 'tag_names':
+                        # Parse tag names list
+                        current_record['tags'] = self._parse_applescript_tags(value)
+                    else:
+                        # Handle string values, removing quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        
+                        # Handle AppleScript "missing value"
+                        if value == 'missing value':
+                            value = None
+                        
+                        current_record[key] = value
+                else:
+                    logger.warning(f"Invalid AppleScript output part (no colon): '{part}'")
+            
+            # Don't forget the last record
+            if current_record:
+                records.append(current_record)
+            
+            logger.debug(f"Parsed {len(records)} records from AppleScript output")
+            
+            # If we expected records but got none, that might indicate a problem
+            if not records and output.strip():
+                logger.warning(f"Failed to parse any records from non-empty output: {output[:100]}...")
+            
+            return records
         
         except Exception as e:
             logger.error(f"Error parsing AppleScript output: {e}")
+            # Re-raise the exception instead of silently returning empty list
+            raise ValueError(f"Failed to parse AppleScript output: {e}") from e
+    
+    def _split_applescript_output(self, output: str) -> List[str]:
+        """Split AppleScript output by commas, handling quoted strings and braces properly."""
+        parts = []
+        current_part = ""
+        in_quotes = False
+        brace_depth = 0
+        
+        for char in output:
+            if char == '"':
+                in_quotes = not in_quotes
+                current_part += char
+            elif char == '{' and not in_quotes:
+                brace_depth += 1
+                current_part += char
+            elif char == '}' and not in_quotes:
+                brace_depth -= 1
+                current_part += char
+            elif char == ',' and not in_quotes and brace_depth == 0:
+                parts.append(current_part)
+                current_part = ""
+            else:
+                current_part += char
+        
+        # Add the last part
+        if current_part:
+            parts.append(current_part)
+            
+        return parts
+    
+    def _parse_applescript_date(self, date_str: str) -> Optional[str]:
+        """Parse AppleScript date format to ISO string."""
+        try:
+            # AppleScript dates typically come as: date "Monday, January 1, 2024 at 12:00:00 PM"
+            # Remove 'date' prefix and quotes if present
+            cleaned = date_str.strip()
+            if cleaned.startswith('date'):
+                cleaned = cleaned[4:].strip()
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1]
+            
+            if not cleaned or cleaned == 'missing value':
+                return None
+                
+            # Try to parse various AppleScript date formats
+            date_patterns = [
+                # "Monday, January 1, 2024 at 12:00:00 PM"
+                r'^(\w+),\s+(\w+)\s+(\d+),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$',
+                # "January 1, 2024 at 12:00:00 PM" 
+                r'^(\w+)\s+(\d+),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$',
+                # "January 1, 2024"
+                r'^(\w+)\s+(\d+),\s+(\d{4})$',
+                # "2024-01-01 12:00:00"
+                r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}):(\d{2}))?$'
+            ]
+            
+            month_names = {
+                'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                'may': 5, 'june': 6, 'july': 7, 'august': 8,
+                'september': 9, 'october': 10, 'november': 11, 'december': 12
+            }
+            
+            for pattern in date_patterns:
+                match = re.match(pattern, cleaned, re.IGNORECASE)
+                if match:
+                    groups = match.groups()
+                    
+                    if pattern.startswith('^(\\w+),\\s+'):
+                        # Full format with day name
+                        _, month_str, day, year, hour, minute, second, ampm = groups
+                        month = month_names.get(month_str.lower())
+                        if not month:
+                            continue
+                            
+                        hour = int(hour)
+                        if ampm.upper() == 'PM' and hour != 12:
+                            hour += 12
+                        elif ampm.upper() == 'AM' and hour == 12:
+                            hour = 0
+                            
+                        dt = datetime(int(year), month, int(day), hour, int(minute), int(second))
+                        return dt.isoformat()
+                        
+                    elif pattern.startswith('^(\\w+)\\s+'):
+                        # Month day, year format
+                        if len(groups) == 7:  # With time
+                            month_str, day, year, hour, minute, second, ampm = groups
+                            month = month_names.get(month_str.lower())
+                            if not month:
+                                continue
+                                
+                            hour = int(hour)
+                            if ampm.upper() == 'PM' and hour != 12:
+                                hour += 12
+                            elif ampm.upper() == 'AM' and hour == 12:
+                                hour = 0
+                                
+                            dt = datetime(int(year), month, int(day), hour, int(minute), int(second))
+                            return dt.isoformat()
+                        else:  # Date only
+                            month_str, day, year = groups
+                            month = month_names.get(month_str.lower())
+                            if not month:
+                                continue
+                            dt = datetime(int(year), month, int(day))
+                            return dt.date().isoformat()
+                            
+                    elif pattern.startswith('^(\\d{4})'):
+                        # ISO format
+                        if len(groups) == 6 and groups[3]:  # With time
+                            year, month, day, hour, minute, second = groups
+                            dt = datetime(int(year), int(month), int(day), int(hour), int(minute), int(second))
+                            return dt.isoformat()
+                        else:  # Date only
+                            year, month, day = groups[:3]
+                            dt = datetime(int(year), int(month), int(day))
+                            return dt.date().isoformat()
+            
+            # If no pattern matches, return the cleaned string
+            logger.debug(f"Could not parse date format, returning raw: '{cleaned}'")
+            return cleaned
+            
+        except Exception as e:
+            logger.warning(f"Could not parse date '{date_str}': {e}")
+            return date_str  # Return original on error
+    
+    def _parse_applescript_tags(self, tags_str: str) -> List[str]:
+        """Parse AppleScript tag names list."""
+        try:
+            # Tags might come as a list like: {"tag1", "tag2", "tag3"}
+            if not tags_str or tags_str.strip() in ['{}', 'missing value']:
+                return []
+            
+            # Remove braces and split by commas
+            cleaned = tags_str.strip()
+            if cleaned.startswith('{') and cleaned.endswith('}'):
+                cleaned = cleaned[1:-1]
+            
+            tags = []
+            for tag in cleaned.split(','):
+                tag = tag.strip()
+                if tag.startswith('"') and tag.endswith('"'):
+                    tag = tag[1:-1]
+                if tag:
+                    tags.append(tag)
+            
+            return tags
+        except Exception as e:
+            logger.warning(f"Could not parse tags '{tags_str}': {e}")
             return []
     
     def _get_current_timestamp(self) -> str:

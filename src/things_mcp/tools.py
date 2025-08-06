@@ -1,11 +1,11 @@
 """Core tools implementation for Things 3 MCP server."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .applescript_manager import AppleScriptManager
-from .models import Todo, Project, Area, Tag
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,90 @@ class ThingsTools:
         self.applescript = applescript_manager
         logger.info("Things tools initialized")
     
-    def get_todos(self, project_uuid: Optional[str] = None, include_items: bool = True) -> List[Dict[str, Any]]:
+    def _escape_applescript_string(self, text: str) -> str:
+        """Escape a string for safe use in AppleScript.
+        
+        Args:
+            text: The string to escape
+            
+        Returns:
+            The escaped string safe for AppleScript
+        """
+        if not text:
+            return '""'
+        
+        # Escape backslashes first, then quotes
+        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+    
+    def _parse_relative_date(self, date_input: str) -> str:
+        """Parse relative date input like 'tomorrow', 'Friday', etc. to YYYY-MM-DD format.
+        
+        Args:
+            date_input: User input date string
+            
+        Returns:
+            Formatted date string or original input if not recognized
+        """
+        if not date_input:
+            return date_input
+            
+        input_lower = date_input.lower().strip()
+        today = datetime.now().date()
+        
+        # Handle relative dates
+        if input_lower == 'today':
+            return today.isoformat()
+        elif input_lower == 'tomorrow':
+            return (today + timedelta(days=1)).isoformat()
+        elif input_lower == 'yesterday':
+            return (today - timedelta(days=1)).isoformat()
+        elif input_lower in ['this weekend', 'weekend']:
+            # Find next Saturday
+            days_ahead = 5 - today.weekday()  # Saturday is 5
+            if days_ahead <= 0:
+                days_ahead += 7
+            return (today + timedelta(days=days_ahead)).isoformat()
+        elif input_lower.endswith('week') and input_lower.startswith('next'):
+            return (today + timedelta(weeks=1)).isoformat()
+        
+        # Handle day names (monday, tuesday, etc.)
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        if input_lower in day_names:
+            target_day = day_names.index(input_lower)
+            current_day = today.weekday()
+            days_ahead = target_day - current_day
+            if days_ahead <= 0:  # Target day already happened this week
+                days_ahead += 7  # Get next week's occurrence
+            return (today + timedelta(days=days_ahead)).isoformat()
+            
+        # Handle "next [day]"
+        if input_lower.startswith('next '):
+            day_part = input_lower[5:]  # Remove "next "
+            if day_part in day_names:
+                target_day = day_names.index(day_part)
+                current_day = today.weekday()
+                days_ahead = target_day - current_day + 7  # Always next week
+                return (today + timedelta(days=days_ahead)).isoformat()
+        
+        # Try to parse YYYY-MM-DD format
+        try:
+            parsed = datetime.strptime(input_lower, '%Y-%m-%d').date()
+            return parsed.isoformat()
+        except ValueError:
+            pass
+            
+        # Try to parse MM/DD/YYYY format
+        try:
+            parsed = datetime.strptime(input_lower, '%m/%d/%Y').date()
+            return parsed.isoformat()
+        except ValueError:
+            pass
+        
+        # If nothing matches, return original input (Things can handle many formats)
+        return date_input
+    
+    async def get_todos(self, project_uuid: Optional[str] = None, include_items: bool = True) -> List[Dict[str, Any]]:
         """Get todos from Things, optionally filtered by project.
         
         Args:
@@ -33,7 +116,7 @@ class ThingsTools:
             List of todo dictionaries
         """
         try:
-            todos = self.applescript.get_todos(project_uuid)
+            todos = await self.applescript.get_todos(project_uuid)
             
             # Convert to standardized format
             result = []
@@ -59,7 +142,7 @@ class ThingsTools:
             logger.error(f"Error getting todos: {e}")
             raise
     
-    def add_todo(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
+    async def add_todo(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
                  when: Optional[str] = None, deadline: Optional[str] = None,
                  list_id: Optional[str] = None, list_title: Optional[str] = None,
                  heading: Optional[str] = None, checklist_items: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -68,7 +151,7 @@ class ThingsTools:
         Args:
             title: Todo title
             notes: Optional notes
-            tags: Optional list of tags
+            tags: Optional list of tags (will be created if they don't exist)
             when: When to schedule (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD)
             deadline: Deadline date (YYYY-MM-DD)
             list_id: Project or area ID
@@ -80,6 +163,45 @@ class ThingsTools:
             Dict with created todo information
         """
         try:
+            created_tags = []
+            existing_tags = []
+            
+            # Check and create missing tags if needed
+            if tags:
+                # Get existing tags
+                existing_tag_names = []
+                try:
+                    current_tags = await self.get_tags(include_items=False)
+                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
+                except Exception as e:
+                    logger.warning(f"Could not fetch existing tags: {e}")
+                
+                # Check each requested tag
+                for tag in tags:
+                    tag_lower = tag.lower()
+                    if tag_lower not in existing_tag_names:
+                        # Tag doesn't exist, create it
+                        escaped_tag = self._escape_applescript_string(tag)
+                        create_script = f'''
+                        tell application "Things3"
+                            try
+                                make new tag with properties {{name:{escaped_tag}}}
+                                return "created"
+                            on error errMsg
+                                return "error: " & errMsg
+                            end try
+                        end tell
+                        '''
+                        
+                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
+                        if create_result.get("success") and "created" in create_result.get("output", ""):
+                            created_tags.append(tag)
+                            logger.info(f"Created new tag: {tag}")
+                        else:
+                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
+                    else:
+                        existing_tags.append(tag)
+            
             # Build URL scheme parameters
             params = {"title": title}
             
@@ -88,9 +210,13 @@ class ThingsTools:
             if tags:
                 params["tags"] = ",".join(tags)
             if when:
-                params["when"] = when
+                # Parse relative dates like "tomorrow", "Friday"
+                parsed_when = self._parse_relative_date(when)
+                params["when"] = parsed_when
             if deadline:
-                params["deadline"] = deadline
+                # Parse relative dates for deadline too
+                parsed_deadline = self._parse_relative_date(deadline)
+                params["deadline"] = parsed_deadline
             if list_id:
                 params["list-id"] = list_id
             elif list_title:
@@ -100,7 +226,7 @@ class ThingsTools:
             if checklist_items:
                 params["checklist-items"] = "\n".join(checklist_items)
             
-            result = self.applescript.execute_url_scheme("add", params)
+            result = await self.applescript.execute_url_scheme("add", params)
             
             if result.get("success"):
                 # Create response with todo information
@@ -118,11 +244,20 @@ class ThingsTools:
                     "url": result.get("url")
                 }
                 
+                # Build informative message
+                message_parts = ["Todo created successfully"]
+                if created_tags:
+                    message_parts.append(f"Created new tag(s): {', '.join(created_tags)}")
+                if existing_tags:
+                    message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
+                
                 logger.info(f"Successfully created todo: {title}")
                 return {
                     "success": True,
-                    "message": "Todo created successfully",
-                    "todo": todo_data
+                    "message": ". ".join(message_parts),
+                    "todo": todo_data,
+                    "tags_created": created_tags,
+                    "tags_existing": existing_tags
                 }
             else:
                 logger.error(f"Failed to create todo: {result.get('error')}")
@@ -135,7 +270,7 @@ class ThingsTools:
             logger.error(f"Error adding todo: {e}")
             raise
     
-    def update_todo(self, todo_id: str, title: Optional[str] = None, notes: Optional[str] = None,
+    async def update_todo(self, todo_id: str, title: Optional[str] = None, notes: Optional[str] = None,
                     tags: Optional[List[str]] = None, when: Optional[str] = None,
                     deadline: Optional[str] = None, completed: Optional[bool] = None,
                     canceled: Optional[bool] = None) -> Dict[str, Any]:
@@ -145,7 +280,7 @@ class ThingsTools:
             todo_id: ID of the todo to update
             title: New title
             notes: New notes
-            tags: New tags
+            tags: New tags (will be created if they don't exist)
             when: New schedule
             deadline: New deadline
             completed: Mark as completed
@@ -155,6 +290,45 @@ class ThingsTools:
             Dict with update result
         """
         try:
+            created_tags = []
+            existing_tags = []
+            
+            # Check and create missing tags if needed
+            if tags is not None:
+                # Get existing tags
+                existing_tag_names = []
+                try:
+                    current_tags = await self.get_tags(include_items=False)
+                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
+                except Exception as e:
+                    logger.warning(f"Could not fetch existing tags: {e}")
+                
+                # Check each requested tag
+                for tag in tags:
+                    tag_lower = tag.lower()
+                    if tag_lower not in existing_tag_names:
+                        # Tag doesn't exist, create it
+                        escaped_tag = self._escape_applescript_string(tag)
+                        create_script = f'''
+                        tell application "Things3"
+                            try
+                                make new tag with properties {{name:{escaped_tag}}}
+                                return "created"
+                            on error errMsg
+                                return "error: " & errMsg
+                            end try
+                        end tell
+                        '''
+                        
+                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
+                        if create_result.get("success") and "created" in create_result.get("output", ""):
+                            created_tags.append(tag)
+                            logger.info(f"Created new tag: {tag}")
+                        else:
+                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
+                    else:
+                        existing_tags.append(tag)
+            
             # Build URL scheme parameters
             params = {"id": todo_id}
             
@@ -165,23 +339,36 @@ class ThingsTools:
             if tags is not None:
                 params["tags"] = ",".join(tags)
             if when is not None:
-                params["when"] = when
+                # Parse relative dates like "tomorrow", "Friday"
+                parsed_when = self._parse_relative_date(when)
+                params["when"] = parsed_when
             if deadline is not None:
-                params["deadline"] = deadline
+                # Parse relative dates for deadline too
+                parsed_deadline = self._parse_relative_date(deadline)
+                params["deadline"] = parsed_deadline
             if completed is not None:
                 params["completed"] = "true" if completed else "false"
             if canceled is not None:
                 params["canceled"] = "true" if canceled else "false"
             
-            result = self.applescript.execute_url_scheme("update", params)
+            result = await self.applescript.execute_url_scheme("update", params)
             
             if result.get("success"):
+                # Build informative message
+                message_parts = ["Todo updated successfully"]
+                if created_tags:
+                    message_parts.append(f"Created new tag(s): {', '.join(created_tags)}")
+                if existing_tags:
+                    message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
+                
                 logger.info(f"Successfully updated todo: {todo_id}")
                 return {
                     "success": True,
-                    "message": "Todo updated successfully",
+                    "message": ". ".join(message_parts),
                     "todo_id": todo_id,
-                    "updated_at": datetime.now().isoformat()
+                    "updated_at": datetime.now().isoformat(),
+                    "tags_created": created_tags,
+                    "tags_existing": existing_tags
                 }
             else:
                 logger.error(f"Failed to update todo: {result.get('error')}")
@@ -194,7 +381,7 @@ class ThingsTools:
             logger.error(f"Error updating todo: {e}")
             raise
     
-    def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
+    async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific todo by its ID.
         
         Args:
@@ -212,19 +399,36 @@ class ThingsTools:
             end tell
             '''
             
-            result = self.applescript.execute_applescript(script, f"todo_{todo_id}")
+            result = await self.applescript.execute_applescript(script, f"todo_{todo_id}")
             
             if result.get("success"):
-                # Parse the result (simplified for now)
-                todo_data = {
-                    "id": todo_id,
-                    "uuid": todo_id,
-                    "title": "Retrieved Todo",  # TODO: Parse from AppleScript output
-                    "notes": "",
-                    "status": "open",
-                    "tags": [],
-                    "retrieved_at": datetime.now().isoformat()
-                }
+                # Parse the result using our AppleScript parser
+                raw_records = self.applescript._parse_applescript_list(result.get("output", ""))
+                
+                if raw_records:
+                    record = raw_records[0]  # Should be just one record
+                    todo_data = {
+                        "id": record.get("id", todo_id),
+                        "uuid": record.get("id", todo_id),
+                        "title": record.get("name", ""),
+                        "notes": record.get("notes", ""),
+                        "status": record.get("status", "open"),
+                        "tags": record.get("tags", []),
+                        "creation_date": record.get("creation_date"),
+                        "modification_date": record.get("modification_date"),
+                        "retrieved_at": datetime.now().isoformat()
+                    }
+                else:
+                    # Fallback if parsing fails
+                    todo_data = {
+                        "id": todo_id,
+                        "uuid": todo_id,
+                        "title": "Retrieved Todo",
+                        "notes": "",
+                        "status": "open",
+                        "tags": [],
+                        "retrieved_at": datetime.now().isoformat()
+                    }
                 
                 logger.info(f"Successfully retrieved todo: {todo_id}")
                 return todo_data
@@ -236,7 +440,7 @@ class ThingsTools:
             logger.error(f"Error getting todo by ID: {e}")
             raise
     
-    def delete_todo(self, todo_id: str) -> Dict[str, str]:
+    async def delete_todo(self, todo_id: str) -> Dict[str, str]:
         """Delete a todo from Things.
         
         Args:
@@ -255,7 +459,7 @@ class ThingsTools:
             end tell
             '''
             
-            result = self.applescript.execute_applescript(script)
+            result = await self.applescript.execute_applescript(script)
             
             if result.get("success"):
                 logger.info(f"Successfully deleted todo: {todo_id}")
@@ -276,7 +480,7 @@ class ThingsTools:
             logger.error(f"Error deleting todo: {e}")
             raise
     
-    def get_projects(self, include_items: bool = False) -> List[Dict[str, Any]]:
+    async def get_projects(self, include_items: bool = False) -> List[Dict[str, Any]]:
         """Get all projects from Things.
         
         Args:
@@ -286,7 +490,7 @@ class ThingsTools:
             List of project dictionaries
         """
         try:
-            projects = self.applescript.get_projects()
+            projects = await self.applescript.get_projects()
             
             # Convert to standardized format
             result = []
@@ -311,7 +515,7 @@ class ThingsTools:
             logger.error(f"Error getting projects: {e}")
             raise
     
-    def add_project(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
+    async def add_project(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
                     when: Optional[str] = None, deadline: Optional[str] = None,
                     area_id: Optional[str] = None, area_title: Optional[str] = None,
                     todos: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -349,7 +553,7 @@ class ThingsTools:
             if todos:
                 params["to-dos"] = "\n".join(todos)
             
-            result = self.applescript.execute_url_scheme("add-project", params)
+            result = await self.applescript.execute_url_scheme("add-project", params)
             
             if result.get("success"):
                 project_data = {
@@ -381,7 +585,7 @@ class ThingsTools:
             logger.error(f"Error adding project: {e}")
             raise
     
-    def update_project(self, project_id: str, title: Optional[str] = None, notes: Optional[str] = None,
+    async def update_project(self, project_id: str, title: Optional[str] = None, notes: Optional[str] = None,
                        tags: Optional[List[str]] = None, when: Optional[str] = None,
                        deadline: Optional[str] = None, completed: Optional[bool] = None,
                        canceled: Optional[bool] = None) -> Dict[str, Any]:
@@ -419,7 +623,7 @@ class ThingsTools:
             if canceled is not None:
                 params["canceled"] = "true" if canceled else "false"
             
-            result = self.applescript.execute_url_scheme("update", params)
+            result = await self.applescript.execute_url_scheme("update", params)
             
             if result.get("success"):
                 logger.info(f"Successfully updated project: {project_id}")
@@ -440,7 +644,7 @@ class ThingsTools:
             logger.error(f"Error updating project: {e}")
             raise
     
-    def get_areas(self, include_items: bool = False) -> List[Dict[str, Any]]:
+    async def get_areas(self, include_items: bool = False) -> List[Dict[str, Any]]:
         """Get all areas from Things.
         
         Args:
@@ -450,7 +654,7 @@ class ThingsTools:
             List of area dictionaries
         """
         try:
-            areas = self.applescript.get_areas()
+            areas = await self.applescript.get_areas()
             
             # Convert to standardized format
             result = []
@@ -476,27 +680,27 @@ class ThingsTools:
             raise
     
     # List-based operations
-    def get_inbox(self) -> List[Dict[str, Any]]:
+    async def get_inbox(self) -> List[Dict[str, Any]]:
         """Get todos from Inbox."""
-        return self._get_list_todos("inbox")
+        return await self._get_list_todos("inbox")
     
-    def get_today(self) -> List[Dict[str, Any]]:
+    async def get_today(self) -> List[Dict[str, Any]]:
         """Get todos due today."""
-        return self._get_list_todos("today")
+        return await self._get_list_todos("today")
     
-    def get_upcoming(self) -> List[Dict[str, Any]]:
+    async def get_upcoming(self) -> List[Dict[str, Any]]:
         """Get upcoming todos."""
-        return self._get_list_todos("upcoming")
+        return await self._get_list_todos("upcoming")
     
-    def get_anytime(self) -> List[Dict[str, Any]]:
+    async def get_anytime(self) -> List[Dict[str, Any]]:
         """Get todos from Anytime list."""
-        return self._get_list_todos("anytime")
+        return await self._get_list_todos("anytime")
     
-    def get_someday(self) -> List[Dict[str, Any]]:
+    async def get_someday(self) -> List[Dict[str, Any]]:
         """Get todos from Someday list."""
-        return self._get_list_todos("someday")
+        return await self._get_list_todos("someday")
     
-    def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict[str, Any]]:
+    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict[str, Any]]:
         """Get completed todos from Logbook.
         
         Args:
@@ -506,13 +710,13 @@ class ThingsTools:
         Returns:
             List of completed todo dictionaries
         """
-        return self._get_list_todos("logbook", limit=limit)
+        return await self._get_list_todos("logbook", limit=limit)
     
-    def get_trash(self) -> List[Dict[str, Any]]:
+    async def get_trash(self) -> List[Dict[str, Any]]:
         """Get trashed todos."""
-        return self._get_list_todos("trash")
+        return await self._get_list_todos("trash")
     
-    def get_tags(self, include_items: bool = False) -> List[Dict[str, Any]]:
+    async def get_tags(self, include_items: bool = False) -> List[Dict[str, Any]]:
         """Get all tags.
         
         Args:
@@ -522,15 +726,72 @@ class ThingsTools:
             List of tag dictionaries
         """
         try:
-            # This is a placeholder - would need AppleScript implementation
-            logger.info("Retrieved tags (placeholder)")
-            return []
+            # Build AppleScript to get all tags with IDs and names
+            script = '''
+            tell application "Things3"
+                set tagInfo to {}
+                repeat with theTag in tags
+                    try
+                        set tagInfo to tagInfo & {"id:" & (id of theTag) & ",name:" & (name of theTag)}
+                    end try
+                end repeat
+                return tagInfo
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script, "tags_all")
+            
+            if result.get("success"):
+                output = result.get("output", "")
+                tags = []
+                
+                if output and output.strip():
+                    # Parse the output which is now in format: {"id:ABC123,name:Tag1", "id:DEF456,name:Tag2"}
+                    tag_entries = output.strip().strip('{}').split('", "')
+                    
+                    for entry in tag_entries:
+                        entry = entry.strip().strip('"')
+                        if entry and "id:" in entry and "name:" in entry:
+                            # Parse id and name from "id:ABC123,name:Tag1"
+                            parts = entry.split(',')
+                            tag_id = None
+                            tag_name = None
+                            
+                            for part in parts:
+                                if part.startswith('id:'):
+                                    tag_id = part[3:].strip()
+                                elif part.startswith('name:'):
+                                    tag_name = part[5:].strip()
+                            
+                            if tag_id and tag_name:
+                                tag_dict = {
+                                    "id": tag_id,
+                                    "uuid": tag_id,
+                                    "name": tag_name,
+                                    "shortcut": "",  # Skip shortcut for performance
+                                    "items": []
+                                }
+                                
+                                # If include_items is requested, get items with this tag
+                                if include_items and tag_name:
+                                    try:
+                                        tag_dict["items"] = await self.get_tagged_items(tag_name)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                
+                                tags.append(tag_dict)
+                
+                logger.info(f"Retrieved {len(tags)} tags with IDs")
+                return tags
+            else:
+                logger.error(f"Failed to get tags: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error getting tags: {e}")
             raise
     
-    def get_tagged_items(self, tag: str) -> List[Dict[str, Any]]:
+    async def get_tagged_items(self, tag: str) -> List[Dict[str, Any]]:
         """Get items with a specific tag.
         
         Args:
@@ -540,139 +801,481 @@ class ThingsTools:
             List of tagged item dictionaries
         """
         try:
-            # This is a placeholder - would need AppleScript implementation
-            logger.info(f"Retrieved items with tag: {tag} (placeholder)")
-            return []
+            # Build AppleScript to get items with specific tag (highly optimized version)
+            # Use a much more efficient approach: get the tag object first, then its items
+            escaped_tag = self._escape_applescript_string(tag)
+            script = f'''
+            tell application "Things3"
+                set matchingItems to {{}}
+                
+                -- Find the tag object directly
+                try
+                    set targetTag to first tag whose name is {escaped_tag}
+                    
+                    -- Get todos of this tag (much faster than iterating all todos)
+                    set taggedTodos to to dos of targetTag
+                    set itemCount to count of taggedTodos
+                    if itemCount > 20 then set itemCount to 20
+                    
+                    repeat with i from 1 to itemCount
+                        try
+                            set theTodo to item i of taggedTodos
+                            set todoID to id of theTodo
+                            set todoName to name of theTodo
+                            set itemRecord to "id:" & todoID & ",name:" & todoName & ",type:todo"
+                            set matchingItems to matchingItems & {{itemRecord}}
+                        on error
+                            -- Skip if can't access
+                        end try
+                    end repeat
+                on error
+                    -- Tag doesn't exist or can't be accessed
+                end try
+                
+                return matchingItems
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script, f"tagged_items_{tag}")
+            
+            if result.get("success"):
+                output = result.get("output", "")
+                items = []
+                
+                if output and output.strip():
+                    # Parse AppleScript list output like: {"id:ABC,name:Todo Name,status:open,type:todo"}
+                    # Remove outer braces and split by ", "
+                    output_clean = output.strip().strip('{}')
+                    if output_clean:
+                        entries = output_clean.split('", "')
+                        
+                        for entry in entries:
+                            entry = entry.strip().strip('"')
+                            if entry and "id:" in entry:
+                                # Parse the colon-separated format
+                                parts = entry.split(",")
+                                item_data = {}
+                                
+                                for part in parts:
+                                    if ":" in part:
+                                        key, value = part.split(":", 1)
+                                        item_data[key.strip()] = value.strip()
+                                
+                                if "id" in item_data:
+                                    item_dict = {
+                                        "id": item_data.get("id", "unknown"),
+                                        "uuid": item_data.get("id", "unknown"),
+                                        "title": item_data.get("name", ""),
+                                        "notes": "",  # Skip notes for performance
+                                        "status": item_data.get("status", "open"),
+                                        "tags": [tag],  # We know it has this tag
+                                        "creation_date": None,
+                                        "modification_date": None,
+                                        "type": item_data.get("type", "todo"),
+                                        "tag": tag
+                                    }
+                                    items.append(item_dict)
+                
+                logger.info(f"Retrieved {len(items)} items with tag: {tag}")
+                return items
+            else:
+                logger.error(f"Failed to get tagged items: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error getting tagged items: {e}")
             raise
     
-    def search_todos(self, query: str) -> List[Dict[str, Any]]:
-        """Search todos by title or notes.
+    async def search_todos(self, query: str) -> List[Dict[str, Any]]:
+        """Search todos by title using AppleScript 'whose' clause (much more efficient).
         
         Args:
-            query: Search term
+            query: Search term to look for in todo names
             
         Returns:
             List of matching todo dictionaries
         """
         try:
-            # This is a placeholder - would need AppleScript implementation
-            logger.info(f"Searched todos for: {query} (placeholder)")
-            return []
+            # Use AppleScript "whose" clause for efficient native filtering
+            escaped_query = self._escape_applescript_string(query)
+            
+            # Much more efficient: let Things do the filtering natively
+            script = f'''
+            tell application "Things3"
+                -- Use "whose" clause for efficient native filtering (much faster than manual iteration)
+                set matchedTodos to to dos whose name contains {escaped_query} and status is open
+                
+                set searchResults to {{}}
+                set maxResults to 50  -- Reasonable limit
+                set resultCount to 0
+                
+                repeat with theTodo in matchedTodos
+                    if resultCount >= maxResults then exit repeat
+                    try
+                        set todoRecord to {{}}
+                        set todoRecord to todoRecord & {{id:(id of theTodo)}}
+                        set todoRecord to todoRecord & {{name:(name of theTodo)}}
+                        set todoRecord to todoRecord & {{notes:(notes of theTodo)}}
+                        set todoRecord to todoRecord & {{status:(status of theTodo)}}
+                        set todoRecord to todoRecord & {{tag_names:(tag names of theTodo)}}
+                        set todoRecord to todoRecord & {{creation_date:(creation date of theTodo)}}
+                        set todoRecord to todoRecord & {{modification_date:(modification date of theTodo)}}
+                        
+                        -- Try to get project info if it exists
+                        try
+                            set todoProject to project of theTodo
+                            if todoProject is not missing value then
+                                set todoRecord to todoRecord & {{project_id:(id of todoProject)}}
+                                set todoRecord to todoRecord & {{project_name:(name of todoProject)}}
+                            else
+                                set todoRecord to todoRecord & {{project_id:missing value}}
+                                set todoRecord to todoRecord & {{project_name:missing value}}
+                            end if
+                        on error
+                            set todoRecord to todoRecord & {{project_id:missing value}}
+                            set todoRecord to todoRecord & {{project_name:missing value}}
+                        end try
+                        
+                        set searchResults to searchResults & {{todoRecord}}
+                        set resultCount to resultCount + 1
+                    on error
+                        -- Skip todos that can't be accessed
+                    end try
+                end repeat
+                
+                return searchResults
+            end tell
+            '''
+            
+            # No cache for search to ensure fresh results
+            result = await self.applescript.execute_applescript(script, None)
+            
+            if result.get("success"):
+                # Parse using existing parser
+                todos = self._parse_applescript_todos(result.get("output", ""))
+                
+                # Add search context
+                for todo in todos:
+                    todo["search_query"] = query
+                
+                logger.info(f"Efficient search found {len(todos)} todos matching query: {query}")
+                return todos
+            else:
+                logger.error(f"Failed to search todos: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error searching todos: {e}")
             raise
     
-    def search_advanced(self, status: Optional[str] = None, type: Optional[str] = None,
+    async def search_advanced(self, status: Optional[str] = None, type: Optional[str] = None,
                         tag: Optional[str] = None, area: Optional[str] = None,
                         start_date: Optional[str] = None, deadline: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Advanced todo search with multiple filters.
+        """Advanced todo search using AppleScript 'whose' clause for efficiency.
         
         Args:
-            status: Filter by status
-            type: Filter by type
+            status: Filter by status (incomplete, completed, canceled)
+            type: Filter by type (to-do, project, heading)
             tag: Filter by tag
-            area: Filter by area
-            start_date: Filter by start date
-            deadline: Filter by deadline
+            area: Filter by area UUID
+            start_date: Filter by start date (YYYY-MM-DD)
+            deadline: Filter by deadline (YYYY-MM-DD)
             
         Returns:
             List of matching todo dictionaries
         """
         try:
-            # This is a placeholder - would need AppleScript implementation
-            filters = {k: v for k, v in locals().items() if v is not None and k != 'self'}
-            logger.info(f"Advanced search with filters: {filters} (placeholder)")
-            return []
+            # Build "whose" clause conditions for efficient native filtering
+            conditions = []
+            
+            # Status filter
+            if status:
+                if status == "incomplete":
+                    conditions.append('status is open')
+                elif status == "completed":
+                    conditions.append('status is completed')
+                elif status == "canceled":
+                    conditions.append('status is canceled')
+            
+            # Tag filter  
+            if tag:
+                escaped_tag = self._escape_applescript_string(tag)
+                conditions.append(f'tag names contains {escaped_tag}')
+            
+            # Date filters (if provided)
+            if deadline:
+                # Convert YYYY-MM-DD to AppleScript date comparison
+                conditions.append(f'due date is not missing value')
+                # Note: More complex date comparisons would need date parsing
+            
+            # Combine conditions with "and"
+            where_clause = ""
+            if conditions:
+                where_clause = f"whose {' and '.join(conditions)}"
+            
+            # Choose collection based on type
+            if type == "project":
+                collection = "projects"
+            else:
+                collection = "to dos"  # Default to todos for "to-do" or no type specified
+            
+            # Build efficient AppleScript using "whose" clause
+            script = f'''
+            tell application "Things3"
+                -- Use native "whose" filtering for maximum efficiency
+                set matchedItems to {collection} {where_clause}
+                
+                set searchResults to {{}}
+                set maxResults to 100  -- Reasonable limit for advanced search
+                set resultCount to 0
+                
+                repeat with theItem in matchedItems
+                    if resultCount >= maxResults then exit repeat
+                    try
+                        set itemRecord to {{}}
+                        set itemRecord to itemRecord & {{id:(id of theItem)}}
+                        set itemRecord to itemRecord & {{name:(name of theItem)}}
+                        set itemRecord to itemRecord & {{notes:(notes of theItem)}}
+                        set itemRecord to itemRecord & {{status:(status of theItem)}}
+                        set itemRecord to itemRecord & {{tag_names:(tag names of theItem)}}
+                        set itemRecord to itemRecord & {{creation_date:(creation date of theItem)}}
+                        set itemRecord to itemRecord & {{modification_date:(modification date of theItem)}}
+                        set itemRecord to itemRecord & {{due_date:(due date of theItem)}}
+                        
+                        -- Add type info
+                        {'set itemRecord to itemRecord & {item_type:"project"}' if type == "project" else 'set itemRecord to itemRecord & {item_type:"todo"}'}
+                        
+                        -- Try to get area info if it exists
+                        try
+                            set itemArea to area of theItem
+                            if itemArea is not missing value then
+                                set itemRecord to itemRecord & {{area_id:(id of itemArea)}}
+                                set itemRecord to itemRecord & {{area_name:(name of itemArea)}}
+                            end if
+                        on error
+                            -- Item has no area
+                        end try
+                        
+                        -- Try to get project info for todos
+                        if "{type}" is not "project" then
+                            try
+                                set itemProject to project of theItem
+                                if itemProject is not missing value then
+                                    set itemRecord to itemRecord & {{project_id:(id of itemProject)}}
+                                    set itemRecord to itemRecord & {{project_name:(name of itemProject)}}
+                                end if
+                            on error
+                                -- Item has no project
+                            end try
+                        end if
+                        
+                        set searchResults to searchResults & {{itemRecord}}
+                        set resultCount to resultCount + 1
+                    on error
+                        -- Skip items that can't be accessed
+                    end try
+                end repeat
+                
+                return searchResults
+            end tell
+            '''
+            
+            # No cache for advanced search to ensure fresh results
+            result = await self.applescript.execute_applescript(script, None)
+            
+            if result.get("success"):
+                # Parse using existing parser
+                todos = self._parse_applescript_todos(result.get("output", ""))
+                
+                # Add filter context
+                filters = {k: v for k, v in locals().items() if v is not None and k != 'self'}
+                for todo in todos:
+                    todo["search_filters"] = filters
+                
+                logger.info(f"Efficient advanced search found {len(todos)} items with filters: {filters}")
+                return todos
+            else:
+                logger.error(f"Failed to perform advanced search: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error in advanced search: {e}")
             raise
     
-    def get_recent(self, period: str) -> List[Dict[str, Any]]:
+    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
         """Get recently created items.
         
         Args:
-            period: Time period
+            period: Time period (e.g., '3d', '1w', '2m', '1y')
             
         Returns:
             List of recent item dictionaries
         """
         try:
-            # This is a placeholder - would need AppleScript implementation
-            logger.info(f"Retrieved recent items for period: {period} (placeholder)")
-            return []
+            # Parse the period to get number of days
+            days = self._parse_period_to_days(period)
+            
+            # Build AppleScript to get recent items
+            script = f'''
+            tell application "Things3"
+                set recentItems to {{}}
+                set cutoffDate to (current date) - ({days} * days)
+                
+                -- Get recent todos
+                repeat with theTodo in to dos
+                    try
+                        set todoCreationDate to creation date of theTodo
+                        if todoCreationDate > cutoffDate then
+                            set itemRecord to {{}}
+                            set itemRecord to itemRecord & {{id:(id of theTodo)}}
+                            set itemRecord to itemRecord & {{name:(name of theTodo)}}
+                            set itemRecord to itemRecord & {{notes:(notes of theTodo)}}
+                            set itemRecord to itemRecord & {{status:(status of theTodo)}}
+                            set itemRecord to itemRecord & {{tag_names:(tag names of theTodo)}}
+                            set itemRecord to itemRecord & {{creation_date:todoCreationDate}}
+                            set itemRecord to itemRecord & {{modification_date:(modification date of theTodo)}}
+                            set itemRecord to itemRecord & {{item_type:"todo"}}
+                            
+                            try
+                                set todoProject to project of theTodo
+                                if todoProject is not missing value then
+                                    set itemRecord to itemRecord & {{project_id:(id of todoProject)}}
+                                end if
+                            on error
+                                -- Todo has no project
+                            end try
+                            
+                            set recentItems to recentItems & {{itemRecord}}
+                        end if
+                    on error
+                        -- Skip todos that can't be accessed
+                    end try
+                end repeat
+                
+                -- Get recent projects
+                repeat with theProject in projects
+                    try
+                        set projectCreationDate to creation date of theProject
+                        if projectCreationDate > cutoffDate then
+                            set itemRecord to {{}}
+                            set itemRecord to itemRecord & {{id:(id of theProject)}}
+                            set itemRecord to itemRecord & {{name:(name of theProject)}}
+                            set itemRecord to itemRecord & {{notes:(notes of theProject)}}
+                            set itemRecord to itemRecord & {{status:(status of theProject)}}
+                            set itemRecord to itemRecord & {{tag_names:(tag names of theProject)}}
+                            set itemRecord to itemRecord & {{creation_date:projectCreationDate}}
+                            set itemRecord to itemRecord & {{modification_date:(modification date of theProject)}}
+                            set itemRecord to itemRecord & {{item_type:"project"}}
+                            
+                            try
+                                set projectArea to area of theProject
+                                if projectArea is not missing value then
+                                    set itemRecord to itemRecord & {{area_id:(id of projectArea)}}
+                                end if
+                            on error
+                                -- Project has no area
+                            end try
+                            
+                            set recentItems to recentItems & {{itemRecord}}
+                        end if
+                    on error
+                        -- Skip projects that can't be accessed
+                    end try
+                end repeat
+                
+                return recentItems
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script, f"recent_items_{period}")
+            
+            if result.get("success"):
+                # Parse the AppleScript output
+                raw_records = self.applescript._parse_applescript_list(result.get("output", ""))
+                
+                # Convert to standardized format
+                items = []
+                for record in raw_records:
+                    item_dict = {
+                        "id": record.get("id", "unknown"),
+                        "uuid": record.get("id", "unknown"),
+                        "title": record.get("name", ""),
+                        "notes": record.get("notes", ""),
+                        "status": record.get("status", "open"),
+                        "tags": record.get("tags", []),
+                        "creation_date": record.get("creation_date"),
+                        "modification_date": record.get("modification_date"),
+                        "type": record.get("item_type", "todo"),
+                        "project_id": record.get("project_id"),
+                        "area_id": record.get("area_id"),
+                        "period_filter": period
+                    }
+                    items.append(item_dict)
+                
+                logger.info(f"Retrieved {len(items)} recent items for period: {period}")
+                return items
+            else:
+                logger.error(f"Failed to get recent items: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error getting recent items: {e}")
             raise
     
-    def show_item(self, id: str, query: Optional[str] = None, filter_tags: Optional[List[str]] = None) -> Dict[str, str]:
-        """Show a specific item or list in Things.
+    async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+        """Add tags to a todo.
         
         Args:
-            id: Item ID or list name
-            query: Optional query filter
-            filter_tags: Optional tag filters
+            todo_id: ID of the todo
+            tags: List of tags to add
             
         Returns:
-            Dict with show result
+            Dict with operation result
         """
         try:
-            params = {"id": id}
-            if query:
-                params["query"] = query
-            if filter_tags:
-                params["filter"] = ",".join(filter_tags)
+            # First, get the current todo to see existing tags
+            todo = await self.get_todo_by_id(todo_id)
+            current_tags = todo.get('tags', [])
             
-            result = self.applescript.execute_url_scheme("show", params)
+            # Combine with new tags (avoid duplicates)
+            all_tags = list(set(current_tags + tags))
             
-            if result.get("success"):
-                return {
-                    "success": True,
-                    "message": f"Successfully showed item: {id}"
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": result.get("error", "Unknown error")
-                }
-        
+            # Update the todo with all tags
+            return await self.update_todo(todo_id, tags=all_tags)
+            
         except Exception as e:
-            logger.error(f"Error showing item: {e}")
+            logger.error(f"Error adding tags: {e}")
             raise
     
-    def search_items(self, query: str) -> Dict[str, str]:
-        """Search for items in Things.
+    async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+        """Remove tags from a todo.
         
         Args:
-            query: Search query
+            todo_id: ID of the todo
+            tags: List of tags to remove
             
         Returns:
-            Dict with search result
+            Dict with operation result
         """
         try:
-            result = self.applescript.execute_url_scheme("search", {"query": query})
+            # First, get the current todo to see existing tags
+            todo = await self.get_todo_by_id(todo_id)
+            current_tags = todo.get('tags', [])
             
-            if result.get("success"):
-                return {
-                    "success": True,
-                    "message": f"Successfully searched for: {query}"
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": result.get("error", "Unknown error")
-                }
-        
+            # Remove specified tags
+            remaining_tags = [t for t in current_tags if t not in tags]
+            
+            # Update the todo with remaining tags
+            return await self.update_todo(todo_id, tags=remaining_tags)
+            
         except Exception as e:
-            logger.error(f"Error searching items: {e}")
+            logger.error(f"Error removing tags: {e}")
             raise
     
-    def _get_list_todos(self, list_name: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    # Removed show_item and search_items methods as they trigger UI changes
+    # which are not appropriate for MCP server operations
+    
+    async def _get_list_todos(self, list_name: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get todos from a specific list.
         
         Args:
@@ -683,10 +1286,133 @@ class ThingsTools:
             List of todo dictionaries
         """
         try:
-            # This is a placeholder - would need specific AppleScript for each list
-            logger.info(f"Retrieved todos from {list_name} (placeholder)")
-            return []
+            # Map list names to AppleScript list references
+            list_mapping = {
+                "inbox": "inbox",
+                "today": "today",
+                "upcoming": "upcoming",
+                "anytime": "anytime",
+                "someday": "someday",
+                "logbook": "logbook",
+                "trash": "trash"
+            }
+            
+            if list_name not in list_mapping:
+                logger.error(f"Unknown list name: {list_name}")
+                return []
+            
+            # Build AppleScript to get todos from the specified list
+            script = f'''
+            tell application "Things3"
+                set todoList to {{}}
+                set listRef to list "{list_mapping[list_name]}"
+                repeat with theTodo in to dos of listRef
+                    set todoRecord to {{}}
+                    try
+                        set todoRecord to todoRecord & {{id:id of theTodo}}
+                        set todoRecord to todoRecord & {{name:name of theTodo}}
+                        set todoRecord to todoRecord & {{notes:notes of theTodo}}
+                        set todoRecord to todoRecord & {{status:status of theTodo}}
+                        set todoRecord to todoRecord & {{tag_names:tag names of theTodo}}
+                        set todoRecord to todoRecord & {{creation_date:creation date of theTodo}}
+                        set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
+                        set todoList to todoList & {{todoRecord}}
+                    end try
+                end repeat
+                return todoList
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script, f"list_{list_name}")
+            
+            if result.get("success"):
+                # Parse the AppleScript output
+                todos = self._parse_applescript_todos(result.get("output", ""))
+                
+                # Apply limit if specified
+                if limit and todos:
+                    todos = todos[:limit]
+                
+                logger.info(f"Retrieved {len(todos)} todos from {list_name}")
+                return todos
+            else:
+                logger.error(f"Failed to get {list_name} todos: {result.get('error')}")
+                return []
         
         except Exception as e:
             logger.error(f"Error getting {list_name} todos: {e}")
-            raise
+            return []  # Return empty list instead of raising to be more resilient
+    
+    def _parse_applescript_todos(self, output: str) -> List[Dict[str, Any]]:
+        """Parse AppleScript output into todo dictionaries.
+        
+        Args:
+            output: Raw AppleScript output
+            
+        Returns:
+            List of parsed todo dictionaries
+        """
+        todos = []
+        try:
+            if not output or not output.strip():
+                return []
+                
+            # Use the same parsing logic as the AppleScript manager
+            raw_records = self.applescript._parse_applescript_list(output)
+            
+            # Convert to standardized todo format
+            for record in raw_records:
+                todo = {
+                    "id": record.get("id", "unknown"),
+                    "uuid": record.get("id", "unknown"),  # Things uses ID as UUID
+                    "title": record.get("name", ""),
+                    "notes": record.get("notes", ""),
+                    "status": record.get("status", "open"),
+                    "tags": record.get("tags", []),  # Already parsed by _parse_applescript_list
+                    "creation_date": record.get("creation_date"),
+                    "modification_date": record.get("modification_date"),
+                    "area": record.get("area"),
+                    "project": record.get("project"),
+                    "due_date": record.get("due_date"),
+                    "start_date": record.get("start_date")
+                }
+                todos.append(todo)
+                
+            logger.debug(f"Parsed {len(todos)} todos from AppleScript output")
+            
+        except Exception as e:
+            logger.error(f"Error parsing AppleScript output: {e}")
+        
+        return todos
+    
+    def _parse_period_to_days(self, period: str) -> int:
+        """Parse period string like '3d', '1w', '2m', '1y' to number of days.
+        
+        Args:
+            period: Period string
+            
+        Returns:
+            Number of days
+        """
+        try:
+            if not period or len(period) < 2:
+                return 7  # Default to 7 days
+            
+            unit = period[-1].lower()
+            number = int(period[:-1])
+            
+            if unit == 'd':  # days
+                return number
+            elif unit == 'w':  # weeks
+                return number * 7
+            elif unit == 'm':  # months (approximate)
+                return number * 30
+            elif unit == 'y':  # years (approximate)
+                return number * 365
+            else:
+                logger.warning(f"Unknown period unit: {unit}, defaulting to 7 days")
+                return 7
+        
+        except (ValueError, IndexError):
+            logger.warning(f"Could not parse period: {period}, defaulting to 7 days")
+            return 7
