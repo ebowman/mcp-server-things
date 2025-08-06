@@ -445,11 +445,14 @@ class ThingsTools:
                 script_parts.append(f'        set notes of theTodo to {escaped_notes}')
             
             if tags is not None:
-                # Clear existing tags and set new ones
-                script_parts.append('        set tag names of theTodo to {}')
-                for tag in tags:
-                    escaped_tag = self._escape_applescript_string(tag)
-                    script_parts.append(f'        set tag names of theTodo to tag names of theTodo & {escaped_tag}')
+                if tags:
+                    # Set tags as comma-separated string
+                    tags_string = ", ".join(tags)
+                    escaped_tags = self._escape_applescript_string(tags_string)
+                    script_parts.append(f'        set tag names of theTodo to {escaped_tags}')
+                else:
+                    # Clear tags if empty list provided
+                    script_parts.append('        set tag names of theTodo to ""')
             
             # Handle scheduling (when)
             if when is not None:
@@ -555,7 +558,7 @@ class ThingsTools:
             script = f'''
             tell application "Things3"
                 set theTodo to to do id "{todo_id}"
-                return {{id:id of theTodo, name:name of theTodo, notes:notes of theTodo, status:status of theTodo, creation_date:creation date of theTodo, modification_date:modification date of theTodo}}
+                return {{id:id of theTodo, name:name of theTodo, notes:notes of theTodo, status:status of theTodo, tag_names:tag names of theTodo, creation_date:creation date of theTodo, modification_date:modification date of theTodo}}
             end tell
             '''
             
@@ -567,13 +570,24 @@ class ThingsTools:
                 
                 if raw_records:
                     record = raw_records[0]  # Should be just one record
+                    # Parse tag names if present
+                    tags = []
+                    tag_names = record.get("tag_names", "")
+                    if tag_names and isinstance(tag_names, str):
+                        # Tags are returned as a concatenated string like "tag1tag2tag3"
+                        # or as a comma-separated list
+                        # We need to parse them properly
+                        tags = [tag.strip() for tag in tag_names.split(",") if tag.strip()]
+                    elif tag_names:
+                        tags = tag_names if isinstance(tag_names, list) else []
+                    
                     todo_data = {
                         "id": record.get("id", todo_id),
                         "uuid": record.get("id", todo_id),
                         "title": record.get("name", ""),
                         "notes": record.get("notes", ""),
                         "status": record.get("status", "open"),
-                        "tags": record.get("tags", []),
+                        "tags": tags,
                         "creation_date": record.get("creation_date"),
                         "modification_date": record.get("modification_date"),
                         "retrieved_at": datetime.now().isoformat()
