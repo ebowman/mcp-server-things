@@ -1047,13 +1047,15 @@ class ThingsTools:
             # Build AppleScript to get all tags with IDs and names
             script = '''
             tell application "Things3"
-                set tagInfo to {}
-                repeat with theTag in tags
-                    try
-                        set tagInfo to tagInfo & {"id:" & (id of theTag) & ",name:" & (name of theTag)}
-                    end try
+                set tagNames to name of every tag
+                set tagIds to id of every tag
+                set tagList to {}
+                
+                repeat with i from 1 to count of tagNames
+                    set tagList to tagList & {item i of tagIds & "|" & item i of tagNames}
                 end repeat
-                return tagInfo
+                
+                return tagList
             end tell
             '''
             
@@ -1064,40 +1066,35 @@ class ThingsTools:
                 tags = []
                 
                 if output and output.strip():
-                    # Parse the output which is now in format: {"id:ABC123,name:Tag1", "id:DEF456,name:Tag2"}
-                    tag_entries = output.strip().strip('{}').split('", "')
+                    # Parse the output which is now in format: tag1id|tag1name, tag2id|tag2name, ...
+                    tag_entries = output.strip().split(', ')
                     
                     for entry in tag_entries:
-                        entry = entry.strip().strip('"')
-                        if entry and "id:" in entry and "name:" in entry:
-                            # Parse id and name from "id:ABC123,name:Tag1"
-                            parts = entry.split(',')
-                            tag_id = None
-                            tag_name = None
+                        entry = entry.strip()
+                        if entry and "|" in entry:
+                            # Parse id and name from "tagid|tagname"
+                            parts = entry.split('|', 1)
+                            if len(parts) == 2:
+                                tag_id = parts[0].strip()
+                                tag_name = parts[1].strip()
                             
-                            for part in parts:
-                                if part.startswith('id:'):
-                                    tag_id = part[3:].strip()
-                                elif part.startswith('name:'):
-                                    tag_name = part[5:].strip()
-                            
-                            if tag_id and tag_name:
-                                tag_dict = {
-                                    "id": tag_id,
-                                    "uuid": tag_id,
-                                    "name": tag_name,
-                                    "shortcut": "",  # Skip shortcut for performance
-                                    "items": []
-                                }
-                                
-                                # If include_items is requested, get items with this tag
-                                if include_items and tag_name:
-                                    try:
-                                        tag_dict["items"] = await self.get_tagged_items(tag_name)
-                                    except Exception as e:
-                                        logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
-                                
-                                tags.append(tag_dict)
+                                if tag_id and tag_name:
+                                    tag_dict = {
+                                        "id": tag_id,
+                                        "uuid": tag_id,
+                                        "name": tag_name,
+                                        "shortcut": "",  # Skip shortcut for performance
+                                        "items": []
+                                    }
+                                    
+                                    # If include_items is requested, get items with this tag
+                                    if include_items and tag_name:
+                                        try:
+                                            tag_dict["items"] = await self.get_tagged_items(tag_name)
+                                        except Exception as e:
+                                            logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                    
+                                    tags.append(tag_dict)
                 
                 logger.info(f"Retrieved {len(tags)} tags with IDs")
                 return tags
