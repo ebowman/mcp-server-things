@@ -243,14 +243,37 @@ class ThingsTools:
             
             # Determine where to create the todo
             if list_id:
-                # Create in specific list by ID
-                script_parts.append(f'        set targetList to first list whose id is "{list_id}"')
-                script_parts.append(f'        set newTodo to make new to do at end of to dos of targetList with properties {properties_string}')
+                # Create in specific project/area by ID
+                # First try as a project, then as an area, then as a list
+                script_parts.append(f'''        
+                try
+                    set targetContainer to project id "{list_id}"
+                    set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
+                on error
+                    try
+                        set targetContainer to area id "{list_id}"
+                        set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
+                    on error
+                        -- Fall back to creating in inbox if not found
+                        set newTodo to make new to do with properties {properties_string}
+                    end try
+                end try''')
             elif list_title:
-                # Create in specific list by name
+                # Create in specific project/area by name
                 escaped_list_title = self._escape_applescript_string(list_title)
-                script_parts.append(f'        set targetList to first list whose name is {escaped_list_title}')
-                script_parts.append(f'        set newTodo to make new to do at end of to dos of targetList with properties {properties_string}')
+                script_parts.append(f'''
+                try
+                    set targetContainer to project {escaped_list_title}
+                    set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
+                on error
+                    try
+                        set targetContainer to area {escaped_list_title}
+                        set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
+                    on error
+                        -- Fall back to creating in inbox if not found
+                        set newTodo to make new to do with properties {properties_string}
+                    end try
+                end try''')
             elif heading:
                 # Create under specific heading (this is more complex, for now create in inbox)
                 escaped_heading = self._escape_applescript_string(heading)
@@ -823,6 +846,10 @@ class ThingsTools:
                 # Add initial todos if provided
                 created_todos = []
                 if todos and project_id:
+                    # Small delay to ensure project is registered in Things
+                    import asyncio
+                    await asyncio.sleep(0.5)
+                    
                     for todo_title in todos:
                         try:
                             todo_result = await self.add_todo(
@@ -831,8 +858,9 @@ class ThingsTools:
                             )
                             if todo_result.get("success"):
                                 created_todos.append(todo_title)
+                                logger.info(f"Added todo '{todo_title}' to project {project_id}")
                             else:
-                                logger.warning(f"Could not create todo '{todo_title}': {todo_result.get('error', 'Unknown error')}")
+                                logger.warning(f"Could not add todo '{todo_title}' to project: {todo_result.get('error', 'Unknown error')}")
                         except Exception as e:
                             logger.warning(f"Error creating todo '{todo_title}': {e}")
                 
