@@ -391,12 +391,27 @@ class AppleScriptManager:
         logger.debug(f"AppleScript output to parse: {output}")
         
         try:
-            # Parse the comma-separated output
+            # Parse the output - special handling for tag_names which can contain commas
             records = []
             current_record = {}
             
-            # Split by commas but be careful with commas inside quoted values
-            parts = self._split_applescript_output(output.strip())
+            # First, let's handle tag_names specially since it can contain commas
+            # Find all tag_names fields and temporarily replace their commas
+            import re
+            temp_output = output.strip()
+            
+            # Find tag_names:value patterns and protect the commas within them
+            tag_pattern = r'tag_names:([^,]+(,\s*[^:,]+)*)'
+            matches = list(re.finditer(tag_pattern, temp_output))
+            
+            # Replace commas in tag values with a placeholder
+            for match in reversed(matches):  # Reverse to maintain positions
+                tag_value = match.group(1)
+                protected_value = tag_value.replace(',', '§COMMA§')
+                temp_output = temp_output[:match.start(1)] + protected_value + temp_output[match.end(1):]
+            
+            # Now split by commas safely
+            parts = self._split_applescript_output(temp_output)
             
             if not parts:
                 logger.warning("No parts found in AppleScript output after splitting")
@@ -422,7 +437,8 @@ class AppleScriptManager:
                         # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
                         current_record[key] = self._parse_applescript_date(value)
                     elif key == 'tag_names':
-                        # Parse tag names list
+                        # Restore commas in tag names and parse
+                        value = value.replace('§COMMA§', ',')
                         current_record['tags'] = self._parse_applescript_tags(value)
                     else:
                         # Handle string values, removing quotes if present
@@ -583,17 +599,20 @@ class AppleScriptManager:
         """Parse AppleScript tag names list."""
         try:
             # Tags might come as a list like: {"tag1", "tag2", "tag3"}
-            if not tags_str or tags_str.strip() in ['{}', 'missing value']:
+            # or as a simple comma-separated string like: "tag1, tag2, tag3"
+            if not tags_str or tags_str.strip() in ['{}', 'missing value', '']:
                 return []
             
-            # Remove braces and split by commas
+            # Remove braces if present (for list format)
             cleaned = tags_str.strip()
             if cleaned.startswith('{') and cleaned.endswith('}'):
                 cleaned = cleaned[1:-1]
             
+            # Split by commas and clean up each tag
             tags = []
             for tag in cleaned.split(','):
                 tag = tag.strip()
+                # Remove quotes if present
                 if tag.startswith('"') and tag.endswith('"'):
                     tag = tag[1:-1]
                 if tag:
