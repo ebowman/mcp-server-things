@@ -609,6 +609,161 @@ class AppleScriptManager:
         from datetime import datetime
         return datetime.now().isoformat()
     
+    async def update_project_direct(self, project_id: str, title: Optional[str] = None, 
+                                   notes: Optional[str] = None, tags: Optional[List[str]] = None,
+                                   when: Optional[str] = None, deadline: Optional[str] = None,
+                                   completed: Optional[bool] = None, canceled: Optional[bool] = None) -> Dict[str, Any]:
+        """Update a project directly using AppleScript (no URL scheme).
+        
+        Args:
+            project_id: ID of the project to update
+            title: New title
+            notes: New notes  
+            tags: New tags
+            when: New schedule
+            deadline: New deadline
+            completed: Mark as completed
+            canceled: Mark as canceled
+            
+        Returns:
+            Dict with success status and result information
+        """
+        try:
+            # Build the AppleScript to update the project
+            script_parts = [
+                'tell application "Things3"',
+                '    try'
+            ]
+            
+            # First check if project exists
+            script_parts.extend([
+                f'        set theProject to project id "{project_id}"',
+                '        -- Project exists, proceed with updates'
+            ])
+            
+            # Update title if provided
+            if title is not None:
+                escaped_title = title.replace('"', '\\"')
+                script_parts.append(f'        set name of theProject to "{escaped_title}"')
+            
+            # Update notes if provided
+            if notes is not None:
+                escaped_notes = notes.replace('"', '\\"').replace('\n', '\\n')
+                script_parts.append(f'        set notes of theProject to "{escaped_notes}"')
+            
+            # Handle status changes
+            if completed is not None:
+                if completed:
+                    script_parts.append('        set status of theProject to completed')
+                elif canceled is not None and canceled:
+                    script_parts.append('        set status of theProject to canceled')
+                else:
+                    script_parts.append('        set status of theProject to open')
+            elif canceled is not None:
+                if canceled:
+                    script_parts.append('        set status of theProject to canceled')
+                else:
+                    script_parts.append('        set status of theProject to open')
+            
+            # Handle tags if provided
+            if tags is not None:
+                # First clear existing tags, then add new ones
+                script_parts.append('        set tag names of theProject to {}')
+                if tags:
+                    for tag in tags:
+                        escaped_tag = tag.replace('"', '\\"')
+                        script_parts.extend([
+                            '        try',
+                            f'            set theTag to tag named "{escaped_tag}"',
+                            '        on error',
+                            f'            set theTag to make new tag with properties {{name:"{escaped_tag}"}}',
+                            '        end try',
+                            '        set tag names of theProject to tag names of theProject & {theTag}'
+                        ])
+            
+            # Handle scheduling if provided
+            if when is not None:
+                when_lower = when.lower()
+                if when_lower == "today":
+                    script_parts.append('        set start date of theProject to current date')
+                elif when_lower == "tomorrow":
+                    script_parts.append('        set start date of theProject to (current date) + 1 * days')
+                elif when_lower == "evening":
+                    script_parts.append('        set start date of theProject to current date')
+                elif when_lower in ["anytime", "someday"]:
+                    script_parts.append('        set start date of theProject to missing value')
+                else:
+                    # Try to parse as date string (YYYY-MM-DD)
+                    try:
+                        from datetime import datetime
+                        parsed_date = datetime.strptime(when, '%Y-%m-%d')
+                        # Format for AppleScript: "January 1, 2024"
+                        date_str = parsed_date.strftime('%B %d, %Y')
+                        script_parts.append(f'        set start date of theProject to date "{date_str}"')
+                    except ValueError:
+                        logger.warning(f"Could not parse when date: {when}")
+            
+            # Handle deadline if provided
+            if deadline is not None:
+                try:
+                    from datetime import datetime
+                    parsed_date = datetime.strptime(deadline, '%Y-%m-%d')
+                    # Format for AppleScript: "January 1, 2024"
+                    date_str = parsed_date.strftime('%B %d, %Y')
+                    script_parts.append(f'        set due date of theProject to date "{date_str}"')
+                except ValueError:
+                    logger.warning(f"Could not parse deadline date: {deadline}")
+            
+            # Close the try block and handle errors
+            script_parts.extend([
+                '        return "success"',
+                '    on error errMsg',
+                '        if errMsg contains "Can\'t get project id" then',
+                '            return "error:Project not found"',
+                '        else',
+                '            return "error:" & errMsg',
+                '        end if',
+                '    end try',
+                'end tell'
+            ])
+            
+            script = '\n'.join(script_parts)
+            logger.debug(f"Executing project update script for project {project_id}")
+            
+            result = await self._execute_script(script)
+            
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                if output == "success":
+                    return {
+                        "success": True,
+                        "message": "Project updated successfully",
+                        "project_id": project_id
+                    }
+                elif output.startswith("error:"):
+                    error_msg = output[6:]  # Remove "error:" prefix
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Unexpected output: {output}"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("error", "Unknown AppleScript error")
+                }
+        
+        except Exception as e:
+            logger.error(f"Error updating project {project_id}: {e}")
+            return {
+                "success": False,
+                "error": f"Exception during update: {str(e)}"
+            }
+
     def clear_cache(self) -> None:
         """Clear all cached results."""
         self._cache.clear()

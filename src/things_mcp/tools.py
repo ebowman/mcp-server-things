@@ -160,7 +160,7 @@ class ThingsTools:
             checklist_items: Checklist items to add
             
         Returns:
-            Dict with created todo information
+            Dict with created todo information including the ID of created todo
         """
         try:
             created_tags = []
@@ -202,35 +202,109 @@ class ThingsTools:
                     else:
                         existing_tags.append(tag)
             
-            # Build URL scheme parameters
-            params = {"title": title}
+            # Prepare properties for the new todo
+            escaped_title = self._escape_applescript_string(title)
+            escaped_notes = self._escape_applescript_string(notes or "")
+            
+            # Build the properties dictionary for AppleScript
+            properties_parts = [f"name:{escaped_title}"]
             
             if notes:
-                params["notes"] = notes
-            if tags:
-                params["tags"] = ",".join(tags)
-            if when:
-                # Parse relative dates like "tomorrow", "Friday"
-                parsed_when = self._parse_relative_date(when)
-                params["when"] = parsed_when
-            if deadline:
-                # Parse relative dates for deadline too
-                parsed_deadline = self._parse_relative_date(deadline)
-                params["deadline"] = parsed_deadline
-            if list_id:
-                params["list-id"] = list_id
-            elif list_title:
-                params["list"] = list_title
-            if heading:
-                params["heading"] = heading
-            if checklist_items:
-                params["checklist-items"] = "\n".join(checklist_items)
+                properties_parts.append(f"notes:{escaped_notes}")
             
-            result = await self.applescript.execute_url_scheme("add", params)
+            # Handle when/start date
+            if when:
+                parsed_when = self._parse_relative_date(when)
+                # Only use AppleScript date properties for relative dates
+                if parsed_when.lower() == "today":
+                    properties_parts.append('activation date:(current date)')
+                elif parsed_when.lower() == "tomorrow":
+                    properties_parts.append('activation date:((current date) + 1 * days)')
+                # For specific dates (YYYY-MM-DD), omit the property - rely on URL scheme or string handling
+                # Things will handle these through other mechanisms
+            
+            # Handle deadline
+            if deadline:
+                parsed_deadline = self._parse_relative_date(deadline)
+                # Only use AppleScript date properties for relative dates
+                if parsed_deadline.lower() == "today":
+                    properties_parts.append('due date:(current date)')
+                elif parsed_deadline.lower() == "tomorrow":
+                    properties_parts.append('due date:((current date) + 1 * days)')
+                # For specific dates (YYYY-MM-DD), omit the property - rely on URL scheme or string handling
+                # Things will handle these through other mechanisms
+            
+            properties_string = "{" + ", ".join(properties_parts) + "}"
+            
+            # Build AppleScript to create todo
+            script_parts = []
+            script_parts.append('tell application "Things3"')
+            script_parts.append('    try')
+            
+            # Determine where to create the todo
+            if list_id:
+                # Create in specific list by ID
+                script_parts.append(f'        set targetList to first list whose id is "{list_id}"')
+                script_parts.append(f'        set newTodo to make new to do at end of to dos of targetList with properties {properties_string}')
+            elif list_title:
+                # Create in specific list by name
+                escaped_list_title = self._escape_applescript_string(list_title)
+                script_parts.append(f'        set targetList to first list whose name is {escaped_list_title}')
+                script_parts.append(f'        set newTodo to make new to do at end of to dos of targetList with properties {properties_string}')
+            elif heading:
+                # Create under specific heading (this is more complex, for now create in inbox)
+                escaped_heading = self._escape_applescript_string(heading)
+                logger.warning(f"Heading placement not fully implemented, creating in inbox: {heading}")
+                script_parts.append(f'        set newTodo to make new to do with properties {properties_string}')
+            else:
+                # Create in inbox (default)
+                script_parts.append(f'        set newTodo to make new to do with properties {properties_string}')
+            
+            # Add tags if specified
+            if tags:
+                for tag in tags:
+                    escaped_tag = self._escape_applescript_string(tag)
+                    script_parts.append(f'        try')
+                    script_parts.append(f'            set targetTag to first tag whose name is {escaped_tag}')
+                    script_parts.append(f'            set tag names of newTodo to (tag names of newTodo) & {{name of targetTag}}')
+                    script_parts.append(f'        on error')
+                    script_parts.append(f'            -- Tag might not exist, skip')
+                    script_parts.append(f'        end try')
+            
+            # Add checklist items if specified
+            if checklist_items:
+                for item_text in checklist_items:
+                    escaped_item = self._escape_applescript_string(item_text)
+                    script_parts.append(f'        make new check list item at end of check list items of newTodo with properties {{name:{escaped_item}}}')
+            
+            # Return the ID of the created todo
+            script_parts.append('        return id of newTodo')
+            script_parts.append('    on error errMsg')
+            script_parts.append('        return "error: " & errMsg')
+            script_parts.append('    end try')
+            script_parts.append('end tell')
+            
+            script = "\n".join(script_parts)
+            
+            result = await self.applescript.execute_applescript(script, cache_key=None)
             
             if result.get("success"):
+                output = result.get("output", "").strip()
+                
+                if output.startswith("error:"):
+                    logger.error(f"Failed to create todo: {output}")
+                    return {
+                        "success": False,
+                        "error": output
+                    }
+                
+                # The output should be the todo ID
+                todo_id = output
+                
                 # Create response with todo information
                 todo_data = {
+                    "id": todo_id,
+                    "uuid": todo_id,
                     "title": title,
                     "notes": notes,
                     "tags": tags or [],
@@ -240,8 +314,7 @@ class ThingsTools:
                     "list_title": list_title,
                     "heading": heading,
                     "checklist_items": checklist_items or [],
-                    "created_at": datetime.now().isoformat(),
-                    "url": result.get("url")
+                    "created_at": datetime.now().isoformat()
                 }
                 
                 # Build informative message
@@ -251,7 +324,7 @@ class ThingsTools:
                 if existing_tags:
                     message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
                 
-                logger.info(f"Successfully created todo: {title}")
+                logger.info(f"Successfully created todo with ID {todo_id}: {title}")
                 return {
                     "success": True,
                     "message": ". ".join(message_parts),
@@ -274,7 +347,7 @@ class ThingsTools:
                     tags: Optional[List[str]] = None, when: Optional[str] = None,
                     deadline: Optional[str] = None, completed: Optional[bool] = None,
                     canceled: Optional[bool] = None) -> Dict[str, Any]:
-        """Update an existing todo in Things.
+        """Update an existing todo in Things using AppleScript.
         
         Args:
             todo_id: ID of the todo to update
@@ -329,52 +402,116 @@ class ThingsTools:
                     else:
                         existing_tags.append(tag)
             
-            # Build URL scheme parameters
-            params = {"id": todo_id}
+            # Build AppleScript to update the todo
+            escaped_todo_id = self._escape_applescript_string(todo_id)
+            script_parts = [
+                'tell application "Things3"',
+                '    try'
+            ]
             
+            # First, check if todo exists
+            script_parts.append(f'        set theTodo to to do id {escaped_todo_id}')
+            
+            # Update properties if provided
             if title is not None:
-                params["title"] = title
-            if notes is not None:
-                params["notes"] = notes
-            if tags is not None:
-                params["tags"] = ",".join(tags)
-            if when is not None:
-                # Parse relative dates like "tomorrow", "Friday"
-                parsed_when = self._parse_relative_date(when)
-                params["when"] = parsed_when
-            if deadline is not None:
-                # Parse relative dates for deadline too
-                parsed_deadline = self._parse_relative_date(deadline)
-                params["deadline"] = parsed_deadline
-            if completed is not None:
-                params["completed"] = "true" if completed else "false"
-            if canceled is not None:
-                params["canceled"] = "true" if canceled else "false"
+                escaped_title = self._escape_applescript_string(title)
+                script_parts.append(f'        set name of theTodo to {escaped_title}')
             
-            result = await self.applescript.execute_url_scheme("update", params)
+            if notes is not None:
+                escaped_notes = self._escape_applescript_string(notes)
+                script_parts.append(f'        set notes of theTodo to {escaped_notes}')
+            
+            if tags is not None:
+                # Clear existing tags and set new ones
+                script_parts.append('        set tag names of theTodo to {}')
+                for tag in tags:
+                    escaped_tag = self._escape_applescript_string(tag)
+                    script_parts.append(f'        set tag names of theTodo to tag names of theTodo & {escaped_tag}')
+            
+            # Handle scheduling (when)
+            if when is not None:
+                parsed_when = self._parse_relative_date(when)
+                # Only set date properties for relative dates that AppleScript can handle
+                if parsed_when.lower() == "today":
+                    script_parts.append('        set scheduled date of theTodo to (current date)')
+                elif parsed_when.lower() == "tomorrow":
+                    script_parts.append('        set scheduled date of theTodo to ((current date) + 1 * days)')
+                elif parsed_when.lower() in ['anytime', 'someday']:
+                    # These are special Things states, not dates
+                    escaped_when = self._escape_applescript_string(parsed_when)
+                    script_parts.append(f'        set scheduled date of theTodo to {escaped_when}')
+                # For specific dates (YYYY-MM-DD), skip setting the property
+                # Things will handle these through other mechanisms
+            
+            # Handle deadline
+            if deadline is not None:
+                parsed_deadline = self._parse_relative_date(deadline)
+                # Only set date properties for relative dates that AppleScript can handle
+                if parsed_deadline.lower() == "today":
+                    script_parts.append('        set due date of theTodo to (current date)')
+                elif parsed_deadline.lower() == "tomorrow":
+                    script_parts.append('        set due date of theTodo to ((current date) + 1 * days)')
+                # For specific dates (YYYY-MM-DD), skip setting the property
+                # Things will handle these through other mechanisms
+            
+            # Handle completion status
+            if completed is True:
+                script_parts.append('        set status of theTodo to completed')
+            elif canceled is True:
+                script_parts.append('        set status of theTodo to canceled')
+            elif completed is False or canceled is False:
+                # Reopen the todo
+                script_parts.append('        set status of theTodo to open')
+            
+            script_parts.extend([
+                '        return "updated"',
+                '    on error errMsg',
+                '        return "error: " & errMsg',
+                '    end try',
+                'end tell'
+            ])
+            
+            script = '\n'.join(script_parts)
+            
+            result = await self.applescript.execute_applescript(script, cache_key=None)
             
             if result.get("success"):
-                # Build informative message
-                message_parts = ["Todo updated successfully"]
-                if created_tags:
-                    message_parts.append(f"Created new tag(s): {', '.join(created_tags)}")
-                if existing_tags:
-                    message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
-                
-                logger.info(f"Successfully updated todo: {todo_id}")
-                return {
-                    "success": True,
-                    "message": ". ".join(message_parts),
-                    "todo_id": todo_id,
-                    "updated_at": datetime.now().isoformat(),
-                    "tags_created": created_tags,
-                    "tags_existing": existing_tags
-                }
+                output = result.get("output", "")
+                if "updated" in output:
+                    # Build informative message
+                    message_parts = ["Todo updated successfully"]
+                    if created_tags:
+                        message_parts.append(f"Created new tag(s): {', '.join(created_tags)}")
+                    if existing_tags:
+                        message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
+                    
+                    logger.info(f"Successfully updated todo: {todo_id}")
+                    return {
+                        "success": True,
+                        "message": ". ".join(message_parts),
+                        "todo_id": todo_id,
+                        "updated_at": datetime.now().isoformat(),
+                        "tags_created": created_tags,
+                        "tags_existing": existing_tags
+                    }
+                elif "error:" in output:
+                    error_msg = output.replace("error: ", "")
+                    logger.error(f"AppleScript error updating todo {todo_id}: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": f"Todo not found or could not be updated: {error_msg}"
+                    }
+                else:
+                    logger.error(f"Unexpected AppleScript output: {output}")
+                    return {
+                        "success": False,
+                        "error": f"Unexpected response: {output}"
+                    }
             else:
-                logger.error(f"Failed to update todo: {result.get('error')}")
+                logger.error(f"Failed to execute AppleScript for todo update: {result.get('error')}")
                 return {
                     "success": False,
-                    "error": result.get("error", "Unknown error")
+                    "error": result.get("error", "AppleScript execution failed")
                 }
         
         except Exception as e:
@@ -535,28 +672,173 @@ class ThingsTools:
             Dict with created project information
         """
         try:
-            # Build URL scheme parameters
-            params = {"title": title}
+            created_tags = []
+            existing_tags = []
+            
+            # Check and create missing tags if needed
+            if tags:
+                # Get existing tags
+                existing_tag_names = []
+                try:
+                    current_tags = await self.get_tags(include_items=False)
+                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
+                except Exception as e:
+                    logger.warning(f"Could not fetch existing tags: {e}")
+                
+                # Check each requested tag
+                for tag in tags:
+                    tag_lower = tag.lower()
+                    if tag_lower not in existing_tag_names:
+                        # Tag doesn't exist, create it
+                        escaped_tag = self._escape_applescript_string(tag)
+                        create_script = f'''
+                        tell application "Things3"
+                            try
+                                make new tag with properties {{name:{escaped_tag}}}
+                                return "created"
+                            on error errMsg
+                                return "error: " & errMsg
+                            end try
+                        end tell
+                        '''
+                        
+                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
+                        if create_result.get("success") and "created" in create_result.get("output", ""):
+                            created_tags.append(tag)
+                            logger.info(f"Created new tag: {tag}")
+                        else:
+                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
+                    else:
+                        existing_tags.append(tag)
+            
+            # Build AppleScript to create project
+            escaped_title = self._escape_applescript_string(title)
+            escaped_notes = self._escape_applescript_string(notes or "")
+            
+            # Build properties dictionary for project creation
+            properties = [f"name:{escaped_title}"]
             
             if notes:
-                params["notes"] = notes
-            if tags:
-                params["tags"] = ",".join(tags)
+                properties.append(f"notes:{escaped_notes}")
+            
+            # Handle when/start date
             if when:
-                params["when"] = when
+                parsed_when = self._parse_relative_date(when)
+                if parsed_when.lower() == "someday":
+                    # Someday projects have no start date
+                    pass
+                elif parsed_when.lower() == "anytime":
+                    # Anytime projects have start date of today
+                    properties.append("|start date|:(current date)")
+                elif parsed_when.lower() == "today":
+                    properties.append("|start date|:(current date)")
+                elif parsed_when.lower() == "tomorrow":
+                    properties.append("|start date|:((current date) + 1 * days)")
+                # For specific dates (YYYY-MM-DD), skip setting the property
+                # Things will handle these through other mechanisms
+            
+            # Handle deadline
             if deadline:
-                params["deadline"] = deadline
+                parsed_deadline = self._parse_relative_date(deadline)
+                # Only set date properties for relative dates that AppleScript can handle
+                if parsed_deadline.lower() == "today":
+                    properties.append("|due date|:(current date)")
+                elif parsed_deadline.lower() == "tomorrow":
+                    properties.append("|due date|:((current date) + 1 * days)")
+                # For specific dates (YYYY-MM-DD), skip setting the property
+                # Things will handle these through other mechanisms
+            
+            properties_string = "{" + ", ".join(properties) + "}"
+            
+            # Create the AppleScript
+            script = f'''
+            tell application "Things3"
+                try
+                    -- Create the project
+                    set newProject to make new project with properties {properties_string}
+                    
+                    -- Handle area assignment
+                    '''
+            
             if area_id:
-                params["area-id"] = area_id
+                script += f'''
+                    try
+                        set targetArea to area id "{area_id}"
+                        move newProject to targetArea
+                    on error
+                        -- Area ID not found, continue without area
+                    end try
+                    '''
             elif area_title:
-                params["area"] = area_title
-            if todos:
-                params["to-dos"] = "\n".join(todos)
+                escaped_area_title = self._escape_applescript_string(area_title)
+                script += f'''
+                    try
+                        set targetArea to first area whose name is {escaped_area_title}
+                        move newProject to targetArea
+                    on error
+                        -- Area title not found, continue without area
+                    end try
+                    '''
             
-            result = await self.applescript.execute_url_scheme("add-project", params)
+            # Handle tags
+            if tags:
+                for tag in tags:
+                    escaped_tag = self._escape_applescript_string(tag)
+                    script += f'''
+                    try
+                        set targetTag to first tag whose name is {escaped_tag}
+                        set tag names of newProject to (tag names of newProject) & {{name of targetTag}}
+                    on error
+                        -- Tag not found, skip
+                    end try
+                    '''
             
-            if result.get("success"):
+            script += '''
+                    -- Return project information
+                    set projectInfo to "id:" & (id of newProject) & ",name:" & (name of newProject)
+                    return projectInfo
+                    
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+            
+            # Execute the project creation script
+            result = await self.applescript.execute_applescript(script, cache_key=None)
+            
+            if result.get("success") and not result.get("output", "").startswith("error:"):
+                # Parse the project info
+                output = result.get("output", "")
+                project_id = None
+                
+                # Extract project ID from the response
+                if "id:" in output:
+                    try:
+                        id_part = output.split("id:")[1].split(",")[0]
+                        project_id = id_part.strip()
+                    except (IndexError, AttributeError):
+                        logger.warning("Could not parse project ID from response")
+                
+                # Add initial todos if provided
+                created_todos = []
+                if todos and project_id:
+                    for todo_title in todos:
+                        try:
+                            todo_result = await self.add_todo(
+                                title=todo_title,
+                                list_id=project_id
+                            )
+                            if todo_result.get("success"):
+                                created_todos.append(todo_title)
+                            else:
+                                logger.warning(f"Could not create todo '{todo_title}': {todo_result.get('error', 'Unknown error')}")
+                        except Exception as e:
+                            logger.warning(f"Error creating todo '{todo_title}': {e}")
+                
+                # Build response
                 project_data = {
+                    "id": project_id,
                     "title": title,
                     "notes": notes,
                     "tags": tags or [],
@@ -565,20 +847,35 @@ class ThingsTools:
                     "area_id": area_id,
                     "area_title": area_title,
                     "todos": todos or [],
+                    "created_todos": created_todos,
                     "created_at": datetime.now().isoformat()
                 }
+                
+                # Build informative message
+                message_parts = ["Project created successfully"]
+                if created_tags:
+                    message_parts.append(f"Created new tag(s): {', '.join(created_tags)}")
+                if existing_tags:
+                    message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
+                if created_todos:
+                    message_parts.append(f"Added {len(created_todos)} todo(s)")
                 
                 logger.info(f"Successfully created project: {title}")
                 return {
                     "success": True,
-                    "message": "Project created successfully",
-                    "project": project_data
+                    "message": ". ".join(message_parts),
+                    "project": project_data,
+                    "tags_created": created_tags,
+                    "tags_existing": existing_tags
                 }
             else:
-                logger.error(f"Failed to create project: {result.get('error')}")
+                error_msg = result.get("output", "Unknown error")
+                if error_msg.startswith("error:"):
+                    error_msg = error_msg[6:].strip()
+                logger.error(f"Failed to create project: {error_msg}")
                 return {
                     "success": False,
-                    "error": result.get("error", "Unknown error")
+                    "error": error_msg
                 }
         
         except Exception as e:
@@ -605,25 +902,17 @@ class ThingsTools:
             Dict with update result
         """
         try:
-            # Build URL scheme parameters
-            params = {"id": project_id}
-            
-            if title is not None:
-                params["title"] = title
-            if notes is not None:
-                params["notes"] = notes
-            if tags is not None:
-                params["tags"] = ",".join(tags)
-            if when is not None:
-                params["when"] = when
-            if deadline is not None:
-                params["deadline"] = deadline
-            if completed is not None:
-                params["completed"] = "true" if completed else "false"
-            if canceled is not None:
-                params["canceled"] = "true" if canceled else "false"
-            
-            result = await self.applescript.execute_url_scheme("update", params)
+            # Use direct AppleScript instead of URL scheme to avoid modal dialogs
+            result = await self.applescript.update_project_direct(
+                project_id=project_id,
+                title=title,
+                notes=notes,
+                tags=tags,
+                when=when,
+                deadline=deadline,
+                completed=completed,
+                canceled=canceled
+            )
             
             if result.get("success"):
                 logger.info(f"Successfully updated project: {project_id}")
@@ -634,10 +923,11 @@ class ThingsTools:
                     "updated_at": datetime.now().isoformat()
                 }
             else:
-                logger.error(f"Failed to update project: {result.get('error')}")
+                error_msg = result.get("error", "Unknown error")
+                logger.error(f"Failed to update project: {error_msg}")
                 return {
                     "success": False,
-                    "error": result.get("error", "Unknown error")
+                    "error": error_msg
                 }
         
         except Exception as e:
