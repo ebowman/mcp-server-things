@@ -1116,35 +1116,44 @@ class ThingsTools:
             List of tagged item dictionaries
         """
         try:
-            # Build AppleScript to get items with specific tag (highly optimized version)
-            # Use a much more efficient approach: get the tag object first, then its items
+            # Build AppleScript to get items with specific tag using 'whose' clause
             escaped_tag = self._escape_applescript_string(tag)
             script = f'''
             tell application "Things3"
                 set matchingItems to {{}}
                 
-                -- Find the tag object directly
                 try
-                    set targetTag to first tag whose name is {escaped_tag}
-                    
-                    -- Get todos of this tag (much faster than iterating all todos)
-                    set taggedTodos to to dos of targetTag
+                    -- Get all todos with this tag using whose clause (most reliable)
+                    set taggedTodos to (to dos whose tag names contains {escaped_tag})
                     set itemCount to count of taggedTodos
-                    if itemCount > 20 then set itemCount to 20
                     
-                    repeat with i from 1 to itemCount
+                    repeat with theTodo in taggedTodos
                         try
-                            set theTodo to item i of taggedTodos
                             set todoID to id of theTodo
                             set todoName to name of theTodo
-                            set itemRecord to "id:" & todoID & ",name:" & todoName & ",type:todo"
+                            set todoNotes to notes of theTodo
+                            set todoStatus to status of theTodo
+                            
+                            -- Replace newlines in notes with space to avoid parsing issues
+                            set AppleScript's text item delimiters to return
+                            set notesParts to text items of todoNotes
+                            set AppleScript's text item delimiters to " "
+                            set todoNotes to notesParts as text
+                            set AppleScript's text item delimiters to ""
+                            
+                            -- Use a unique delimiter that won't appear in text
+                            set delimiter to "§§§"
+                            
+                            -- Create delimited format for easier parsing
+                            set itemRecord to todoID & delimiter & todoName & delimiter & todoNotes & delimiter & todoStatus
                             set matchingItems to matchingItems & {{itemRecord}}
                         on error
-                            -- Skip if can't access
+                            -- Skip if can't access this todo
                         end try
                     end repeat
-                on error
-                    -- Tag doesn't exist or can't be accessed
+                on error errMsg
+                    -- Return empty if tag doesn't exist or error occurs
+                    return {{}}
                 end try
                 
                 return matchingItems
@@ -1158,35 +1167,32 @@ class ThingsTools:
                 items = []
                 
                 if output and output.strip():
-                    # Parse AppleScript list output like: {"id:ABC,name:Todo Name,status:open,type:todo"}
-                    # Remove outer braces and split by ", "
-                    output_clean = output.strip().strip('{}')
-                    if output_clean:
-                        entries = output_clean.split('", "')
-                        
-                        for entry in entries:
-                            entry = entry.strip().strip('"')
-                            if entry and "id:" in entry:
-                                # Parse the colon-separated format
-                                parts = entry.split(",")
-                                item_data = {}
+                    # Parse AppleScript list output with custom delimiter
+                    # Format: "id§§§name§§§notes§§§status", "id§§§name§§§notes§§§status"
+                    entries = output.strip().split(', ')
+                    
+                    for entry in entries:
+                        entry = entry.strip()
+                        if entry and "§§§" in entry:
+                            # Parse the delimited format: id§§§name§§§notes§§§status
+                            parts = entry.split("§§§")
+                            if len(parts) >= 2:  # At minimum need ID and name
+                                item_id = parts[0].strip()
+                                item_name = parts[1].strip() if len(parts) > 1 else ""
+                                item_notes = parts[2].strip() if len(parts) > 2 else ""
+                                item_status = parts[3].strip() if len(parts) > 3 else "open"
                                 
-                                for part in parts:
-                                    if ":" in part:
-                                        key, value = part.split(":", 1)
-                                        item_data[key.strip()] = value.strip()
-                                
-                                if "id" in item_data:
+                                if item_id:
                                     item_dict = {
-                                        "id": item_data.get("id", "unknown"),
-                                        "uuid": item_data.get("id", "unknown"),
-                                        "title": item_data.get("name", ""),
-                                        "notes": "",  # Skip notes for performance
-                                        "status": item_data.get("status", "open"),
+                                        "id": item_id,
+                                        "uuid": item_id,
+                                        "title": item_name,
+                                        "notes": item_notes,
+                                        "status": item_status,
                                         "tags": [tag],  # We know it has this tag
                                         "creation_date": None,
                                         "modification_date": None,
-                                        "type": item_data.get("type", "todo"),
+                                        "type": "todo",
                                         "tag": tag
                                     }
                                     items.append(item_dict)
