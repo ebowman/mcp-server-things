@@ -38,6 +38,22 @@ class ThingsTools:
         escaped = text.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"'
     
+    def _convert_iso_to_applescript_date(self, iso_date: str) -> str:
+        """Convert ISO date (YYYY-MM-DD) to AppleScript-compatible DD/MM/YYYY format.
+        
+        Args:
+            iso_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Date in DD/MM/YYYY format (European) or original string if parsing fails
+        """
+        try:
+            parsed = datetime.strptime(iso_date, '%Y-%m-%d').date()
+            return parsed.strftime('%d/%m/%Y')  # DD/MM/YYYY for European locale
+        except ValueError:
+            # Return original if not in expected format
+            return iso_date
+    
     def _parse_relative_date(self, date_input: str) -> str:
         """Parse relative date input like 'tomorrow', 'Friday', etc. to YYYY-MM-DD format.
         
@@ -202,6 +218,77 @@ class ThingsTools:
                     else:
                         existing_tags.append(tag)
             
+            # Handle when/start date - Things 3 supports the schedule command!
+            schedule_command = None
+            target_list = None
+            
+            if when:
+                parsed_when = self._parse_relative_date(when)
+                when_lower = when.lower().strip()
+                
+                # Handle relative dates with AppleScript date arithmetic or list assignment
+                if when_lower == "today":
+                    schedule_command = "schedule newTodo for (current date)"
+                elif when_lower == "tomorrow":
+                    schedule_command = "schedule newTodo for (current date) + 1 * days"
+                elif when_lower == "anytime":
+                    target_list = "Anytime"  # No scheduling needed
+                elif when_lower == "someday":
+                    target_list = "Someday"  # No scheduling needed
+                elif when_lower == "upcoming":
+                    target_list = "Upcoming"  # No scheduling needed
+                else:
+                    # For specific dates, try to use the schedule command
+                    # Convert various formats to what AppleScript accepts
+                    if when_lower == "yesterday":
+                        schedule_command = "schedule newTodo for (current date) - 1 * days"
+                    elif "/" in when or "-" in when:
+                        # Specific date format - convert to AppleScript-compatible format
+                        try:
+                            # Convert ISO date to MM/DD/YYYY format for AppleScript
+                            applescript_date = self._convert_iso_to_applescript_date(parsed_when)
+                            schedule_command = f'schedule newTodo for date "{applescript_date}"'
+                        except:
+                            # Fallback: put in Today list without scheduling
+                            target_list = "Today"
+                    else:
+                        # Other formats - try as-is
+                        schedule_command = f'schedule newTodo for date "{when}"'
+
+            # Handle deadline - Things 3 supports due date property!
+            due_date_property = None
+            due_date_command = None
+            
+            if deadline:
+                parsed_deadline = self._parse_relative_date(deadline)
+                deadline_lower = deadline.lower().strip()
+                
+                # Handle relative deadlines with AppleScript date arithmetic  
+                if deadline_lower == "today":
+                    due_date_property = "due date:(current date)"
+                elif deadline_lower == "tomorrow":
+                    due_date_property = "due date:((current date) + 1 * days)"
+                elif deadline_lower == "yesterday":
+                    due_date_property = "due date:((current date) - 1 * days)"
+                else:
+                    # For specific dates, use the due date property during creation
+                    if "/" in deadline or "-" in deadline:
+                        # Convert ISO date to MM/DD/YYYY format for AppleScript
+                        applescript_date = self._convert_iso_to_applescript_date(parsed_deadline)
+                        due_date_property = f'due date:date "{applescript_date}"'
+                    else:
+                        # Try as-is
+                        due_date_property = f'due date:date "{deadline}"'
+
+            # Add checklist items to notes if specified  
+            # Note: Things 3 doesn't support checklist items via AppleScript properties
+            if checklist_items:
+                checklist_text = "Checklist:\n" + "\n".join([f"- [ ] {item}" for item in checklist_items])
+                if notes:
+                    notes = notes + "\n\n" + checklist_text
+                else:
+                    notes = checklist_text
+            
             # Prepare properties for the new todo
             escaped_title = self._escape_applescript_string(title)
             escaped_notes = self._escape_applescript_string(notes or "")
@@ -212,27 +299,9 @@ class ThingsTools:
             if notes:
                 properties_parts.append(f"notes:{escaped_notes}")
             
-            # Handle when/start date
-            if when:
-                parsed_when = self._parse_relative_date(when)
-                # Only use AppleScript date properties for relative dates
-                if parsed_when.lower() == "today":
-                    properties_parts.append('activation date:(current date)')
-                elif parsed_when.lower() == "tomorrow":
-                    properties_parts.append('activation date:((current date) + 1 * days)')
-                # For specific dates (YYYY-MM-DD), omit the property - rely on URL scheme or string handling
-                # Things will handle these through other mechanisms
-            
-            # Handle deadline
-            if deadline:
-                parsed_deadline = self._parse_relative_date(deadline)
-                # Only use AppleScript date properties for relative dates
-                if parsed_deadline.lower() == "today":
-                    properties_parts.append('due date:(current date)')
-                elif parsed_deadline.lower() == "tomorrow":
-                    properties_parts.append('due date:((current date) + 1 * days)')
-                # For specific dates (YYYY-MM-DD), omit the property - rely on URL scheme or string handling
-                # Things will handle these through other mechanisms
+            # Add due date property if specified
+            if due_date_property:
+                properties_parts.append(due_date_property)
             
             properties_string = "{" + ", ".join(properties_parts) + "}"
             
@@ -263,16 +332,26 @@ class ThingsTools:
                 escaped_list_title = self._escape_applescript_string(list_title)
                 script_parts.append(f'''
                 try
-                    set targetContainer to project {escaped_list_title}
+                    set targetContainer to first project whose name is {escaped_list_title}
                     set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
                 on error
                     try
-                        set targetContainer to area {escaped_list_title}
+                        set targetContainer to first area whose name is {escaped_list_title}
                         set newTodo to make new to do at end of to dos of targetContainer with properties {properties_string}
                     on error
                         -- Fall back to creating in inbox if not found
                         set newTodo to make new to do with properties {properties_string}
                     end try
+                end try''')
+            elif target_list:
+                # Create in the target list determined by "when" parameter
+                script_parts.append(f'''        
+                try
+                    set targetList to list "{target_list}"
+                    set newTodo to make new to do at end of to dos of targetList with properties {properties_string}
+                on error
+                    -- Fall back to creating in inbox if list not found
+                    set newTodo to make new to do with properties {properties_string}
                 end try''')
             elif heading:
                 # Create under specific heading (this is more complex, for now create in inbox)
@@ -289,16 +368,15 @@ class ThingsTools:
                     escaped_tag = self._escape_applescript_string(tag)
                     script_parts.append(f'        try')
                     script_parts.append(f'            set targetTag to first tag whose name is {escaped_tag}')
-                    script_parts.append(f'            set tag names of newTodo to (tag names of newTodo) & {{name of targetTag}}')
+                    script_parts.append(f'            set tag names of newTodo to (tag names of newTodo) & {{targetTag}}')
                     script_parts.append(f'        on error')
                     script_parts.append(f'            -- Tag might not exist, skip')
                     script_parts.append(f'        end try')
             
-            # Add checklist items if specified
-            if checklist_items:
-                for item_text in checklist_items:
-                    escaped_item = self._escape_applescript_string(item_text)
-                    script_parts.append(f'        make new check list item at end of check list items of newTodo with properties {{name:{escaped_item}}}')
+            
+            # Apply scheduling if specified
+            if schedule_command:
+                script_parts.append(f'        {schedule_command}')
             
             # Return the ID of the created todo
             script_parts.append('        return id of newTodo')
@@ -308,6 +386,9 @@ class ThingsTools:
             script_parts.append('end tell')
             
             script = "\n".join(script_parts)
+            
+            # Debug logging - temporarily log the generated script
+            logger.debug(f"Generated AppleScript for add_todo:\n{script}")
             
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
@@ -454,31 +535,57 @@ class ThingsTools:
                     # Clear tags if empty list provided
                     script_parts.append('        set tag names of theTodo to ""')
             
-            # Handle scheduling (when)
+            # Handle scheduling (when) - use schedule command for dates
             if when is not None:
                 parsed_when = self._parse_relative_date(when)
-                # Only set date properties for relative dates that AppleScript can handle
-                if parsed_when.lower() == "today":
-                    script_parts.append('        set scheduled date of theTodo to (current date)')
-                elif parsed_when.lower() == "tomorrow":
-                    script_parts.append('        set scheduled date of theTodo to ((current date) + 1 * days)')
-                elif parsed_when.lower() in ['anytime', 'someday']:
-                    # These are special Things states, not dates
-                    escaped_when = self._escape_applescript_string(parsed_when)
-                    script_parts.append(f'        set scheduled date of theTodo to {escaped_when}')
-                # For specific dates (YYYY-MM-DD), skip setting the property
-                # Things will handle these through other mechanisms
+                when_lower = parsed_when.lower() if parsed_when else ""
+                # Handle relative dates with AppleScript date arithmetic or direct commands
+                if when_lower == "today":
+                    script_parts.append('        schedule theTodo for (current date)')
+                elif when_lower == "tomorrow":
+                    script_parts.append('        schedule theTodo for ((current date) + 1 * days)')
+                elif when_lower in ['anytime', 'someday']:
+                    # These are special Things states - move to appropriate list
+                    script_parts.append(f'        move theTodo to list "{when_lower.title()}"')
+                elif "/" in when or "-" in when:
+                    # For specific dates, convert to AppleScript-compatible format
+                    try:
+                        applescript_date = self._convert_iso_to_applescript_date(parsed_when)
+                        script_parts.append(f'        schedule theTodo for date "{applescript_date}"')
+                    except:
+                        # Fallback: clear scheduling
+                        logger.warning(f"Could not parse date: {when}")
+                else:
+                    # Try as-is for other formats
+                    script_parts.append(f'        schedule theTodo for date "{when}"')
             
-            # Handle deadline
+            # Handle deadline - Things 3 supports due date property!
             if deadline is not None:
-                parsed_deadline = self._parse_relative_date(deadline)
-                # Only set date properties for relative dates that AppleScript can handle
-                if parsed_deadline.lower() == "today":
-                    script_parts.append('        set due date of theTodo to (current date)')
-                elif parsed_deadline.lower() == "tomorrow":
-                    script_parts.append('        set due date of theTodo to ((current date) + 1 * days)')
-                # For specific dates (YYYY-MM-DD), skip setting the property
-                # Things will handle these through other mechanisms
+                if deadline == "":
+                    # Empty string means remove the deadline - but AppleScript doesn't support this directly
+                    # We'll need to work around this limitation
+                    logger.warning("Removing due dates via AppleScript is not supported by Things 3")
+                    # Skip setting any due date - user will need to remove manually
+                else:
+                    parsed_deadline = self._parse_relative_date(deadline)
+                    deadline_lower = deadline.lower().strip()
+                    
+                    # Handle relative deadlines with AppleScript date arithmetic  
+                    if deadline_lower == "today":
+                        script_parts.append('        set due date of theTodo to (current date)')
+                    elif deadline_lower == "tomorrow":
+                        script_parts.append('        set due date of theTodo to ((current date) + 1 * days)')
+                    elif deadline_lower == "yesterday":
+                        script_parts.append('        set due date of theTodo to ((current date) - 1 * days)')
+                    else:
+                        # For specific dates, set the due date directly
+                        if "/" in deadline or "-" in deadline:
+                            # Convert ISO date to MM/DD/YYYY format for AppleScript
+                            applescript_date = self._convert_iso_to_applescript_date(parsed_deadline)
+                            script_parts.append(f'        set due date of theTodo to date "{applescript_date}"')
+                        else:
+                            # Try as-is
+                            script_parts.append(f'        set due date of theTodo to date "{deadline}"')
             
             # Handle completion status
             if completed is True:
@@ -1299,7 +1406,8 @@ class ThingsTools:
     
     async def search_advanced(self, status: Optional[str] = None, type: Optional[str] = None,
                         tag: Optional[str] = None, area: Optional[str] = None,
-                        start_date: Optional[str] = None, deadline: Optional[str] = None) -> List[Dict[str, Any]]:
+                        start_date: Optional[str] = None, deadline: Optional[str] = None,
+                        limit: int = 50) -> List[Dict[str, Any]]:
         """Advanced todo search using AppleScript 'whose' clause for efficiency.
         
         Args:
@@ -1309,15 +1417,19 @@ class ThingsTools:
             area: Filter by area UUID
             start_date: Filter by start date (YYYY-MM-DD)
             deadline: Filter by deadline (YYYY-MM-DD)
+            limit: Maximum number of results to return (default: 50, max: 500)
             
         Returns:
             List of matching todo dictionaries
         """
         try:
+            # Validate and clamp the limit to reasonable bounds
+            limit = max(1, min(limit, 500))  # Between 1 and 500
+            
             # Build "whose" clause conditions for efficient native filtering
             conditions = []
             
-            # Status filter
+            # Status filter - be more specific for incomplete to avoid massive searches
             if status:
                 if status == "incomplete":
                     conditions.append('status is open')
@@ -1342,11 +1454,17 @@ class ThingsTools:
             if conditions:
                 where_clause = f"whose {' and '.join(conditions)}"
             
-            # Choose collection based on type
+            # Choose collection based on type and optimize for common searches
             if type == "project":
                 collection = "projects"
             else:
-                collection = "to dos"  # Default to todos for "to-do" or no type specified
+                # For "to-do" type with incomplete status, we can use specific lists for better performance
+                if status == "incomplete" and not tag and not area and not start_date and not deadline:
+                    # Use combined lists instead of all todos for better performance
+                    collection = "(to dos of list \"today\") & (to dos of list \"upcoming\") & (to dos of list \"anytime\") & (to dos of list \"someday\")"
+                    where_clause = ""  # No need for additional filtering since lists are already filtered
+                else:
+                    collection = "to dos"  # Default to todos for other cases
             
             # Build efficient AppleScript using "whose" clause
             script = f'''
@@ -1355,11 +1473,19 @@ class ThingsTools:
                 set matchedItems to {collection} {where_clause}
                 
                 set searchResults to {{}}
-                set maxResults to 100  -- Reasonable limit for advanced search
+                set maxResults to {limit}  -- Configurable limit for advanced search
                 set resultCount to 0
+                set totalCount to count of matchedItems
                 
-                repeat with theItem in matchedItems
-                    if resultCount >= maxResults then exit repeat
+                -- Limit processing to maxResults or total, whichever is smaller
+                if totalCount > maxResults then
+                    set itemsToProcess to maxResults
+                else
+                    set itemsToProcess to totalCount
+                end if
+                
+                repeat with i from 1 to itemsToProcess
+                    set theItem to item i of matchedItems
                     try
                         set itemRecord to {{}}
                         set itemRecord to itemRecord & {{id:(id of theItem)}}
@@ -1399,7 +1525,6 @@ class ThingsTools:
                         end if
                         
                         set searchResults to searchResults & {{itemRecord}}
-                        set resultCount to resultCount + 1
                     on error
                         -- Skip items that can't be accessed
                     end try
@@ -1416,10 +1541,26 @@ class ThingsTools:
                 # Parse using existing parser
                 todos = self._parse_applescript_todos(result.get("output", ""))
                 
-                # Add filter context
-                filters = {k: v for k, v in locals().items() if v is not None and k != 'self'}
-                for todo in todos:
-                    todo["search_filters"] = filters
+                # Add filter context - be explicit about which parameters to include
+                filters = {}
+                if status is not None:
+                    filters["status"] = status
+                if type is not None:
+                    filters["type"] = type
+                if tag is not None:
+                    filters["tag"] = tag
+                if area is not None:
+                    filters["area"] = area
+                if start_date is not None:
+                    filters["start_date"] = start_date
+                if deadline is not None:
+                    filters["deadline"] = deadline
+                filters["limit"] = limit  # Always include limit for transparency
+                
+                # Only add filters if there are any, and make them serializable
+                if filters:
+                    for todo in todos:
+                        todo["search_filters"] = filters.copy()  # Use copy to avoid any reference issues
                 
                 logger.info(f"Efficient advanced search found {len(todos)} items with filters: {filters}")
                 return todos
@@ -1601,6 +1742,112 @@ class ThingsTools:
             logger.error(f"Error removing tags: {e}")
             raise
     
+    async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
+        """Move a todo to a different list in Things using AppleScript 'move' command.
+        
+        This function moves a todo to one of Things' standard lists. Note that some moves may
+        fail if the todo doesn't meet the requirements for the destination list (e.g., moving
+        to 'upcoming' requires the todo to have a start date set).
+        
+        Args:
+            todo_id: ID of the todo to move
+            destination_list: Name of the destination list. Valid options are:
+                - inbox: Inbox list (default location for new todos)
+                - today: Today list (scheduled for today)
+                - anytime: Anytime list (todos without specific schedule)
+                - someday: Someday list (todos for someday/maybe)
+                - upcoming: Upcoming list (todos with future start dates)
+                - logbook: Logbook list (completed todos)
+            
+        Returns:
+            Dict with move operation result containing:
+                - success: Boolean indicating if move succeeded
+                - message: Success/error message
+                - todo_id: ID of the todo that was moved
+                - destination_list: Target list name
+                - moved_at: Timestamp of successful move (only on success)
+                - error: Error details (only on failure)
+        """
+        try:
+            # Validate destination list
+            valid_lists = ["inbox", "today", "anytime", "someday", "upcoming", "logbook"]
+            if destination_list.lower() not in valid_lists:
+                raise ValueError(f"Invalid destination list: {destination_list}. Valid options are: {', '.join(valid_lists)}")
+            
+            # Normalize the destination list name
+            normalized_destination = destination_list.lower()
+            
+            # Build AppleScript to move the todo
+            escaped_todo_id = self._escape_applescript_string(todo_id)
+            
+            # Use Things' native 'move' command with proper list reference
+            script = f'''
+            tell application "Things3"
+                try
+                    set theTodo to to do id {escaped_todo_id}
+                    set targetList to list "{normalized_destination}"
+                    move theTodo to targetList
+                    return "moved"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script, cache_key=None)
+            
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                
+                if "moved" in output:
+                    logger.info(f"Successfully moved todo {todo_id} to {destination_list}")
+                    return {
+                        "success": True,
+                        "message": f"Todo moved to {destination_list} successfully",
+                        "todo_id": todo_id,
+                        "destination_list": destination_list,
+                        "moved_at": datetime.now().isoformat()
+                    }
+                elif output.startswith("error:"):
+                    error_msg = output.replace("error: ", "")
+                    logger.error(f"AppleScript error moving todo {todo_id}: {error_msg}")
+                    
+                    # Provide more helpful error messages for common issues
+                    if "Cannot move" in error_msg and normalized_destination == "upcoming":
+                        friendly_error = "Cannot move to Upcoming list. The todo may need a start date set to appear in Upcoming."
+                    elif "Cannot move" in error_msg and normalized_destination == "logbook":
+                        friendly_error = "Cannot move to Logbook. Only completed todos can be moved to Logbook."
+                    else:
+                        friendly_error = f"Failed to move todo: {error_msg}"
+                    
+                    return {
+                        "success": False,
+                        "error": friendly_error,
+                        "todo_id": todo_id,
+                        "destination_list": destination_list
+                    }
+                else:
+                    logger.error(f"Unexpected AppleScript output: {output}")
+                    return {
+                        "success": False,
+                        "error": f"Unexpected response: {output}",
+                        "todo_id": todo_id,
+                        "destination_list": destination_list
+                    }
+            else:
+                error_msg = result.get("error", "AppleScript execution failed")
+                logger.error(f"Failed to execute move AppleScript: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "todo_id": todo_id,
+                    "destination_list": destination_list
+                }
+        
+        except Exception as e:
+            logger.error(f"Error moving todo: {e}")
+            raise
+    
     # Removed show_item and search_items methods as they trigger UI changes
     # which are not appropriate for MCP server operations
     
@@ -1630,11 +1877,38 @@ class ThingsTools:
                 logger.error(f"Unknown list name: {list_name}")
                 return []
             
-            # Build AppleScript to get todos from the specified list
-            script = f'''
-            tell application "Things3"
-                set todoList to {{}}
-                set listRef to list "{list_mapping[list_name]}"
+            # Build AppleScript to get todos from the specified list with proper limiting
+            limit_clause = ""
+            if limit:
+                limit_clause = f"""
+                set allTodos to to dos of listRef
+                set itemCount to count of allTodos
+                set maxItems to {limit}
+                
+                if itemCount > 0 then
+                    if itemCount > maxItems then
+                        set itemsToProcess to maxItems
+                    else
+                        set itemsToProcess to itemCount
+                    end if
+                    
+                    repeat with i from 1 to itemsToProcess
+                        set theTodo to item i of allTodos
+                        set todoRecord to {{}}
+                        try
+                            set todoRecord to todoRecord & {{id:id of theTodo}}
+                            set todoRecord to todoRecord & {{name:name of theTodo}}
+                            set todoRecord to todoRecord & {{notes:notes of theTodo}}
+                            set todoRecord to todoRecord & {{status:status of theTodo}}
+                            set todoRecord to todoRecord & {{tag_names:tag names of theTodo}}
+                            set todoRecord to todoRecord & {{creation_date:creation date of theTodo}}
+                            set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
+                            set todoList to todoList & {{todoRecord}}
+                        end try
+                    end repeat
+                end if"""
+            else:
+                limit_clause = """
                 repeat with theTodo in to dos of listRef
                     set todoRecord to {{}}
                     try
@@ -1647,7 +1921,13 @@ class ThingsTools:
                         set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
                         set todoList to todoList & {{todoRecord}}
                     end try
-                end repeat
+                end repeat"""
+            
+            script = f'''
+            tell application "Things3"
+                set todoList to {{}}
+                set listRef to list "{list_mapping[list_name]}"
+                {limit_clause}
                 return todoList
             end tell
             '''
@@ -1658,10 +1938,7 @@ class ThingsTools:
                 # Parse the AppleScript output
                 todos = self._parse_applescript_todos(result.get("output", ""))
                 
-                # Apply limit if specified
-                if limit and todos:
-                    todos = todos[:limit]
-                
+                # Limit is already applied in AppleScript, so no need for post-processing
                 logger.info(f"Retrieved {len(todos)} todos from {list_name}")
                 return todos
             else:
