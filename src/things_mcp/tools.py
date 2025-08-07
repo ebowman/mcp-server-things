@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
 from .applescript_manager import AppleScriptManager
-from .reliable_scheduling import ReliableThingsScheduler
+from .pure_applescript_scheduler import PureAppleScriptScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class ThingsTools:
             applescript_manager: AppleScript manager instance
         """
         self.applescript = applescript_manager
-        self.reliable_scheduler = ReliableThingsScheduler(applescript_manager)
+        self.reliable_scheduler = PureAppleScriptScheduler(applescript_manager)
         logger.info("Things tools initialized")
     
     def _escape_applescript_string(self, text: str) -> str:
@@ -56,6 +56,119 @@ class ThingsTools:
             # Return original if not in expected format
             return iso_date
     
+    def _parse_period_date(self, date_input: str) -> dict:
+        """Parse period-based dates like 'this week', 'next week' into when+deadline combinations.
+        
+        Args:
+            date_input: User input date string
+            
+        Returns:
+            Dict with 'when', 'deadline', and 'is_period' keys, or None if not a period
+        """
+        if not date_input:
+            return None
+            
+        input_lower = date_input.lower().strip()
+        today = datetime.now().date()
+        
+        if input_lower in ['this week', 'thisweek']:
+            # "this week" -> when: today, deadline: this Friday
+            days_until_friday = (4 - today.weekday()) % 7
+            if days_until_friday == 0 and today.weekday() == 4:  # It's Friday
+                this_friday = today
+            else:
+                this_friday = today + timedelta(days=days_until_friday) if days_until_friday > 0 else today + timedelta(days=7+days_until_friday)
+            
+            return {
+                'when': today.isoformat(),
+                'deadline': this_friday.isoformat(),
+                'is_period': True,
+                'period_type': 'this_week'
+            }
+            
+        elif input_lower in ['next week', 'nextweek']:
+            # "next week" -> when: next Monday, deadline: Friday after next Monday  
+            days_until_next_monday = 7 - today.weekday()
+            if today.weekday() == 6:  # Sunday
+                days_until_next_monday = 1
+            next_monday = today + timedelta(days=days_until_next_monday)
+            friday_after_next_monday = next_monday + timedelta(days=4)
+            
+            return {
+                'when': next_monday.isoformat(),
+                'deadline': friday_after_next_monday.isoformat(),
+                'is_period': True,
+                'period_type': 'next_week'
+            }
+            
+        elif input_lower in ['this month', 'thismonth']:
+            # "this month" -> when: today, deadline: end of this month
+            # Find last day of current month
+            next_month = today.replace(day=28) + timedelta(days=4)
+            end_of_month = next_month - timedelta(days=next_month.day)
+            
+            return {
+                'when': today.isoformat(),
+                'deadline': end_of_month.isoformat(),
+                'is_period': True,
+                'period_type': 'this_month'
+            }
+            
+        elif input_lower in ['next month', 'nextmonth']:
+            # "next month" -> when: first day of next month, deadline: end of next month
+            next_month = today.replace(day=28) + timedelta(days=4)
+            first_day_next_month = next_month.replace(day=1)
+            # Find last day of next month
+            month_after_next = first_day_next_month.replace(day=28) + timedelta(days=4)
+            end_of_next_month = month_after_next - timedelta(days=month_after_next.day)
+            
+            return {
+                'when': first_day_next_month.isoformat(),
+                'deadline': end_of_next_month.isoformat(),
+                'is_period': True,
+                'period_type': 'next_month'
+            }
+        
+        return None
+    
+    async def _set_todo_deadline(self, todo_id: str, deadline_date: str) -> dict:
+        """Set deadline for a todo using AppleScript.
+        
+        Args:
+            todo_id: Things todo ID
+            deadline_date: ISO date string (YYYY-MM-DD)
+            
+        Returns:
+            Dict with success status
+        """
+        try:
+            # Convert ISO date to DD/MM/YYYY format for AppleScript
+            deadline_applescript = self._convert_iso_to_applescript_date(deadline_date)
+            
+            script = f'''
+            tell application "Things3"
+                try
+                    set theTodo to to do id "{todo_id}"
+                    set due date of theTodo to date "{deadline_applescript}"
+                    return "deadline_set"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success") and "deadline_set" in result.get("output", ""):
+                logger.info(f"Successfully set deadline {deadline_date} for todo {todo_id}")
+                return {"success": True, "deadline": deadline_date}
+            else:
+                logger.warning(f"Failed to set deadline: {result.get('output', 'Unknown error')}")
+                return {"success": False, "error": result.get("output", "Unknown error")}
+                
+        except Exception as e:
+            logger.error(f"Error setting deadline: {e}")
+            return {"success": False, "error": str(e)}
+    
     def _parse_relative_date(self, date_input: str) -> str:
         """Parse relative date input like 'tomorrow', 'Friday', etc. to YYYY-MM-DD format.
         
@@ -84,6 +197,22 @@ class ThingsTools:
             if days_ahead <= 0:
                 days_ahead += 7
             return (today + timedelta(days=days_ahead)).isoformat()
+        elif input_lower in ['this week', 'thisweek']:
+            # Smart "this week" handling based on current day
+            current_weekday = today.weekday()  # 0=Monday, 6=Sunday
+            if current_weekday <= 2:  # Monday-Wednesday: suggest Wednesday
+                target_date = today + timedelta(days=(2 - current_weekday))
+            elif current_weekday <= 4:  # Thursday-Friday: suggest Friday  
+                target_date = today + timedelta(days=(4 - current_weekday))
+            else:  # Weekend: suggest Monday next week
+                days_until_monday = 7 - current_weekday
+                target_date = today + timedelta(days=days_until_monday)
+            return target_date.isoformat()
+        elif input_lower in ['next week', 'nextweek']:
+            # Smart "next week" handling - default to Tuesday of next week
+            days_until_next_monday = 7 - today.weekday()
+            next_tuesday = today + timedelta(days=days_until_next_monday + 1)
+            return next_tuesday.isoformat()
         elif input_lower.endswith('week') and input_lower.startswith('next'):
             return (today + timedelta(weeks=1)).isoformat()
         
@@ -478,16 +607,12 @@ class ThingsTools:
                 # Create in inbox (default)
                 script_parts.append(f'        set newTodo to make new to do with properties {properties_string}')
             
-            # Add tags if specified
+            # Add tags if specified - use comma-separated string approach (same as update_todo)
             if tags:
-                for tag in tags:
-                    escaped_tag = self._escape_applescript_string(tag)
-                    script_parts.append(f'        try')
-                    script_parts.append(f'            set targetTag to first tag whose name is {escaped_tag}')
-                    script_parts.append(f'            set tag names of newTodo to (tag names of newTodo) & {{targetTag}}')
-                    script_parts.append(f'        on error')
-                    script_parts.append(f'            -- Tag might not exist, skip')
-                    script_parts.append(f'        end try')
+                # Set tags as comma-separated string (this works reliably)
+                tags_string = ", ".join(tags)
+                escaped_tags = self._escape_applescript_string(tags_string)
+                script_parts.append(f'        set tag names of newTodo to {escaped_tags}')
             
             
             # Note: Scheduling will be handled post-creation using reliable method
@@ -519,10 +644,39 @@ class ThingsTools:
                 # The output should be the todo ID
                 todo_id = output
                 
-                # Handle scheduling post-creation using reliable method
+                # Handle scheduling post-creation using enhanced method
                 scheduling_result = None
+                resolved_when = when
+                resolved_deadline = deadline
+                
                 if when:
-                    scheduling_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when)
+                    # Check if this is a period-based date (this week, next week, etc.)
+                    period_info = self._parse_period_date(when)
+                    if period_info:
+                        # Use period-based scheduling with both when and deadline
+                        resolved_when = period_info['when']
+                        resolved_deadline = period_info['deadline']
+                        
+                        # Schedule with the resolved when date
+                        scheduling_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, resolved_when)
+                        
+                        # Set the deadline separately if it's different
+                        if resolved_deadline and resolved_deadline != resolved_when:
+                            deadline_result = await self._set_todo_deadline(todo_id, resolved_deadline)
+                            if scheduling_result:
+                                scheduling_result['deadline_set'] = deadline_result
+                        
+                        # Add period info to scheduling result
+                        if scheduling_result:
+                            scheduling_result.update({
+                                'period_type': period_info['period_type'],
+                                'original_input': when,
+                                'resolved_when': resolved_when,
+                                'resolved_deadline': resolved_deadline
+                            })
+                    else:
+                        # Regular single-date scheduling
+                        scheduling_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when)
                 
                 # Create response with todo information
                 todo_data = {
@@ -531,8 +685,8 @@ class ThingsTools:
                     "title": title,
                     "notes": notes,
                     "tags": tags or [],
-                    "when": when,
-                    "deadline": deadline,
+                    "when": resolved_when,
+                    "deadline": resolved_deadline,
                     "list_id": list_id,
                     "list_title": list_title,
                     "heading": heading,
@@ -1690,7 +1844,11 @@ class ThingsTools:
             raise
     
     async def get_recent(self, period: str) -> List[Dict[str, Any]]:
-        """Get recently created items.
+        """Get recently created items using Things 3's native filtering.
+        
+        This implementation uses AppleScript's 'whose' clause to let Things 3
+        do the filtering natively, which is MUCH faster than iterating through
+        all items manually.
         
         Args:
             period: Time period (e.g., '3d', '1w', '2m', '1y')
@@ -1702,79 +1860,128 @@ class ThingsTools:
             # Parse the period to get number of days
             days = self._parse_period_to_days(period)
             
-            # Build AppleScript to get recent items
+            # Build highly optimized AppleScript using native filtering
+            # This lets Things 3 do the heavy lifting internally
             script = f'''
             tell application "Things3"
                 set recentItems to {{}}
                 set cutoffDate to (current date) - ({days} * days)
+                set maxResults to 200
                 
-                -- Get recent todos
-                repeat with theTodo in to dos
-                    try
-                        set todoCreationDate to creation date of theTodo
-                        if todoCreationDate > cutoffDate then
+                -- Use native filtering with "whose" clause for todos
+                -- This is ORDERS OF MAGNITUDE faster than manual iteration
+                try
+                    -- Get todos created after cutoff date using native filtering
+                    -- Things 3 handles this internally with its optimized database
+                    set recentTodos to to dos whose creation date > cutoffDate
+                    
+                    -- Limit results for performance
+                    set todoCount to 0
+                    repeat with theTodo in recentTodos
+                        if todoCount >= maxResults then exit repeat
+                        
+                        try
                             set itemRecord to {{}}
                             set itemRecord to itemRecord & {{id:(id of theTodo)}}
                             set itemRecord to itemRecord & {{name:(name of theTodo)}}
                             set itemRecord to itemRecord & {{notes:(notes of theTodo)}}
                             set itemRecord to itemRecord & {{status:(status of theTodo)}}
                             set itemRecord to itemRecord & {{tag_names:(tag names of theTodo)}}
-                            set itemRecord to itemRecord & {{creation_date:todoCreationDate}}
+                            set itemRecord to itemRecord & {{creation_date:(creation date of theTodo)}}
                             set itemRecord to itemRecord & {{modification_date:(modification date of theTodo)}}
                             set itemRecord to itemRecord & {{item_type:"todo"}}
                             
+                            -- Include activation date if scheduled
+                            try
+                                set itemRecord to itemRecord & {{activation_date:(activation date of theTodo)}}
+                            on error
+                                set itemRecord to itemRecord & {{activation_date:missing value}}
+                            end try
+                            
+                            -- Include project info if available
                             try
                                 set todoProject to project of theTodo
                                 if todoProject is not missing value then
                                     set itemRecord to itemRecord & {{project_id:(id of todoProject)}}
+                                    set itemRecord to itemRecord & {{project_name:(name of todoProject)}}
                                 end if
                             on error
-                                -- Todo has no project
+                                -- No project
+                            end try
+                            
+                            -- Include area info if available
+                            try
+                                set todoArea to area of theTodo
+                                if todoArea is not missing value then
+                                    set itemRecord to itemRecord & {{area_id:(id of todoArea)}}
+                                    set itemRecord to itemRecord & {{area_name:(name of todoArea)}}
+                                end if
+                            on error
+                                -- No area
                             end try
                             
                             set recentItems to recentItems & {{itemRecord}}
-                        end if
-                    on error
-                        -- Skip todos that can't be accessed
-                    end try
-                end repeat
+                            set todoCount to todoCount + 1
+                        on error
+                            -- Skip items that can't be accessed
+                        end try
+                    end repeat
+                on error errMsg
+                    -- Log but continue if todos filtering fails
+                    log "Todo filtering error: " & errMsg
+                end try
                 
-                -- Get recent projects
-                repeat with theProject in projects
+                -- Also get recent projects using native filtering
+                if (count of recentItems) < maxResults then
                     try
-                        set projectCreationDate to creation date of theProject
-                        if projectCreationDate > cutoffDate then
-                            set itemRecord to {{}}
-                            set itemRecord to itemRecord & {{id:(id of theProject)}}
-                            set itemRecord to itemRecord & {{name:(name of theProject)}}
-                            set itemRecord to itemRecord & {{notes:(notes of theProject)}}
-                            set itemRecord to itemRecord & {{status:(status of theProject)}}
-                            set itemRecord to itemRecord & {{tag_names:(tag names of theProject)}}
-                            set itemRecord to itemRecord & {{creation_date:projectCreationDate}}
-                            set itemRecord to itemRecord & {{modification_date:(modification date of theProject)}}
-                            set itemRecord to itemRecord & {{item_type:"project"}}
+                        set recentProjects to projects whose creation date > cutoffDate
+                        
+                        set projectCount to 0
+                        set remainingSlots to maxResults - (count of recentItems)
+                        
+                        repeat with theProject in recentProjects
+                            if projectCount >= remainingSlots then exit repeat
                             
                             try
-                                set projectArea to area of theProject
-                                if projectArea is not missing value then
-                                    set itemRecord to itemRecord & {{area_id:(id of projectArea)}}
-                                end if
+                                set itemRecord to {{}}
+                                set itemRecord to itemRecord & {{id:(id of theProject)}}
+                                set itemRecord to itemRecord & {{name:(name of theProject)}}
+                                set itemRecord to itemRecord & {{notes:(notes of theProject)}}
+                                set itemRecord to itemRecord & {{status:(status of theProject)}}
+                                set itemRecord to itemRecord & {{tag_names:(tag names of theProject)}}
+                                set itemRecord to itemRecord & {{creation_date:(creation date of theProject)}}
+                                set itemRecord to itemRecord & {{modification_date:(modification date of theProject)}}
+                                set itemRecord to itemRecord & {{item_type:"project"}}
+                                
+                                -- Include area info if available
+                                try
+                                    set projectArea to area of theProject
+                                    if projectArea is not missing value then
+                                        set itemRecord to itemRecord & {{area_id:(id of projectArea)}}
+                                        set itemRecord to itemRecord & {{area_name:(name of projectArea)}}
+                                    end if
+                                on error
+                                    -- No area
+                                end try
+                                
+                                set recentItems to recentItems & {{itemRecord}}
+                                set projectCount to projectCount + 1
                             on error
-                                -- Project has no area
+                                -- Skip items that can't be accessed
                             end try
-                            
-                            set recentItems to recentItems & {{itemRecord}}
-                        end if
-                    on error
-                        -- Skip projects that can't be accessed
+                        end repeat
+                    on error errMsg
+                        -- Log but continue if project filtering fails
+                        log "Project filtering error: " & errMsg
                     end try
-                end repeat
+                end if
                 
                 return recentItems
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, f"recent_items_{period}")
+            # Don't cache this query as results change frequently
+            result = await self.applescript.execute_applescript(script, cache_key=None)
             
             if result.get("success"):
                 # Parse the AppleScript output
