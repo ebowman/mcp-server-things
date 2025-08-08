@@ -157,7 +157,7 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def delete_todo(
             todo_id: str = Field(..., description="ID of the todo to delete")
-        ) -> Dict[str, str]:
+        ) -> Dict[str, Any]:
             """Delete a todo from Things."""
             try:
                 return await self.tools.delete_todo(todo_id)
