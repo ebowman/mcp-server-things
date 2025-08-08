@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class AppleScriptManager:
     """Manages AppleScript execution and Things URL schemes."""
     
-    def __init__(self, timeout: int = 30, retry_count: int = 3):
+    def __init__(self, timeout: int = 45, retry_count: int = 3):
         """Initialize the AppleScript manager.
         
         Args:
@@ -79,8 +79,9 @@ class AppleScriptManager:
         
         result = await self._execute_script_with_retry(script)
         
-        # Cache successful results (but not for searches or adds)
-        if cache_key and result.get("success") and not any(x in cache_key for x in ['search', 'add', 'update', 'delete']):
+        # OPTIMIZATION: Cache successful results with granular invalidation strategy
+        # Don't cache mutation operations but do cache read-only queries
+        if cache_key and result.get("success") and not any(x in cache_key for x in ['search', 'add', 'update', 'delete', 'move', 'complete']):
             self._cache_result(cache_key, result)
         
         return result
@@ -124,7 +125,7 @@ class AppleScriptManager:
             }
     
     async def get_todos(self, project_uuid: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get todos from Things 3.
+        """Get todos from Things 3 using optimized batch property retrieval.
         
         Args:
             project_uuid: Optional project UUID to filter by
@@ -135,37 +136,117 @@ class AppleScriptManager:
         try:
             if project_uuid:
                 script = f'''
+                on replaceText(someText, oldText, newText)
+                    set AppleScript's text item delimiters to oldText
+                    set textItems to text items of someText
+                    set AppleScript's text item delimiters to newText
+                    set newText to textItems as string
+                    set AppleScript's text item delimiters to {{}}
+                    return newText
+                end replaceText
+                
                 tell application "Things3"
-                    set todoList to {{}}
                     set theProject to project id "{project_uuid}"
-                    repeat with theTodo in to dos of theProject
-                        set todoRecord to {{}}
-                        set todoRecord to todoRecord & {{id:id of theTodo}}
-                        set todoRecord to todoRecord & {{name:name of theTodo}}
-                        set todoRecord to todoRecord & {{notes:notes of theTodo}}
-                        set todoRecord to todoRecord & {{status:status of theTodo}}
-                        set todoRecord to todoRecord & {{creation_date:creation date of theTodo}}
-                        set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
-                        set todoList to todoList & {{todoRecord}}
+                    set todoSource to to dos of theProject
+                    
+                    -- Check if there are any todos
+                    if length of todoSource = 0 then
+                        return ""
+                    end if
+                    
+                    -- Optimized: Build output directly without intermediate arrays
+                    set outputText to ""
+                    repeat with theTodo in todoSource
+                        if outputText is not "" then
+                            set outputText to outputText & ", "
+                        end if
+                        
+                        -- Handle date conversion properly
+                        set creationDateStr to ""
+                        try
+                            set creationDateStr to ((creation date of theTodo) as string)
+                        on error
+                            set creationDateStr to "missing value"
+                        end try
+                        
+                        set modificationDateStr to ""
+                        try
+                            set modificationDateStr to ((modification date of theTodo) as string)
+                        on error
+                            set modificationDateStr to "missing value"
+                        end try
+                        
+                        -- Handle notes which might contain commas
+                        set noteStr to ""
+                        try
+                            set noteStr to (notes of theTodo)
+                            -- Replace commas in notes to avoid parsing issues
+                            set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                        on error
+                            set noteStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
                     end repeat
-                    return todoList
+                    
+                    return outputText
                 end tell
                 '''
             else:
                 script = '''
+                on replaceText(someText, oldText, newText)
+                    set AppleScript's text item delimiters to oldText
+                    set textItems to text items of someText
+                    set AppleScript's text item delimiters to newText
+                    set newText to textItems as string
+                    set AppleScript's text item delimiters to {}
+                    return newText
+                end replaceText
+                
                 tell application "Things3"
-                    set todoList to {}
-                    repeat with theTodo in to dos
-                        set todoRecord to {}
-                        set todoRecord to todoRecord & {id:id of theTodo}
-                        set todoRecord to todoRecord & {name:name of theTodo}
-                        set todoRecord to todoRecord & {notes:notes of theTodo}
-                        set todoRecord to todoRecord & {status:status of theTodo}
-                        set todoRecord to todoRecord & {creation_date:creation date of theTodo}
-                        set todoRecord to todoRecord & {modification_date:modification date of theTodo}
-                        set todoList to todoList & {todoRecord}
+                    set todoSource to to dos
+                    
+                    -- Check if there are any todos
+                    if length of todoSource = 0 then
+                        return ""
+                    end if
+                    
+                    -- Optimized: Build output directly without intermediate arrays
+                    set outputText to ""
+                    repeat with theTodo in todoSource
+                        if outputText is not "" then
+                            set outputText to outputText & ", "
+                        end if
+                        
+                        -- Handle date conversion properly
+                        set creationDateStr to ""
+                        try
+                            set creationDateStr to ((creation date of theTodo) as string)
+                        on error
+                            set creationDateStr to "missing value"
+                        end try
+                        
+                        set modificationDateStr to ""
+                        try
+                            set modificationDateStr to ((modification date of theTodo) as string)
+                        on error
+                            set modificationDateStr to "missing value"
+                        end try
+                        
+                        -- Handle notes which might contain commas
+                        set noteStr to ""
+                        try
+                            set noteStr to (notes of theTodo)
+                            -- Replace commas in notes to avoid parsing issues
+                            set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                        on error
+                            set noteStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
                     end repeat
-                    return todoList
+                    
+                    return outputText
                 end tell
                 '''
             
@@ -188,22 +269,62 @@ class AppleScriptManager:
             raise
     
     async def get_projects(self) -> List[Dict[str, Any]]:
-        """Get all projects from Things 3."""
+        """Get all projects from Things 3 using optimized batch property retrieval."""
         try:
             script = '''
+            on replaceText(someText, oldText, newText)
+                set AppleScript's text item delimiters to oldText
+                set textItems to text items of someText
+                set AppleScript's text item delimiters to newText
+                set newText to textItems as string
+                set AppleScript's text item delimiters to {}
+                return newText
+            end replaceText
+            
             tell application "Things3"
-                set projectList to {}
-                repeat with theProject in projects
-                    set projectRecord to {}
-                    set projectRecord to projectRecord & {id:id of theProject}
-                    set projectRecord to projectRecord & {name:name of theProject}
-                    set projectRecord to projectRecord & {notes:notes of theProject}
-                    set projectRecord to projectRecord & {status:status of theProject}
-                    set projectRecord to projectRecord & {creation_date:creation date of theProject}
-                    set projectRecord to projectRecord & {modification_date:modification date of theProject}
-                    set projectList to projectList & {projectRecord}
+                set projectSource to projects
+                
+                -- Check if there are any projects
+                if length of projectSource = 0 then
+                    return ""
+                end if
+                
+                -- Optimized: Build output directly without intermediate arrays
+                set outputText to ""
+                repeat with theProject in projectSource
+                    if outputText is not "" then
+                        set outputText to outputText & ", "
+                    end if
+                    
+                    -- Handle date conversion properly
+                    set creationDateStr to ""
+                    try
+                        set creationDateStr to ((creation date of theProject) as string)
+                    on error
+                        set creationDateStr to "missing value"
+                    end try
+                    
+                    set modificationDateStr to ""
+                    try
+                        set modificationDateStr to ((modification date of theProject) as string)
+                    on error
+                        set modificationDateStr to "missing value"
+                    end try
+                    
+                    -- Handle notes which might contain commas
+                    set noteStr to ""
+                    try
+                        set noteStr to (notes of theProject)
+                        -- Replace commas in notes to avoid parsing issues
+                        set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                    on error
+                        set noteStr to "missing value"
+                    end try
+                    
+                    set outputText to outputText & "id:" & (id of theProject) & ", name:" & (name of theProject) & ", notes:" & noteStr & ", status:" & (status of theProject) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
                 end repeat
-                return projectList
+                
+                return outputText
             end tell
             '''
             
@@ -225,27 +346,41 @@ class AppleScriptManager:
             raise
     
     async def get_areas(self) -> List[Dict[str, Any]]:
-        """Get all areas from Things 3."""
+        """Get all areas from Things 3 using optimized batch property retrieval.
+        
+        Note: Areas in Things 3 only have 'id' and 'name' properties.
+        """
         try:
             script = '''
+            on replaceText(someText, oldText, newText)
+                set AppleScript's text item delimiters to oldText
+                set textItems to text items of someText
+                set AppleScript's text item delimiters to newText
+                set newText to textItems as string
+                set AppleScript's text item delimiters to {}
+                return newText
+            end replaceText
+            
             tell application "Things3"
-                set areaList to {}
-                repeat with theArea in areas
-                    set areaRecord to {}
-                    try
-                        set areaRecord to areaRecord & {id:id of theArea}
-                        set areaRecord to areaRecord & {name:name of theArea}
-                        try
-                            set areaRecord to areaRecord & {notes:notes of theArea}
-                        on error
-                            set areaRecord to areaRecord & {notes:missing value}
-                        end try
-                        set areaRecord to areaRecord & {creation_date:creation date of theArea}
-                        set areaRecord to areaRecord & {modification_date:modification date of theArea}
-                        set areaList to areaList & {areaRecord}
-                    end try
+                set areaSource to areas
+                
+                -- Check if there are any areas
+                if length of areaSource = 0 then
+                    return ""
+                end if
+                
+                -- Optimized: Build output directly without intermediate arrays
+                -- Areas in Things 3 only have id and name properties
+                set outputText to ""
+                repeat with theArea in areaSource
+                    if outputText is not "" then
+                        set outputText to outputText & ", "
+                    end if
+                    
+                    set outputText to outputText & "id:" & (id of theArea) & ", name:" & (name of theArea)
                 end repeat
-                return areaList
+                
+                return outputText
             end tell
             '''
             

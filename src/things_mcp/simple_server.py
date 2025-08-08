@@ -136,6 +136,18 @@ class ThingsMCPServer:
                 logger.error(f"Error deleting todo: {e}")
                 raise
         
+        @self.mcp.tool()
+        async def move_record(
+            todo_id: str = Field(..., description="ID of the todo to move"),
+            destination_list: str = Field(..., description="Destination list name (inbox, today, anytime, someday, upcoming, logbook)")
+        ) -> Dict[str, Any]:
+            """Move a todo to a different list in Things."""
+            try:
+                return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
+            except Exception as e:
+                logger.error(f"Error moving todo: {e}")
+                raise
+        
         # Project management tools
         @self.mcp.tool()
         async def get_projects(
@@ -337,7 +349,8 @@ class ThingsMCPServer:
             tag: Optional[str] = Field(None, description="Filter by tag"),
             area: Optional[str] = Field(None, description="Filter by area UUID"),
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
-            deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)")
+            deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
+            limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500)
         ) -> List[Dict[str, Any]]:
             """Advanced todo search with multiple filters."""
             try:
@@ -347,7 +360,8 @@ class ThingsMCPServer:
                     tag=tag,
                     area=area,
                     start_date=start_date,
-                    deadline=deadline
+                    deadline=deadline,
+                    limit=limit
                 )
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")

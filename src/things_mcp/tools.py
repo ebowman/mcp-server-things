@@ -56,6 +56,101 @@ class ThingsTools:
             # Return original if not in expected format
             return iso_date
     
+    async def _ensure_tags_exist(self, tags: List[str]) -> Dict[str, List[str]]:
+        """Ensure tags exist, creating them if necessary in a single AppleScript call.
+        
+        This consolidates all tag existence checking and creation into one efficient
+        operation instead of sequential individual tag checks.
+        
+        Args:
+            tags: List of tag names to ensure exist
+            
+        Returns:
+            Dict with 'created' and 'existing' lists of tag names
+        """
+        if not tags:
+            return {'created': [], 'existing': []}
+            
+        try:
+            # Get all existing tag names in one call
+            existing_tag_names = []
+            try:
+                current_tags = await self.get_tags(include_items=False)
+                existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
+            except Exception as e:
+                logger.warning(f"Could not fetch existing tags: {e}")
+                existing_tag_names = []  # Continue with empty list if fetch fails
+            
+            # Categorize tags into existing and missing
+            existing_tags = []
+            missing_tags = []
+            
+            for tag in tags:
+                if tag.lower() in existing_tag_names:
+                    existing_tags.append(tag)
+                else:
+                    missing_tags.append(tag)
+            
+            # Create all missing tags in one AppleScript call
+            created_tags = []
+            if missing_tags:
+                # OPTIMIZATION: Build consolidated AppleScript to create all missing tags
+                # with compound validation to avoid redundant existence checks  
+                tag_creation_commands = []
+                for tag in missing_tags:
+                    escaped_tag = self._escape_applescript_string(tag)
+                    tag_creation_commands.append(
+                        f'try\n'
+                        f'    make new tag with properties {{name:{escaped_tag}}}\n'
+                        f'    set tagResults to tagResults & {{"{tag}"}}\n'
+                        f'on error\n'
+                        f'    -- Tag creation failed, skip\n'
+                        f'end try'
+                    )
+                
+                create_script = f'''
+                tell application "Things3"
+                    set tagResults to {{}}
+                    {chr(10).join(tag_creation_commands)}
+                    return tagResults
+                end tell
+                '''
+                
+                create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
+                if create_result.get("success"):
+                    output = create_result.get("output", "")
+                    if output and output.strip():
+                        # Parse the list of successfully created tags
+                        try:
+                            created_list = output.strip().split(', ')
+                            for created_tag in created_list:
+                                cleaned_tag = created_tag.strip().strip('"')
+                                if cleaned_tag:
+                                    created_tags.append(cleaned_tag)
+                                    logger.info(f"Created new tag: {cleaned_tag}")
+                        except Exception as e:
+                            logger.warning(f"Could not parse created tags from output: {e}")
+                            # Fallback: assume all missing tags were created
+                            created_tags = missing_tags.copy()
+                    else:
+                        # No output, likely all creations failed
+                        logger.warning("Tag creation returned no results")
+                else:
+                    logger.warning(f"Batch tag creation failed: {create_result.get('error', 'Unknown error')}")
+            
+            result = {
+                'created': created_tags,
+                'existing': existing_tags
+            }
+            
+            logger.info(f"Tag operation complete - Created: {len(created_tags)}, Existing: {len(existing_tags)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error ensuring tags exist: {e}")
+            # Fallback: assume all tags are existing to avoid breaking the parent operation
+            return {'created': [], 'existing': tags}
+    
     def _parse_period_date(self, date_input: str) -> dict:
         """Parse period-based dates like 'this week', 'next week' into when+deadline combinations.
         
@@ -440,41 +535,11 @@ class ThingsTools:
             created_tags = []
             existing_tags = []
             
-            # Check and create missing tags if needed
+            # Ensure all tags exist using consolidated batch operation
             if tags:
-                # Get existing tags
-                existing_tag_names = []
-                try:
-                    current_tags = await self.get_tags(include_items=False)
-                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
-                except Exception as e:
-                    logger.warning(f"Could not fetch existing tags: {e}")
-                
-                # Check each requested tag
-                for tag in tags:
-                    tag_lower = tag.lower()
-                    if tag_lower not in existing_tag_names:
-                        # Tag doesn't exist, create it
-                        escaped_tag = self._escape_applescript_string(tag)
-                        create_script = f'''
-                        tell application "Things3"
-                            try
-                                make new tag with properties {{name:{escaped_tag}}}
-                                return "created"
-                            on error errMsg
-                                return "error: " & errMsg
-                            end try
-                        end tell
-                        '''
-                        
-                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
-                        if create_result.get("success") and "created" in create_result.get("output", ""):
-                            created_tags.append(tag)
-                            logger.info(f"Created new tag: {tag}")
-                        else:
-                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
-                    else:
-                        existing_tags.append(tag)
+                tag_result = await self._ensure_tags_exist(tags)
+                created_tags = tag_result['created']
+                existing_tags = tag_result['existing']
             
             # Handle when/start date - Things 3 supports the schedule command!
             schedule_command = None
@@ -751,41 +816,11 @@ class ThingsTools:
             created_tags = []
             existing_tags = []
             
-            # Check and create missing tags if needed
+            # Ensure all tags exist using consolidated batch operation
             if tags is not None:
-                # Get existing tags
-                existing_tag_names = []
-                try:
-                    current_tags = await self.get_tags(include_items=False)
-                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
-                except Exception as e:
-                    logger.warning(f"Could not fetch existing tags: {e}")
-                
-                # Check each requested tag
-                for tag in tags:
-                    tag_lower = tag.lower()
-                    if tag_lower not in existing_tag_names:
-                        # Tag doesn't exist, create it
-                        escaped_tag = self._escape_applescript_string(tag)
-                        create_script = f'''
-                        tell application "Things3"
-                            try
-                                make new tag with properties {{name:{escaped_tag}}}
-                                return "created"
-                            on error errMsg
-                                return "error: " & errMsg
-                            end try
-                        end tell
-                        '''
-                        
-                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
-                        if create_result.get("success") and "created" in create_result.get("output", ""):
-                            created_tags.append(tag)
-                            logger.info(f"Created new tag: {tag}")
-                        else:
-                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
-                    else:
-                        existing_tags.append(tag)
+                tag_result = await self._ensure_tags_exist(tags)
+                created_tags = tag_result['created']
+                existing_tags = tag_result['existing']
             
             # Build AppleScript to update the todo
             escaped_todo_id = self._escape_applescript_string(todo_id)
@@ -863,9 +898,23 @@ class ThingsTools:
                 'end tell'
             ])
             
+            # OPTIMIZATION: Invalidate related caches for granular cache management
+            def _invalidate_caches_after_update():
+                cache_keys_to_clear = [
+                    "todos_all", "projects_all", "areas_all",
+                    "logbook_period_1d_100", "logbook_period_3d_100"  # Common logbook queries
+                ]
+                for key in filter(None, cache_keys_to_clear):
+                    if key in self.applescript._cache:
+                        del self.applescript._cache[key]
+            
             script = '\n'.join(script_parts)
             
             result = await self.applescript.execute_applescript(script, cache_key=None)
+            
+            # Invalidate caches after successful update
+            if result.get("success"):
+                _invalidate_caches_after_update()
             
             # Handle scheduling separately using reliable method
             scheduling_result = None
@@ -1084,41 +1133,11 @@ class ThingsTools:
             created_tags = []
             existing_tags = []
             
-            # Check and create missing tags if needed
+            # Ensure all tags exist using consolidated batch operation
             if tags:
-                # Get existing tags
-                existing_tag_names = []
-                try:
-                    current_tags = await self.get_tags(include_items=False)
-                    existing_tag_names = [tag.get('name', '').lower() for tag in current_tags]
-                except Exception as e:
-                    logger.warning(f"Could not fetch existing tags: {e}")
-                
-                # Check each requested tag
-                for tag in tags:
-                    tag_lower = tag.lower()
-                    if tag_lower not in existing_tag_names:
-                        # Tag doesn't exist, create it
-                        escaped_tag = self._escape_applescript_string(tag)
-                        create_script = f'''
-                        tell application "Things3"
-                            try
-                                make new tag with properties {{name:{escaped_tag}}}
-                                return "created"
-                            on error errMsg
-                                return "error: " & errMsg
-                            end try
-                        end tell
-                        '''
-                        
-                        create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
-                        if create_result.get("success") and "created" in create_result.get("output", ""):
-                            created_tags.append(tag)
-                            logger.info(f"Created new tag: {tag}")
-                        else:
-                            logger.warning(f"Could not create tag '{tag}': {create_result.get('output', '')}")
-                    else:
-                        existing_tags.append(tag)
+                tag_result = await self._ensure_tags_exist(tags)
+                created_tags = tag_result['created']
+                existing_tags = tag_result['existing']
             
             # Build AppleScript to create project
             escaped_title = self._escape_applescript_string(title)
@@ -1405,23 +1424,103 @@ class ThingsTools:
         return await self._get_list_todos("someday")
     
     async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict[str, Any]]:
-        """Get completed todos from Logbook.
+        """Get completed todos from Logbook using native AppleScript date filtering.
+        
+        Uses Things 3's native date comparisons for optimal performance instead of 
+        fetching all items and filtering in Python.
         
         Args:
             limit: Maximum number of entries
-            period: Time period to look back
+            period: Time period to look back (e.g., '3d', '1w', '2m', '1y')
             
         Returns:
             List of completed todo dictionaries
         """
-        return await self._get_list_todos("logbook", limit=limit)
+        try:
+            # Parse the period to get number of days for native AppleScript filtering
+            days = self._parse_period_to_days(period)
+            
+            # Use native AppleScript date arithmetic for optimal performance
+            script = f'''
+            tell application "Things3"
+                -- Use native date arithmetic - much faster than Python filtering
+                set cutoffDate to (current date) - ({days} * days)
+                set logbookList to list "logbook"
+                
+                -- Native filtering with "whose" clause for maximum efficiency
+                set recentCompleted to (to dos of logbookList whose completion date > cutoffDate)
+                
+                set logbookResults to {{}}
+                set maxResults to {min(limit, 200)}  -- Reasonable upper bound
+                set resultCount to 0
+                
+                repeat with theTodo in recentCompleted
+                    if resultCount >= maxResults then exit repeat
+                    
+                    try
+                        set todoRecord to {{}}
+                        set todoRecord to todoRecord & {{id:(id of theTodo)}}
+                        set todoRecord to todoRecord & {{name:(name of theTodo)}}
+                        set todoRecord to todoRecord & {{notes:(notes of theTodo)}}
+                        set todoRecord to todoRecord & {{status:(status of theTodo)}}
+                        set todoRecord to todoRecord & {{tag_names:(tag names of theTodo)}}
+                        set todoRecord to todoRecord & {{creation_date:(creation date of theTodo)}}
+                        set todoRecord to todoRecord & {{modification_date:(modification date of theTodo)}}
+                        set todoRecord to todoRecord & {{completion_date:(completion date of theTodo)}}
+                        
+                        -- Try to get project info if available
+                        try
+                            set todoProject to project of theTodo
+                            if todoProject is not missing value then
+                                set todoRecord to todoRecord & {{project_id:(id of todoProject)}}
+                                set todoRecord to todoRecord & {{project_name:(name of todoProject)}}
+                            end if
+                        on error
+                            -- No project
+                        end try
+                        
+                        set logbookResults to logbookResults & {{todoRecord}}
+                        set resultCount to resultCount + 1
+                    on error
+                        -- Skip items that can't be accessed
+                    end try
+                end repeat
+                
+                return logbookResults
+            end tell
+            '''
+            
+            # Use period-specific cache key
+            cache_key = f"logbook_period_{period}_limit_{limit}"
+            result = await self.applescript.execute_applescript(script, cache_key)
+            
+            if result.get("success"):
+                # Parse using existing parser
+                todos = self._parse_applescript_todos(result.get("output", ""))
+                
+                # Add period context
+                for todo in todos:
+                    todo["period_filter"] = period
+                    todo["days_back"] = days
+                
+                logger.info(f"Retrieved {len(todos)} completed todos from logbook (period: {period}, {days} days back)")
+                return todos
+            else:
+                logger.error(f"Failed to get logbook with period filter: {result.get('error')}")
+                return []
+        
+        except Exception as e:
+            logger.error(f"Error getting logbook with period filtering: {e}")
+            # Fallback to original method without period filtering
+            logger.info("Falling back to basic logbook retrieval")
+            return await self._get_list_todos("logbook", limit=limit)
     
     async def get_trash(self) -> List[Dict[str, Any]]:
         """Get trashed todos."""
         return await self._get_list_todos("trash")
     
     async def get_tags(self, include_items: bool = False) -> List[Dict[str, Any]]:
-        """Get all tags.
+        """Get all tags using native AppleScript collection operations.
         
         Args:
             include_items: Include items tagged with each tag
@@ -1430,18 +1529,22 @@ class ThingsTools:
             List of tag dictionaries
         """
         try:
-            # Build AppleScript to get all tags with IDs and names
+            # Use native AppleScript record handling for cleaner output
             script = '''
             tell application "Things3"
-                set tagNames to name of every tag
-                set tagIds to id of every tag
-                set tagList to {}
+                set allTags to every tag
+                set tagRecords to {}
                 
-                repeat with i from 1 to count of tagNames
-                    set tagList to tagList & {item i of tagIds & "|" & item i of tagNames}
+                repeat with currentTag in allTags
+                    try
+                        set tagRecord to (id of currentTag) & tab & (name of currentTag)
+                        set tagRecords to tagRecords & {tagRecord}
+                    on error
+                        -- Skip tags that can't be accessed
+                    end try
                 end repeat
                 
-                return tagList
+                return tagRecords
             end tell
             '''
             
@@ -1452,37 +1555,36 @@ class ThingsTools:
                 tags = []
                 
                 if output and output.strip():
-                    # Parse the output which is now in format: tag1id|tag1name, tag2id|tag2name, ...
+                    # Parse tab-delimited output: id<tab>name, id<tab>name, ...
                     tag_entries = output.strip().split(', ')
                     
                     for entry in tag_entries:
                         entry = entry.strip()
-                        if entry and "|" in entry:
-                            # Parse id and name from "tagid|tagname"
-                            parts = entry.split('|', 1)
-                            if len(parts) == 2:
-                                tag_id = parts[0].strip()
-                                tag_name = parts[1].strip()
+                        if entry and "\t" in entry:
+                            # Parse id and name from "id<tab>name"
+                            tag_id, tag_name = entry.split('\t', 1)
+                            tag_id = tag_id.strip()
+                            tag_name = tag_name.strip()
                             
-                                if tag_id and tag_name:
-                                    tag_dict = {
-                                        "id": tag_id,
-                                        "uuid": tag_id,
-                                        "name": tag_name,
-                                        "shortcut": "",  # Skip shortcut for performance
-                                        "items": []
-                                    }
-                                    
-                                    # If include_items is requested, get items with this tag
-                                    if include_items and tag_name:
-                                        try:
-                                            tag_dict["items"] = await self.get_tagged_items(tag_name)
-                                        except Exception as e:
-                                            logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
-                                    
-                                    tags.append(tag_dict)
+                            if tag_id and tag_name:
+                                tag_dict = {
+                                    "id": tag_id,
+                                    "uuid": tag_id,
+                                    "name": tag_name,
+                                    "shortcut": "",  # Skip shortcut for performance
+                                    "items": []
+                                }
+                                
+                                # If include_items is requested, get items with this tag
+                                if include_items and tag_name:
+                                    try:
+                                        tag_dict["items"] = await self.get_tagged_items(tag_name)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                
+                                tags.append(tag_dict)
                 
-                logger.info(f"Retrieved {len(tags)} tags with IDs")
+                logger.info(f"Retrieved {len(tags)} tags with native operations")
                 return tags
             else:
                 logger.error(f"Failed to get tags: {result.get('error')}")
@@ -1493,7 +1595,7 @@ class ThingsTools:
             raise
     
     async def get_tagged_items(self, tag: str) -> List[Dict[str, Any]]:
-        """Get items with a specific tag.
+        """Get items with a specific tag using native collection operations.
         
         Args:
             tag: Tag title to filter by
@@ -1502,42 +1604,37 @@ class ThingsTools:
             List of tagged item dictionaries
         """
         try:
-            # Build AppleScript to get items with specific tag using 'whose' clause
+            # Use native AppleScript collection operations with simplified output
             escaped_tag = self._escape_applescript_string(tag)
             script = f'''
             tell application "Things3"
                 set matchingItems to {{}}
                 
                 try
-                    -- Get all todos with this tag using whose clause (most reliable)
-                    set taggedTodos to (to dos whose tag names contains {escaped_tag})
-                    set itemCount to count of taggedTodos
+                    -- OPTIMIZATION: Use compound whose clause for better performance
+                    -- Get all active todos with this tag using native filtering
+                    set taggedTodos to (to dos whose tag names contains {escaped_tag} and status is open)
                     
-                    repeat with theTodo in taggedTodos
+                    repeat with currentTodo in taggedTodos
                         try
-                            set todoID to id of theTodo
-                            set todoName to name of theTodo
-                            set todoNotes to notes of theTodo
-                            set todoStatus to status of theTodo
+                            -- Get todo properties and clean notes inline
+                            set todoNotes to notes of currentTodo
                             
-                            -- Replace newlines in notes with space to avoid parsing issues
+                            -- Replace newlines with space for clean parsing
                             set AppleScript's text item delimiters to return
                             set notesParts to text items of todoNotes
                             set AppleScript's text item delimiters to " "
-                            set todoNotes to notesParts as text
+                            set cleanNotes to notesParts as text
                             set AppleScript's text item delimiters to ""
                             
-                            -- Use a unique delimiter that won't appear in text
-                            set delimiter to "§§§"
-                            
-                            -- Create delimited format for easier parsing
-                            set itemRecord to todoID & delimiter & todoName & delimiter & todoNotes & delimiter & todoStatus
-                            set matchingItems to matchingItems & {{itemRecord}}
+                            -- Create tab-delimited record for simpler parsing
+                            set todoRecord to (id of currentTodo) & tab & (name of currentTodo) & tab & cleanNotes & tab & (status of currentTodo)
+                            set matchingItems to matchingItems & {{todoRecord}}
                         on error
-                            -- Skip if can't access this todo
+                            -- Skip todos that can't be accessed
                         end try
                     end repeat
-                on error errMsg
+                on error
                     -- Return empty if tag doesn't exist or error occurs
                     return {{}}
                 end try
@@ -1553,15 +1650,14 @@ class ThingsTools:
                 items = []
                 
                 if output and output.strip():
-                    # Parse AppleScript list output with custom delimiter
-                    # Format: "id§§§name§§§notes§§§status", "id§§§name§§§notes§§§status"
+                    # Parse tab-delimited output: "id<tab>name<tab>notes<tab>status", ...
                     entries = output.strip().split(', ')
                     
                     for entry in entries:
                         entry = entry.strip()
-                        if entry and "§§§" in entry:
-                            # Parse the delimited format: id§§§name§§§notes§§§status
-                            parts = entry.split("§§§")
+                        if entry and "\t" in entry:
+                            # Parse tab-delimited format: id<tab>name<tab>notes<tab>status
+                            parts = entry.split("\t")
                             if len(parts) >= 2:  # At minimum need ID and name
                                 item_id = parts[0].strip()
                                 item_name = parts[1].strip() if len(parts) > 1 else ""
@@ -1583,7 +1679,7 @@ class ThingsTools:
                                     }
                                     items.append(item_dict)
                 
-                logger.info(f"Retrieved {len(items)} items with tag: {tag}")
+                logger.info(f"Retrieved {len(items)} items with tag '{tag}' using native operations")
                 return items
             else:
                 logger.error(f"Failed to get tagged items: {result.get('error')}")
@@ -1714,11 +1810,14 @@ class ThingsTools:
                 escaped_tag = self._escape_applescript_string(tag)
                 conditions.append(f'tag names contains {escaped_tag}')
             
-            # Date filters (if provided)
+            # Date filters using native AppleScript date comparisons
             if deadline:
-                # Convert YYYY-MM-DD to AppleScript date comparison
-                conditions.append(f'due date is not missing value')
-                # Note: More complex date comparisons would need date parsing
+                deadline_condition = self._build_native_date_condition(deadline, "due date")
+                conditions.append(deadline_condition)
+            
+            if start_date:
+                start_condition = self._build_native_date_condition(start_date, "activation date")  
+                conditions.append(start_condition)
             
             # Combine conditions with "and"
             where_clause = ""
@@ -1871,9 +1970,10 @@ class ThingsTools:
                 -- Use native filtering with "whose" clause for todos
                 -- This is ORDERS OF MAGNITUDE faster than manual iteration
                 try
-                    -- Get todos created after cutoff date using native filtering
+                    -- OPTIMIZATION: Use compound whose clause with status filter
+                    -- Get active todos created after cutoff date using native filtering
                     -- Things 3 handles this internally with its optimized database
-                    set recentTodos to to dos whose creation date > cutoffDate
+                    set recentTodos to to dos whose creation date > cutoffDate and status is not canceled
                     
                     -- Limit results for performance
                     set todoCount to 0
@@ -2178,9 +2278,12 @@ class ThingsTools:
     async def _get_list_todos(self, list_name: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get todos from a specific list.
         
+        OPTIMIZATION: Uses native AppleScript 'items 1 thru N' syntax for efficient limiting
+        instead of fetching all items and filtering in Python.
+        
         Args:
             list_name: Name of the list (inbox, today, etc.)
-            limit: Optional limit on number of results
+            limit: Optional limit on number of results (uses native AppleScript limiting)
             
         Returns:
             List of todo dictionaries
@@ -2201,23 +2304,26 @@ class ThingsTools:
                 logger.error(f"Unknown list name: {list_name}")
                 return []
             
-            # Build AppleScript to get todos from the specified list with proper limiting
-            limit_clause = ""
-            if limit:
-                limit_clause = f"""
-                set allTodos to to dos of listRef
-                set itemCount to count of allTodos
-                set maxItems to {limit}
+            # Build AppleScript with native limiting
+            # OPTIMIZATION: Use native AppleScript limiting to avoid fetching all items and filtering in Python
+            script = f'''
+            tell application "Things3"
+                set todoList to {{}}
+                set listRef to list "{list_mapping[list_name]}"
+                set allTodos to (to dos of listRef)
+                set todoCount to count of allTodos
                 
-                if itemCount > 0 then
-                    if itemCount > maxItems then
-                        set itemsToProcess to maxItems
-                    else
-                        set itemsToProcess to itemCount
-                    end if
+                -- Determine how many items to process (native AppleScript limiting)
+                set maxIndex to todoCount
+                if {limit if limit else 0} > 0 and {limit if limit else 0} < todoCount then
+                    set maxIndex to {limit if limit else 0}
+                end if
+                
+                -- Process only the required number of todos (native limiting applied)
+                if maxIndex > 0 then
+                    set todosToProcess to items 1 thru maxIndex of allTodos
                     
-                    repeat with i from 1 to itemsToProcess
-                        set theTodo to item i of allTodos
+                    repeat with theTodo in todosToProcess
                         set todoRecord to {{}}
                         try
                             set todoRecord to todoRecord & {{id:id of theTodo}}
@@ -2230,40 +2336,22 @@ class ThingsTools:
                             set todoList to todoList & {{todoRecord}}
                         end try
                     end repeat
-                end if"""
-            else:
-                limit_clause = """
-                repeat with theTodo in to dos of listRef
-                    set todoRecord to {{}}
-                    try
-                        set todoRecord to todoRecord & {{id:id of theTodo}}
-                        set todoRecord to todoRecord & {{name:name of theTodo}}
-                        set todoRecord to todoRecord & {{notes:notes of theTodo}}
-                        set todoRecord to todoRecord & {{status:status of theTodo}}
-                        set todoRecord to todoRecord & {{tag_names:tag names of theTodo}}
-                        set todoRecord to todoRecord & {{creation_date:creation date of theTodo}}
-                        set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
-                        set todoList to todoList & {{todoRecord}}
-                    end try
-                end repeat"""
-            
-            script = f'''
-            tell application "Things3"
-                set todoList to {{}}
-                set listRef to list "{list_mapping[list_name]}"
-                {limit_clause}
+                end if
+                
                 return todoList
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, f"list_{list_name}")
+            # Include limit in cache key to avoid cache conflicts between different limits
+            cache_key = f"list_{list_name}_limit_{limit}" if limit else f"list_{list_name}_all"
+            result = await self.applescript.execute_applescript(script, cache_key)
             
             if result.get("success"):
                 # Parse the AppleScript output
                 todos = self._parse_applescript_todos(result.get("output", ""))
                 
-                # Limit is already applied in AppleScript, so no need for post-processing
-                logger.info(f"Retrieved {len(todos)} todos from {list_name}")
+                # Native AppleScript limiting applied - no post-processing needed
+                logger.info(f"Retrieved {len(todos)} todos from {list_name} (native limit: {limit or 'none'})")
                 return todos
             else:
                 logger.error(f"Failed to get {list_name} todos: {result.get('error')}")
@@ -2315,6 +2403,60 @@ class ThingsTools:
         
         return todos
     
+    def _build_native_date_condition(self, date_input: str, field_name: str) -> str:
+        """Build a native AppleScript date condition for efficient filtering.
+        
+        This creates AppleScript date comparisons that run natively in Things 3,
+        avoiding the need to fetch all items and filter in Python.
+        
+        Args:
+            date_input: Date string (today, tomorrow, YYYY-MM-DD, etc.)
+            field_name: AppleScript field name (due date, activation date, creation date, etc.)
+            
+        Returns:
+            AppleScript condition string for use in 'whose' clause
+        """
+        if not date_input:
+            return f"{field_name} is not missing value"
+            
+        date_lower = date_input.lower().strip()
+        
+        # Handle relative dates with native AppleScript date arithmetic
+        if date_lower in ['today']:
+            return f"{field_name} = (current date)"
+        elif date_lower in ['tomorrow']:
+            return f"{field_name} = ((current date) + 1 * days)"
+        elif date_lower in ['yesterday']:
+            return f"{field_name} = ((current date) - 1 * days)"
+        elif date_lower in ['this week', 'thisweek']:
+            # Within current week (next 7 days)
+            return f"{field_name} ≥ (current date) and {field_name} ≤ ((current date) + 7 * days)"
+        elif date_lower in ['next week', 'nextweek']:
+            # Within next week (days 8-14 from now)
+            return f"{field_name} > ((current date) + 7 * days) and {field_name} ≤ ((current date) + 14 * days)"
+        elif date_lower in ['this month', 'thismonth']:
+            # Within current month (next 30 days)
+            return f"{field_name} ≥ (current date) and {field_name} ≤ ((current date) + 30 * days)"
+        elif date_lower in ['past week', 'last week']:
+            # Past week (last 7 days)
+            return f"{field_name} ≥ ((current date) - 7 * days) and {field_name} ≤ (current date)"
+        elif date_lower in ['past month', 'last month']:
+            # Past month (last 30 days) 
+            return f"{field_name} ≥ ((current date) - 30 * days) and {field_name} ≤ (current date)"
+        elif '-' in date_input:  # YYYY-MM-DD format
+            try:
+                from datetime import datetime
+                parsed_date = datetime.strptime(date_input, '%Y-%m-%d')
+                # Convert to DD/MM/YYYY format that AppleScript can parse directly
+                applescript_date = parsed_date.strftime('%d/%m/%Y')
+                return f'{field_name} = date "{applescript_date}"'
+            except ValueError:
+                logger.warning(f"Could not parse date '{date_input}', using existence check")
+                return f"{field_name} is not missing value"
+        else:
+            # Default fallback: just check field exists
+            return f"{field_name} is not missing value"
+
     def _parse_period_to_days(self, period: str) -> int:
         """Parse period string like '3d', '1w', '2m', '1y' to number of days.
         

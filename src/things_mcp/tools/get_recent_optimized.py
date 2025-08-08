@@ -165,6 +165,8 @@ async def get_recent_optimized(self, period: str) -> List[Dict[str, Any]]:
                 }
                 items.append(item_dict)
             
+            # OPTIMIZATION OPPORTUNITY: Native AppleScript sorting would be faster
+            # TODO: Consider using AppleScript: "sort allItems by creation date" 
             # Sort by creation date (newest first)
             items.sort(key=lambda x: x.get("creation_date", ""), reverse=True)
             
