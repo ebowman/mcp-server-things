@@ -452,12 +452,20 @@ class ThingsTools:
                 # For specific dates, construct proper date objects
                 try:
                     parsed_date = datetime.strptime(when_date, '%Y-%m-%d').date()
+                    # Map numeric months to AppleScript month constants to avoid overflow bugs
+                    month_names = {
+                        1: "January", 2: "February", 3: "March", 4: "April",
+                        5: "May", 6: "June", 7: "July", 8: "August",
+                        9: "September", 10: "October", 11: "November", 12: "December"
+                    }
+                    month_constant = month_names[parsed_date.month]
                     schedule_script = f'''
                     set targetDate to current date
-                    set year of targetDate to {parsed_date.year}
-                    set month of targetDate to {parsed_date.month}
-                    set day of targetDate to {parsed_date.day}
                     set time of targetDate to 0
+                    set day of targetDate to 1
+                    set year of targetDate to {parsed_date.year}
+                    set month of targetDate to {month_constant}
+                    set day of targetDate to {parsed_date.day}
                     schedule theTodo for targetDate'''
                 except ValueError:
                     # If date parsing fails, try as-is
