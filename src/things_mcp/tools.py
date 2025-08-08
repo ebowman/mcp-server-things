@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from .applescript_manager import AppleScriptManager
 from .pure_applescript_scheduler import PureAppleScriptScheduler
+from .operation_queue import get_operation_queue, Priority
 
 logger = logging.getLogger(__name__)
 
@@ -531,6 +532,23 @@ class ThingsTools:
         Returns:
             Dict with created todo information including the ID of created todo
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._add_todo_impl,
+            title, notes, tags, when, deadline, list_id, list_title, heading, checklist_items,
+            name=f"add_todo({title[:30]}...)",
+            priority=Priority.HIGH,
+            timeout=60.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _add_todo_impl(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
+                      when: Optional[str] = None, deadline: Optional[str] = None,
+                      list_id: Optional[str] = None, list_title: Optional[str] = None,
+                      heading: Optional[str] = None, checklist_items: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Internal implementation of add_todo (executed through operation queue)."""
         try:
             created_tags = []
             existing_tags = []
@@ -812,6 +830,23 @@ class ThingsTools:
         Returns:
             Dict with update result
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._update_todo_impl,
+            todo_id, title, notes, tags, when, deadline, completed, canceled,
+            name=f"update_todo({todo_id})",
+            priority=Priority.HIGH,
+            timeout=60.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _update_todo_impl(self, todo_id: str, title: Optional[str] = None, notes: Optional[str] = None,
+                         tags: Optional[List[str]] = None, when: Optional[str] = None,
+                         deadline: Optional[str] = None, completed: Optional[bool] = None,
+                         canceled: Optional[bool] = None) -> Dict[str, Any]:
+        """Internal implementation of update_todo (executed through operation queue)."""
         try:
             created_tags = []
             existing_tags = []
@@ -1044,6 +1079,20 @@ class ThingsTools:
         Returns:
             Dict with deletion result
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._delete_todo_impl,
+            todo_id,
+            name=f"delete_todo({todo_id})",
+            priority=Priority.HIGH,
+            timeout=30.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _delete_todo_impl(self, todo_id: str) -> Dict[str, str]:
+        """Internal implementation of delete_todo (executed through operation queue)."""
         try:
             # Use AppleScript to delete todo
             script = f'''
@@ -1129,6 +1178,23 @@ class ThingsTools:
         Returns:
             Dict with created project information
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._add_project_impl,
+            title, notes, tags, when, deadline, area_id, area_title, todos,
+            name=f"add_project({title[:30]}...)",
+            priority=Priority.NORMAL,
+            timeout=60.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _add_project_impl(self, title: str, notes: Optional[str] = None, tags: Optional[List[str]] = None,
+                         when: Optional[str] = None, deadline: Optional[str] = None,
+                         area_id: Optional[str] = None, area_title: Optional[str] = None,
+                         todos: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Internal implementation of add_project (executed through operation queue)."""
         try:
             created_tags = []
             existing_tags = []
@@ -1334,6 +1400,23 @@ class ThingsTools:
         Returns:
             Dict with update result
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._update_project_impl,
+            project_id, title, notes, tags, when, deadline, completed, canceled,
+            name=f"update_project({project_id})",
+            priority=Priority.NORMAL,
+            timeout=60.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _update_project_impl(self, project_id: str, title: Optional[str] = None, notes: Optional[str] = None,
+                            tags: Optional[List[str]] = None, when: Optional[str] = None,
+                            deadline: Optional[str] = None, completed: Optional[bool] = None,
+                            canceled: Optional[bool] = None) -> Dict[str, Any]:
+        """Internal implementation of update_project (executed through operation queue)."""
         try:
             # Use direct AppleScript instead of URL scheme to avoid modal dialogs
             result = await self.applescript.update_project_direct(
@@ -2192,6 +2275,20 @@ class ThingsTools:
                 - moved_at: Timestamp of successful move (only on success)
                 - error: Error details (only on failure)
         """
+        # Use operation queue to ensure write consistency
+        queue = await get_operation_queue()
+        operation_id = await queue.enqueue(
+            self._move_record_impl,
+            todo_id, destination_list,
+            name=f"move_record({todo_id} to {destination_list})",
+            priority=Priority.HIGH,
+            timeout=30.0,
+            max_retries=2
+        )
+        return await queue.wait_for_operation(operation_id)
+
+    async def _move_record_impl(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
+        """Internal implementation of move_record (executed through operation queue)."""
         try:
             # Validate destination list
             valid_lists = ["inbox", "today", "anytime", "someday", "upcoming", "logbook"]

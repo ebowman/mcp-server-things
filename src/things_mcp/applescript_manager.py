@@ -10,11 +10,26 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 import re
 
+from .shared_cache import get_shared_cache
+
 logger = logging.getLogger(__name__)
 
 
 class AppleScriptManager:
-    """Manages AppleScript execution and Things URL schemes."""
+    """Manages AppleScript execution and Things URL schemes.
+    
+    This class implements process-level locking to prevent race conditions when
+    multiple AppleScript commands are executed concurrently. The lock ensures
+    that only one AppleScript executes at a time, preventing potential conflicts
+    and ensuring reliable operation with Things 3.
+    
+    The lock is shared across all instances of AppleScriptManager to provide
+    true process-level serialization.
+    """
+    
+    # Class-level lock shared across all instances to prevent race conditions
+    # This ensures only one AppleScript command executes at a time across the entire process
+    _applescript_lock = asyncio.Lock()
     
     def __init__(self, timeout: int = 45, retry_count: int = 3):
         """Initialize the AppleScript manager.
@@ -25,10 +40,9 @@ class AppleScriptManager:
         """
         self.timeout = timeout
         self.retry_count = retry_count
-        self._cache = {}
-        self._cache_ttl = 30  # 30 seconds - much shorter for real-time updates
+        self._cache = get_shared_cache(default_ttl=30.0)  # Use shared cache with 30 second TTL
         self.auth_token = self._load_auth_token()
-        logger.info("AppleScript manager initialized")
+        logger.info("AppleScript manager initialized with shared cache")
     
     def _load_auth_token(self) -> Optional[str]:
         """Load Things auth token from file if it exists."""
@@ -74,15 +88,19 @@ class AppleScriptManager:
             Dict with success status, output, and error information
         """
         # Check cache first
-        if cache_key and self._get_cached_result(cache_key):
-            return self._get_cached_result(cache_key)
+        if cache_key:
+            cached_result = self._cache.get(cache_key)
+            if cached_result is not None:
+                logger.debug(f"Cache hit for key: {cache_key}")
+                return cached_result
         
         result = await self._execute_script_with_retry(script)
         
         # OPTIMIZATION: Cache successful results with granular invalidation strategy
         # Don't cache mutation operations but do cache read-only queries
         if cache_key and result.get("success") and not any(x in cache_key for x in ['search', 'add', 'update', 'delete', 'move', 'complete']):
-            self._cache_result(cache_key, result)
+            self._cache.set(cache_key, result)
+            logger.debug(f"Cached result for key: {cache_key}")
         
         return result
     
@@ -424,46 +442,75 @@ class AppleScriptManager:
         }
     
     async def _execute_script(self, script: str) -> Dict[str, Any]:
-        """Execute a single AppleScript command."""
-        try:
-            # Use asyncio subprocess to execute the AppleScript
-            process = await asyncio.create_subprocess_exec(
-                "osascript", "-e", script,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+        """Execute a single AppleScript command with process-level locking.
+        
+        This method uses an asyncio.Lock to ensure only one AppleScript command
+        executes at a time across the entire process. This prevents race conditions
+        and ensures reliable operation with Things 3.
+        
+        The lock is acquired before starting the subprocess and held until completion.
+        Lock wait times > 100ms are logged for monitoring purposes.
+        
+        Args:
+            script: AppleScript code to execute
+            
+        Returns:
+            Dict with success status, output/error, and execution time
+        """
+        lock_start_time = time.time()
+        
+        async with self._applescript_lock:
+            # Log if we waited more than 100ms for the lock
+            lock_wait_time = time.time() - lock_start_time
+            if lock_wait_time > 0.1:
+                logger.debug(f"AppleScript lock waited {lock_wait_time:.3f}s")
             
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), 
-                    timeout=self.timeout
+                execution_start = time.time()
+                
+                # Use asyncio subprocess to execute the AppleScript
+                process = await asyncio.create_subprocess_exec(
+                    "osascript", "-e", script,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
                 )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                return {
-                    "success": False,
-                    "error": f"Script execution timed out after {self.timeout} seconds"
-                }
+                
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(), 
+                        timeout=self.timeout
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    return {
+                        "success": False,
+                        "error": f"Script execution timed out after {self.timeout} seconds"
+                    }
+                
+                execution_time = time.time() - execution_start
+                
+                if process.returncode == 0:
+                    logger.debug(f"AppleScript executed successfully in {execution_time:.3f}s")
+                    return {
+                        "success": True,
+                        "output": stdout.decode().strip(),
+                        "execution_time": execution_time
+                    }
+                else:
+                    logger.debug(f"AppleScript failed after {execution_time:.3f}s with return code {process.returncode}")
+                    return {
+                        "success": False,
+                        "error": stderr.decode().strip() or "Unknown AppleScript error",
+                        "return_code": process.returncode
+                    }
             
-            if process.returncode == 0:
-                return {
-                    "success": True,
-                    "output": stdout.decode().strip(),
-                    "execution_time": time.time()
-                }
-            else:
+            except Exception as e:
+                logger.error(f"AppleScript execution error: {e}")
                 return {
                     "success": False,
-                    "error": stderr.decode().strip() or "Unknown AppleScript error",
-                    "return_code": process.returncode
+                    "error": f"Execution error: {str(e)}"
                 }
-        
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Execution error: {str(e)}"
-            }
     
     def _build_things_url(self, action: str, parameters: Dict[str, Any]) -> str:
         """Build a Things URL scheme string."""
@@ -488,26 +535,6 @@ class AppleScriptManager:
         
         return url
     
-    def _get_cached_result(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Get cached result if still valid."""
-        if cache_key in self._cache:
-            cached_data = self._cache[cache_key]
-            if time.time() - cached_data["timestamp"] < self._cache_ttl:
-                logger.debug(f"Cache hit for key: {cache_key}")
-                return cached_data["result"]
-            else:
-                # Remove expired cache entry
-                del self._cache[cache_key]
-        
-        return None
-    
-    def _cache_result(self, cache_key: str, result: Dict[str, Any]) -> None:
-        """Cache a result with timestamp."""
-        self._cache[cache_key] = {
-            "result": result,
-            "timestamp": time.time()
-        }
-        logger.debug(f"Cached result for key: {cache_key}")
     
     def _parse_applescript_list(self, output: str) -> List[Dict[str, Any]]:
         """Parse AppleScript list output into Python dictionaries.
@@ -942,4 +969,4 @@ class AppleScriptManager:
     def clear_cache(self) -> None:
         """Clear all cached results."""
         self._cache.clear()
-        logger.info("AppleScript cache cleared")
+        logger.info("AppleScript shared cache cleared")

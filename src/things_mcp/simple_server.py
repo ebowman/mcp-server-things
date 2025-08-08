@@ -1,6 +1,10 @@
 """Simple FastMCP 2.0 server implementation for Things 3 integration."""
 
+import asyncio
+import atexit
 import logging
+import signal
+import sys
 from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
@@ -8,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from .applescript_manager import AppleScriptManager
 from .tools import ThingsTools
+from .operation_queue import shutdown_operation_queue, get_operation_queue
 
 # Configure logging
 logging.basicConfig(
@@ -26,7 +31,31 @@ class ThingsMCPServer:
         self.applescript_manager = AppleScriptManager()
         self.tools = ThingsTools(self.applescript_manager)
         self._register_tools()
+        self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized")
+
+    def _register_shutdown_handlers(self):
+        """Register shutdown handlers for graceful cleanup."""
+        def shutdown_handler():
+            """Handle server shutdown."""
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're in an async context, schedule the shutdown
+                    loop.create_task(shutdown_operation_queue())
+                else:
+                    # If not, run it directly
+                    loop.run_until_complete(shutdown_operation_queue())
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+        
+        # Register cleanup for normal exit
+        atexit.register(shutdown_handler)
+        
+        # Register signal handlers for graceful shutdown
+        if sys.platform != 'win32':
+            signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
+            signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
     
     def _register_tools(self) -> None:
         """Register all MCP tools with the server."""
@@ -429,6 +458,25 @@ class ThingsMCPServer:
                     "error": str(e),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
+
+        @self.mcp.tool()
+        async def queue_status() -> Dict[str, Any]:
+            """Get operation queue status and statistics."""
+            try:
+                queue = await get_operation_queue()
+                status = queue.get_queue_status()
+                active_ops = queue.get_active_operations()
+                return {
+                    "queue_status": status,
+                    "active_operations": active_ops,
+                    "timestamp": self.applescript_manager._get_current_timestamp()
+                }
+            except Exception as e:
+                logger.error(f"Queue status check failed: {e}")
+                return {
+                    "error": str(e),
+                    "timestamp": self.applescript_manager._get_current_timestamp()
+                }
         
         logger.info("All MCP tools registered successfully")
     
@@ -446,7 +494,16 @@ class ThingsMCPServer:
     def stop(self) -> None:
         """Stop the MCP server gracefully."""
         logger.info("Stopping Things MCP Server...")
-        # Add any cleanup logic here if needed
+        try:
+            # Shutdown operation queue
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(shutdown_operation_queue())
+            else:
+                loop.run_until_complete(shutdown_operation_queue())
+        except Exception as e:
+            logger.error(f"Error stopping operation queue: {e}")
+        logger.info("Things MCP Server stopped")
 
 
 def main():
