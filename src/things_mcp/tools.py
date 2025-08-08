@@ -251,14 +251,25 @@ class ThingsTools:
             Dict with success status
         """
         try:
-            # Convert ISO date to DD/MM/YYYY format for AppleScript
-            deadline_applescript = self._convert_iso_to_applescript_date(deadline_date)
+            # Parse the ISO date to get components
+            from datetime import datetime
+            parsed_date = datetime.strptime(deadline_date, '%Y-%m-%d')
             
+            # Build AppleScript that constructs date object safely
             script = f'''
             tell application "Things3"
                 try
                     set theTodo to to do id "{todo_id}"
-                    set due date of theTodo to date "{deadline_applescript}"
+                    
+                    -- Construct due date object safely to avoid date parsing issues
+                    set dueDate to (current date)
+                    set time of dueDate to 0
+                    set day of dueDate to 1
+                    set year of dueDate to {parsed_date.year}
+                    set month of dueDate to {parsed_date.month}
+                    set day of dueDate to {parsed_date.day}
+                    
+                    set due date of theTodo to dueDate
                     return "deadline_set"
                 on error errMsg
                     return "error: " & errMsg
@@ -620,14 +631,9 @@ class ThingsTools:
                 elif deadline_lower == "yesterday":
                     due_date_property = "due date:((current date) - 1 * days)"
                 else:
-                    # For specific dates, use the due date property during creation
-                    if "/" in deadline or "-" in deadline:
-                        # Convert ISO date to MM/DD/YYYY format for AppleScript
-                        applescript_date = self._convert_iso_to_applescript_date(parsed_deadline)
-                        due_date_property = f'due date:date "{applescript_date}"'
-                    else:
-                        # Try as-is
-                        due_date_property = f'due date:date "{deadline}"'
+                    # For specific dates, we'll set the deadline after creation
+                    # because AppleScript date strings are unreliable
+                    due_date_command = deadline  # Will be handled post-creation
 
             # Add checklist items to notes if specified  
             # Note: Things 3 doesn't support checklist items via AppleScript properties
@@ -782,6 +788,13 @@ class ThingsTools:
                         # Regular single-date scheduling
                         scheduling_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when)
                 
+                # Handle deadline post-creation if we have a due_date_command
+                if due_date_command:
+                    deadline_result = await self._set_todo_deadline(todo_id, due_date_command)
+                    if not scheduling_result:
+                        scheduling_result = {}
+                    scheduling_result['deadline_set'] = deadline_result
+                
                 # Create response with todo information
                 todo_data = {
                     "id": todo_id,
@@ -928,11 +941,24 @@ class ThingsTools:
                     elif deadline_lower == "yesterday":
                         script_parts.append('        set due date of theTodo to ((current date) - 1 * days)')
                     else:
-                        # For specific dates, set the due date directly
+                        # For specific dates, construct date object safely
                         if "/" in deadline or "-" in deadline:
-                            # Convert ISO date to MM/DD/YYYY format for AppleScript
-                            applescript_date = self._convert_iso_to_applescript_date(parsed_deadline)
-                            script_parts.append(f'        set due date of theTodo to date "{applescript_date}"')
+                            # Parse the ISO date to get components
+                            from datetime import datetime
+                            try:
+                                parsed_date = datetime.strptime(parsed_deadline, '%Y-%m-%d')
+                                # Build safe date construction script
+                                script_parts.append(f'''
+        set dueDate to (current date)
+        set time of dueDate to 0
+        set day of dueDate to 1
+        set year of dueDate to {parsed_date.year}
+        set month of dueDate to {parsed_date.month}
+        set day of dueDate to {parsed_date.day}
+        set due date of theTodo to dueDate''')
+                            except ValueError:
+                                # Fallback to string format if parsing fails
+                                script_parts.append(f'        set due date of theTodo to date "{deadline}"')
                         else:
                             # Try as-is
                             script_parts.append(f'        set due date of theTodo to date "{deadline}"')

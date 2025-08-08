@@ -132,14 +132,6 @@ class PureAppleScriptScheduler:
     async def _schedule_specific_date_objects(self, todo_id: str, target_date) -> Dict[str, Any]:
         """Schedule using AppleScript date object construction (highly reliable)."""
         
-        # Map numeric months to AppleScript month constants to avoid overflow bugs
-        month_names = {
-            1: "January", 2: "February", 3: "March", 4: "April",
-            5: "May", 6: "June", 7: "July", 8: "August",
-            9: "September", 10: "October", 11: "November", 12: "December"
-        }
-        month_constant = month_names[target_date.month]
-        
         script = f'''
         tell application "Things3"
             try
@@ -150,7 +142,7 @@ class PureAppleScriptScheduler:
                 set time of targetDate to 0  -- Reset time first
                 set day of targetDate to 1   -- Set to safe day first to avoid overflow
                 set year of targetDate to {target_date.year}
-                set month of targetDate to {month_constant}  -- Use month constant, not numeric
+                set month of targetDate to {target_date.month}  -- Numeric month works correctly
                 set day of targetDate to {target_date.day}   -- Set actual day last
                 
                 -- Schedule using the constructed date object
