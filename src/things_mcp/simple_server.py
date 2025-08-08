@@ -168,13 +168,45 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def move_record(
             todo_id: str = Field(..., description="ID of the todo to move"),
-            destination_list: str = Field(..., description="Destination list name (inbox, today, anytime, someday, upcoming, logbook)")
+            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
         ) -> Dict[str, Any]:
-            """Move a todo to a different list in Things."""
+            """Move a todo to a different list, project, or area in Things."""
             try:
                 return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
             except Exception as e:
                 logger.error(f"Error moving todo: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def bulk_move_records(
+            todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
+            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID"),
+            preserve_scheduling: bool = Field(True, description="Whether to preserve existing scheduling when moving"),
+            max_concurrent: int = Field(5, description="Maximum concurrent operations (1-10)", ge=1, le=10)
+        ) -> Dict[str, Any]:
+            """Move multiple todos to the same destination efficiently."""
+            try:
+                # Parse the comma-separated todo IDs
+                todo_id_list = [tid.strip() for tid in todo_ids.split(",") if tid.strip()]
+                if not todo_id_list:
+                    return {
+                        "success": False,
+                        "error": "NO_TODO_IDS",
+                        "message": "No valid todo IDs provided",
+                        "total_requested": 0
+                    }
+                
+                # Use the advanced bulk move functionality
+                result = await self.tools.move_operations.bulk_move(
+                    todo_ids=todo_id_list,
+                    destination=destination,
+                    preserve_scheduling=preserve_scheduling,
+                    max_concurrent=max_concurrent
+                )
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error in bulk move operation: {e}")
                 raise
         
         # Project management tools

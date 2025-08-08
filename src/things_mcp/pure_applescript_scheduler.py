@@ -16,6 +16,7 @@ Key Research Insights Applied:
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
+from .locale_aware_dates import locale_handler
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +53,12 @@ class PureAppleScriptScheduler:
                 }
         
         # Strategy 2: Try specific date using AppleScript date object construction
-        try:
-            parsed_date = datetime.strptime(when_date, '%Y-%m-%d').date()
+        date_components = locale_handler.normalize_date_input(when_date)
+        if date_components:
+            year, month, day = date_components
+            # Convert to date object for the existing method
+            from datetime import date
+            parsed_date = date(year, month, day)
             result = await self._schedule_specific_date_objects(todo_id, parsed_date)
             if result["success"]:
                 return {
@@ -62,8 +67,8 @@ class PureAppleScriptScheduler:
                     "reliability": "90%",
                     "date_set": when_date
                 }
-        except ValueError:
-            logger.debug(f"Could not parse {when_date} as ISO date, trying direct AppleScript")
+        else:
+            logger.debug(f"Could not normalize {when_date} as date, trying direct AppleScript")
         
         # Strategy 3: Try direct AppleScript date string (fallback)
         result = await self._schedule_direct_applescript(todo_id, when_date)
@@ -186,14 +191,24 @@ class PureAppleScriptScheduler:
         return {"success": False, "error": "All direct AppleScript formats failed"}
     
     def _convert_to_applescript_friendly_format(self, date_string: str) -> str:
-        """Convert date string to AppleScript-friendly format."""
+        """Convert date string to AppleScript-friendly property-based format."""
         try:
-            # Parse ISO format and convert to natural language format
-            parsed = datetime.strptime(date_string, '%Y-%m-%d').date()
-            return parsed.strftime('%B %d, %Y')  # "March 3, 2026"
-        except ValueError:
-            # If not ISO format, return as-is
-            return date_string
+            # Use locale-aware date handler for property-based date creation
+            date_components = locale_handler.normalize_date_input(date_string)
+            if date_components:
+                year, month, day = date_components
+                return locale_handler.build_applescript_date_property(year, month, day)
+            else:
+                # If can't normalize, return as-is
+                return date_string
+        except Exception as e:
+            logger.warning(f"Error converting date '{date_string}' to AppleScript format: {e}")
+            # Fallback to original approach if needed
+            try:
+                parsed = datetime.strptime(date_string, '%Y-%m-%d').date()
+                return parsed.strftime('%B %d, %Y')  # "March 3, 2026"
+            except ValueError:
+                return date_string
     
     async def _schedule_list_fallback(self, todo_id: str, when_date: str) -> Dict[str, Any]:
         """Final fallback: Move to appropriate list based on intended date."""
@@ -234,12 +249,15 @@ class PureAppleScriptScheduler:
             return "Someday"
         else:
             # For specific future dates, use Today list
-            try:
-                parsed = datetime.strptime(when_date, '%Y-%m-%d').date()
+            date_components = locale_handler.normalize_date_input(when_date)
+            if date_components:
+                year, month, day = date_components
+                from datetime import date
+                parsed = date(year, month, day)
                 today = datetime.now().date()
                 if parsed <= today + timedelta(days=1):
                     return "Today"
                 else:
                     return "Anytime"  # Future dates go to Anytime
-            except ValueError:
+            else:
                 return "Today"  # Default fallback

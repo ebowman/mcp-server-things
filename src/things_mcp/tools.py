@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from .applescript_manager import AppleScriptManager
 from .pure_applescript_scheduler import PureAppleScriptScheduler
 from .operation_queue import get_operation_queue, Priority
+from .locale_aware_dates import locale_handler
+from .services.validation_service import ValidationService
+from .move_operations import MoveOperationsTools
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,12 @@ class ThingsTools:
         """
         self.applescript = applescript_manager
         self.reliable_scheduler = PureAppleScriptScheduler(applescript_manager)
-        logger.info("Things tools initialized")
+        
+        # Initialize validation service and advanced move operations
+        self.validation_service = ValidationService(applescript_manager)
+        self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
+        
+        logger.info("Things tools initialized with advanced move operations")
     
     def _escape_applescript_string(self, text: str) -> str:
         """Escape a string for safe use in AppleScript.
@@ -42,20 +50,25 @@ class ThingsTools:
         return f'"{escaped}"'
     
     def _convert_iso_to_applescript_date(self, iso_date: str) -> str:
-        """Convert ISO date (YYYY-MM-DD) to AppleScript-compatible DD/MM/YYYY format.
+        """Convert ISO date (YYYY-MM-DD) to AppleScript property-based date construction.
         
         Args:
             iso_date: Date in YYYY-MM-DD format
             
         Returns:
-            Date in DD/MM/YYYY format (European) or original string if parsing fails
+            AppleScript code that creates a date object using properties
         """
         try:
-            parsed = datetime.strptime(iso_date, '%Y-%m-%d').date()
-            return parsed.strftime('%d/%m/%Y')  # DD/MM/YYYY for European locale
-        except ValueError:
-            # Return original if not in expected format
-            return iso_date
+            # Use the new locale-aware date handler
+            return locale_handler.convert_iso_to_applescript(iso_date)
+        except Exception as e:
+            logger.error(f"Error converting ISO date '{iso_date}': {e}")
+            # Fallback to original approach if needed
+            try:
+                parsed = datetime.strptime(iso_date, '%Y-%m-%d').date()
+                return parsed.strftime('%d/%m/%Y')  # DD/MM/YYYY for European locale
+            except ValueError:
+                return iso_date
     
     async def _ensure_tags_exist(self, tags: List[str]) -> Dict[str, List[str]]:
         """Ensure tags exist, creating them if necessary in a single AppleScript call.
@@ -940,8 +953,8 @@ class ThingsTools:
                     "logbook_period_1d_100", "logbook_period_3d_100"  # Common logbook queries
                 ]
                 for key in filter(None, cache_keys_to_clear):
-                    if key in self.applescript._cache:
-                        del self.applescript._cache[key]
+                    # Use delete method for SharedCache
+                    self.applescript._cache.delete(key)
             
             script = '\n'.join(script_parts)
             
@@ -1070,7 +1083,7 @@ class ThingsTools:
             logger.error(f"Error getting todo by ID: {e}")
             raise
     
-    async def delete_todo(self, todo_id: str) -> Dict[str, str]:
+    async def delete_todo(self, todo_id: str) -> Dict[str, Any]:
         """Delete a todo from Things.
         
         Args:
@@ -1091,7 +1104,7 @@ class ThingsTools:
         )
         return await queue.wait_for_operation(operation_id)
 
-    async def _delete_todo_impl(self, todo_id: str) -> Dict[str, str]:
+    async def _delete_todo_impl(self, todo_id: str) -> Dict[str, Any]:
         """Internal implementation of delete_todo (executed through operation queue)."""
         try:
             # Use AppleScript to delete todo
@@ -2250,32 +2263,30 @@ class ThingsTools:
             raise
     
     async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
-        """Move a todo to a different list in Things using AppleScript 'move' command.
+        """Move a todo to a different list, project, or area in Things.
         
-        This function moves a todo to one of Things' standard lists. Note that some moves may
-        fail if the todo doesn't meet the requirements for the destination list (e.g., moving
-        to 'upcoming' requires the todo to have a start date set).
+        This function supports moving todos to:
+        - Built-in lists: inbox, today, anytime, someday, upcoming, logbook
+        - Projects: Use format "project:PROJECT_ID" 
+        - Areas: Use format "area:AREA_ID"
         
         Args:
             todo_id: ID of the todo to move
-            destination_list: Name of the destination list. Valid options are:
-                - inbox: Inbox list (default location for new todos)
-                - today: Today list (scheduled for today)
-                - anytime: Anytime list (todos without specific schedule)
-                - someday: Someday list (todos for someday/maybe)
-                - upcoming: Upcoming list (todos with future start dates)
-                - logbook: Logbook list (completed todos)
+            destination_list: Destination in one of these formats:
+                - List name: "inbox", "today", "anytime", "someday", "upcoming", "logbook"
+                - Project: "project:PROJECT_ID" (e.g., "project:ABC123")
+                - Area: "area:AREA_ID" (e.g., "area:XYZ789")
             
         Returns:
             Dict with move operation result containing:
                 - success: Boolean indicating if move succeeded
                 - message: Success/error message
                 - todo_id: ID of the todo that was moved
-                - destination_list: Target list name
+                - destination: Target destination 
                 - moved_at: Timestamp of successful move (only on success)
                 - error: Error details (only on failure)
         """
-        # Use operation queue to ensure write consistency
+        # Use operation queue to ensure write consistency for backward compatibility
         queue = await get_operation_queue()
         operation_id = await queue.enqueue(
             self._move_record_impl,
@@ -2290,84 +2301,42 @@ class ThingsTools:
     async def _move_record_impl(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
         """Internal implementation of move_record (executed through operation queue)."""
         try:
-            # Validate destination list
-            valid_lists = ["inbox", "today", "anytime", "someday", "upcoming", "logbook"]
-            if destination_list.lower() not in valid_lists:
-                raise ValueError(f"Invalid destination list: {destination_list}. Valid options are: {', '.join(valid_lists)}")
+            # Use the advanced MoveOperationsTools for all move operations
+            # This provides full support for lists, projects, and areas with proper validation
+            result = await self.move_operations.move_record(
+                todo_id=todo_id, 
+                destination=destination_list,
+                preserve_scheduling=True
+            )
             
-            # Normalize the destination list name
-            normalized_destination = destination_list.lower()
-            
-            # Build AppleScript to move the todo
-            escaped_todo_id = self._escape_applescript_string(todo_id)
-            
-            # Use Things' native 'move' command with proper list reference
-            script = f'''
-            tell application "Things3"
-                try
-                    set theTodo to to do id {escaped_todo_id}
-                    set targetList to list "{normalized_destination}"
-                    move theTodo to targetList
-                    return "moved"
-                on error errMsg
-                    return "error: " & errMsg
-                end try
-            end tell
-            '''
-            
-            result = await self.applescript.execute_applescript(script, cache_key=None)
-            
+            # Normalize the response format to maintain backward compatibility
             if result.get("success"):
-                output = result.get("output", "").strip()
-                
-                if "moved" in output:
-                    logger.info(f"Successfully moved todo {todo_id} to {destination_list}")
-                    return {
-                        "success": True,
-                        "message": f"Todo moved to {destination_list} successfully",
-                        "todo_id": todo_id,
-                        "destination_list": destination_list,
-                        "moved_at": datetime.now().isoformat()
-                    }
-                elif output.startswith("error:"):
-                    error_msg = output.replace("error: ", "")
-                    logger.error(f"AppleScript error moving todo {todo_id}: {error_msg}")
-                    
-                    # Provide more helpful error messages for common issues
-                    if "Cannot move" in error_msg and normalized_destination == "upcoming":
-                        friendly_error = "Cannot move to Upcoming list. The todo may need a start date set to appear in Upcoming."
-                    elif "Cannot move" in error_msg and normalized_destination == "logbook":
-                        friendly_error = "Cannot move to Logbook. Only completed todos can be moved to Logbook."
-                    else:
-                        friendly_error = f"Failed to move todo: {error_msg}"
-                    
-                    return {
-                        "success": False,
-                        "error": friendly_error,
-                        "todo_id": todo_id,
-                        "destination_list": destination_list
-                    }
-                else:
-                    logger.error(f"Unexpected AppleScript output: {output}")
-                    return {
-                        "success": False,
-                        "error": f"Unexpected response: {output}",
-                        "todo_id": todo_id,
-                        "destination_list": destination_list
-                    }
+                return {
+                    "success": True,
+                    "message": result.get("message", f"Todo moved to {destination_list} successfully"),
+                    "todo_id": todo_id,
+                    "destination_list": destination_list,  # Keep original parameter name for compatibility
+                    "destination": result.get("destination", destination_list),
+                    "moved_at": result.get("moved_at", datetime.now().isoformat())
+                }
             else:
-                error_msg = result.get("error", "AppleScript execution failed")
-                logger.error(f"Failed to execute move AppleScript: {error_msg}")
                 return {
                     "success": False,
-                    "error": error_msg,
+                    "error": result.get("error", "MOVE_FAILED"),
+                    "message": result.get("message", "Failed to move todo"),
                     "todo_id": todo_id,
                     "destination_list": destination_list
                 }
         
         except Exception as e:
-            logger.error(f"Error moving todo: {e}")
-            raise
+            logger.error(f"Error in move_record operation: {e}")
+            return {
+                "success": False,
+                "error": "UNEXPECTED_ERROR", 
+                "message": f"Unexpected error during move: {str(e)}",
+                "todo_id": todo_id,
+                "destination_list": destination_list
+            }
     
     # Removed show_item and search_items methods as they trigger UI changes
     # which are not appropriate for MCP server operations
@@ -2542,13 +2511,18 @@ class ThingsTools:
             return f"{field_name} ≥ ((current date) - 30 * days) and {field_name} ≤ (current date)"
         elif '-' in date_input:  # YYYY-MM-DD format
             try:
-                from datetime import datetime
-                parsed_date = datetime.strptime(date_input, '%Y-%m-%d')
-                # Convert to DD/MM/YYYY format that AppleScript can parse directly
-                applescript_date = parsed_date.strftime('%d/%m/%Y')
-                return f'{field_name} = date "{applescript_date}"'
-            except ValueError:
-                logger.warning(f"Could not parse date '{date_input}', using existence check")
+                # Use locale-aware date handler for property-based date creation
+                date_components = locale_handler.normalize_date_input(date_input)
+                if date_components:
+                    year, month, day = date_components
+                    # Build property-based date comparison
+                    date_expr = locale_handler.build_applescript_date_property(year, month, day)
+                    return f'{field_name} = ({date_expr})'
+                else:
+                    logger.warning(f"Could not normalize date '{date_input}', using existence check")
+                    return f"{field_name} is not missing value"
+            except Exception as e:
+                logger.warning(f"Error parsing date '{date_input}': {e}, using existence check")
                 return f"{field_name} is not missing value"
         else:
             # Default fallback: just check field exists

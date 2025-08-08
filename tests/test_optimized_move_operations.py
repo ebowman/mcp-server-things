@@ -10,8 +10,8 @@ import asyncio
 from unittest.mock import Mock, patch, AsyncMock
 from datetime import datetime
 
-from src.things_mcp.tools.move_operations import MoveOperationsTools
-from src.things_mcp.services.applescript_manager import AppleScriptManager
+from src.things_mcp.move_operations import MoveOperationsTools
+from src.things_mcp.applescript_manager import AppleScriptManager
 from src.things_mcp.services.validation_service import ValidationService
 
 

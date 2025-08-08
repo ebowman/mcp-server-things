@@ -11,6 +11,7 @@ from urllib.parse import quote
 import re
 
 from .shared_cache import get_shared_cache
+from .locale_aware_dates import locale_handler
 
 logger = logging.getLogger(__name__)
 
@@ -895,26 +896,30 @@ class AppleScriptManager:
                 elif when_lower in ["anytime", "someday"]:
                     script_parts.append('        set start date of theProject to missing value')
                 else:
-                    # Try to parse as date string (YYYY-MM-DD)
+                    # Try to parse as date string (YYYY-MM-DD) using locale-aware handler
                     try:
-                        from datetime import datetime
-                        parsed_date = datetime.strptime(when, '%Y-%m-%d')
-                        # Format for AppleScript: "January 1, 2024"
-                        date_str = parsed_date.strftime('%B %d, %Y')
-                        script_parts.append(f'        set start date of theProject to date "{date_str}"')
-                    except ValueError:
-                        logger.warning(f"Could not parse when date: {when}")
+                        date_components = locale_handler.normalize_date_input(when)
+                        if date_components:
+                            year, month, day = date_components
+                            date_expr = locale_handler.build_applescript_date_property(year, month, day)
+                            script_parts.append(f'        set start date of theProject to ({date_expr})')
+                        else:
+                            logger.warning(f"Could not normalize when date: {when}")
+                    except Exception as e:
+                        logger.warning(f"Error parsing when date '{when}': {e}")
             
             # Handle deadline if provided
             if deadline is not None:
                 try:
-                    from datetime import datetime
-                    parsed_date = datetime.strptime(deadline, '%Y-%m-%d')
-                    # Format for AppleScript: "January 1, 2024"
-                    date_str = parsed_date.strftime('%B %d, %Y')
-                    script_parts.append(f'        set due date of theProject to date "{date_str}"')
-                except ValueError:
-                    logger.warning(f"Could not parse deadline date: {deadline}")
+                    date_components = locale_handler.normalize_date_input(deadline)
+                    if date_components:
+                        year, month, day = date_components
+                        date_expr = locale_handler.build_applescript_date_property(year, month, day)
+                        script_parts.append(f'        set due date of theProject to ({date_expr})')
+                    else:
+                        logger.warning(f"Could not normalize deadline date: {deadline}")
+                except Exception as e:
+                    logger.warning(f"Error parsing deadline date '{deadline}': {e}")
             
             # Close the try block and handle errors
             script_parts.extend([
