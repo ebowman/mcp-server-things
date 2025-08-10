@@ -1,6 +1,34 @@
 # Things 3 MCP Server
 
-A powerful Model Context Protocol (MCP) server that provides seamless integration with Things 3, the award-winning task management application for macOS. This server enables AI assistants and other MCP clients to interact with your Things 3 data, creating todos, managing projects, and accessing your task lists.
+[![PyPI version](https://badge.fury.io/py/things-applescript-mcp.svg)](https://pypi.org/project/things-applescript-mcp/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![macOS](https://img.shields.io/badge/macOS-12+-green.svg)](https://www.apple.com/macos/)
+
+> **Turn AI conversations into real commitments.** Connect Claude and other AI assistants to Things 3 for natural language task management.
+
+## Installation
+
+```bash
+pip install things-applescript-mcp
+```
+
+Or add to your Claude Desktop configuration:
+
+```json
+{
+  "mcpServers": {
+    "things": {
+      "command": "python",
+      "args": ["-m", "things_mcp.main"],
+      "env": {}
+    }
+  }
+}
+```
+
+![Demo showing Claude creating tasks in Things 3](demo.gif)
+*Creating tasks with natural language through Claude*
 
 ## 🚀 Features
 
@@ -43,48 +71,6 @@ A powerful Model Context Protocol (MCP) server that provides seamless integratio
 - **Things 3**: Things 3 must be installed and accessible
 - **Python**: Python 3.8 or higher
 - **Permissions**: AppleScript permissions for Things 3 access
-
-## 🔧 Installation
-
-### Method 1: From Source (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/your-repo/things-mcp-server.git
-cd things-mcp-server
-
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On macOS/Linux
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install in development mode
-pip install -e .
-```
-
-### Method 2: Direct Installation
-
-```bash
-pip install things-mcp-server
-```
-
-### Method 3: Using Claude Desktop
-
-Add to your Claude Desktop MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "things": {
-      "command": "python",
-      "args": ["-m", "things_mcp.main"],
-      "cwd": "/path/to/things-mcp-server"
-    }
-  }
-}
-```
 
 ## 🚀 Quick Start
 
@@ -406,9 +392,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-repo/things-mcp-server/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/things-mcp-server/discussions)
-- **Email**: support@example.com
+- **Issues**: [GitHub Issues](https://github.com/ebowman/things-applescript-mcp/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ebowman/things-applescript-mcp/discussions)
+- **Email**: ebowman@boboco.ie
 
 ## 🎯 Roadmap
 
