@@ -1,203 +1,108 @@
-# Things 3 MCP Server - Implementation Summary
+# Implementation Summary: Search and Tag Functionality
 
-## 🎉 Successfully Implemented Core MCP Server
+## Implemented Functions
 
-I have successfully implemented a production-ready Things 3 MCP server using FastMCP 2.0 with all the requested components:
+### 1. `get_tags(include_items=False)` - Line ~531
+**Purpose**: Get all tags from Things 3
+**Implementation**: Uses AppleScript to iterate through all tags and extract name and shortcut properties
+**Returns**: List of tag dictionaries with name, shortcut, and optionally items if include_items=True
 
-## ✅ Core Components Delivered
-
-### 1. **Main Server Implementation** (`src/things_mcp/simple_server.py`)
-- ✅ FastMCP 2.0 server setup with proper initialization
-- ✅ Complete tool registration for all core operations (20+ tools)
-- ✅ Comprehensive error handling and logging
-- ✅ Health check endpoint
-- ✅ Clean FastMCP patterns and best practices
-
-### 2. **AppleScript Manager** (`src/things_mcp/applescript_manager.py`)
-- ✅ Execute AppleScript commands with retry logic
-- ✅ Handle Things URL schemes
-- ✅ Robust error handling with exponential backoff
-- ✅ Basic caching for performance (5-minute TTL)
-- ✅ Timeout management and process control
-
-### 3. **Core Tools Implementation** (`src/things_mcp/tools.py`)
-- ✅ `get_todos()` - List all todos with project filtering
-- ✅ `add_todo(title, notes, tags, ...)` - Create new todos
-- ✅ `update_todo(todo_id, **kwargs)` - Update existing todos
-- ✅ `get_todo_by_id(todo_id)` - Get specific todo
-- ✅ `delete_todo(todo_id)` - Delete todos
-- ✅ Full project and area management
-- ✅ List access (Inbox, Today, Upcoming, etc.)
-- ✅ Search and tag functionality
-
-### 4. **Entry Point** (`src/things_mcp/main.py`)
-- ✅ Command-line interface with comprehensive options
-- ✅ Server startup and configuration
-- ✅ Graceful shutdown handling
-- ✅ Health checks and connectivity testing
-- ✅ Debug logging and error reporting
-
-## 🔧 Key Features Implemented
-
-### Core Todo Operations
-- **Create**: Add todos with full metadata (tags, deadlines, projects)
-- **Read**: Get todos by ID, project, or list (Today, Inbox, etc.)
-- **Update**: Modify existing todos with partial updates
-- **Delete**: Remove todos safely
-
-### Project & Area Management
-- Get all projects/areas with optional task inclusion
-- Create new projects with initial todos
-- Update project metadata and status
-
-### Advanced Features
-- **Search**: Basic text search and advanced filtering
-- **Tags**: Tag management and filtering
-- **Lists**: Access to all Things 3 built-in lists
-- **URL Schemes**: Native Things 3 URL scheme integration
-- **Caching**: Intelligent caching for performance
-- **Health Monitoring**: Comprehensive health checks
-
-### Production-Ready Features
-- **Error Handling**: Comprehensive error handling with retries
-- **Logging**: Structured logging throughout
-- **Validation**: Input validation using Pydantic
-- **Testing**: Test suite with mocking for CI/CD
-- **Documentation**: Complete usage documentation
-- **CLI**: Full command-line interface
-
-## 📊 Implementation Stats
-
-- **20+ MCP Tools**: Complete coverage of Things 3 operations
-- **4 Core Modules**: Clean, modular architecture  
-- **3 Interface Layers**: AppleScript, URL schemes, direct commands
-- **100% Error Handling**: Every operation has try/catch
-- **Configurable**: Timeouts, retries, caching all configurable
-- **Cross-Platform Ready**: Designed for macOS with Things 3
-
-## 🧪 Verified Functionality
-
-### ✅ All Components Tested
-```bash
-# Module imports working
-✓ AppleScript manager imported successfully
-✓ Tools imported successfully  
-✓ Models imported successfully
-✓ Simple server imported successfully
-
-# Basic functionality verified
-✓ Manager initialized with timeout: 30
-✓ Cache initialized: 0 items
-✓ URL building works: things:///add?title=Test
-✓ Server created successfully
-✓ FastMCP instance: things-mcp
+**AppleScript Pattern**:
+```applescript
+repeat with theTag in tags
+    set tagRecord to {name:(name of theTag), shortcut:(shortcut of theTag)}
 ```
 
-### ✅ Health Check Working
-```bash
-✓ AppleScript available
-✓ Things 3 is running and accessible  
-✓ AppleScript execution working
-✓ Health check completed successfully
+### 2. `get_tagged_items(tag)` - Line ~549  
+**Purpose**: Get all items (todos and projects) with a specific tag
+**Implementation**: Searches both todos and projects collections, filtering by tag name
+**Returns**: List of item dictionaries with type information
+
+**AppleScript Pattern**:
+```applescript
+repeat with theTodo in to dos
+    set todoTags to tag names of theTodo
+    if todoTags contains "tag_name" then
+        -- collect item data
 ```
 
-### ✅ CLI Interface Working
-```bash
-# Full command-line interface with help
-python -m src.things_mcp --help
-python -m src.things_mcp --health-check  
-python -m src.things_mcp --version
-python -m src.things_mcp --test-applescript
+### 3. `search_todos(query)` - Line ~567
+**Purpose**: Search todos by title and notes content
+**Implementation**: Case-insensitive search through all todos, checking both name and notes fields
+**Returns**: List of matching todo dictionaries with search context
+
+**AppleScript Pattern**:
+```applescript
+if (todoName as string) contains searchTerm or (todoNotes as string) contains searchTerm then
+    -- collect matching todo
 ```
 
-## 🏗️ Architecture Overview
+### 4. `search_advanced()` - Line ~589
+**Purpose**: Advanced search with multiple filter options (status, type, tag, area, dates)
+**Implementation**: Dynamic AppleScript generation based on provided filters
+**Parameters**: status, type, tag, area, start_date, deadline
+**Returns**: List of matching items with filter context
 
-```
-src/things_mcp/
-├── simple_server.py      # FastMCP 2.0 server with tool registration
-├── applescript_manager.py # AppleScript execution with caching
-├── tools.py              # Core tool implementations  
-├── models.py             # Pydantic data models
-├── main.py               # CLI entry point with health checks
-└── __main__.py           # Module entry point
-```
+**Key Features**:
+- Supports filtering by status (incomplete, completed, canceled)
+- Can filter by type (to-do, project, heading)
+- Tag-based filtering
+- Area-based filtering
 
-## 🚀 Usage Examples
+### 5. `get_recent(period)` - Line ~611
+**Purpose**: Get recently created items within a specified time period
+**Implementation**: Uses AppleScript date comparison with cutoff date
+**Parameters**: period string like '3d', '1w', '2m', '1y'
+**Returns**: List of recent items (todos and projects) with creation date filtering
 
-### Start the Server
-```bash
-# Basic startup
-python -m src.things_mcp
+**Helper Method**: `_parse_period_to_days(period)` converts period strings to days:
+- 'd' = days (3d = 3 days)
+- 'w' = weeks (1w = 7 days) 
+- 'm' = months (2m = 60 days)
+- 'y' = years (1y = 365 days)
 
-# With debug logging
-python -m src.things_mcp --debug
+## Technical Implementation Details
 
-# Custom timeout
-python -m src.things_mcp --timeout 60
-```
+### AppleScript Integration
+- All functions use the existing `execute_applescript()` method
+- Results are parsed using the established `_parse_applescript_list()` method
+- Proper error handling with try/catch blocks in AppleScript
+- Caching implemented for performance (where appropriate)
 
-### Health Monitoring
-```bash
-# Check system health
-python -m src.things_mcp --health-check
+### Data Format Consistency  
+- All functions return standardized dictionary format
+- Common fields: id, uuid, title, notes, status, tags, creation_date, modification_date
+- Additional context fields based on function (search_query, period_filter, etc.)
+- UUID field uses Things' id (Things uses ID as UUID)
 
-# Test AppleScript connectivity
-python -m src.things_mcp --test-applescript
-```
+### Error Handling
+- Python exception handling for all functions
+- AppleScript error handling with try/on error blocks
+- Graceful degradation (skip items that can't be accessed)
+- Informative logging for debugging
 
-### Tool Usage (via MCP client)
+### Performance Considerations
+- Caching implemented for expensive operations
+- Efficient AppleScript loops with minimal nested operations  
+- Result limiting where appropriate
+- Query escaping for AppleScript injection prevention
+
+## Usage Examples
+
 ```python
-# Add a todo
-add_todo(
-    title="Review project proposal",
-    notes="Check budget and timeline",
-    tags=["work", "urgent"],
-    when="today"
-)
+# Get all tags
+tags = tools.get_tags()
+tags_with_items = tools.get_tags(include_items=True)
 
-# Get today's todos
-get_today()
+# Search functionality
+search_results = tools.search_todos("meeting notes")
+recent_items = tools.get_recent("3d")
+tagged_items = tools.get_tagged_items("work")
 
-# Search todos
-search_todos("meeting")
+# Advanced search
+incomplete_todos = tools.search_advanced(status="incomplete", type="to-do")
+work_projects = tools.search_advanced(tag="work", type="project")
 ```
 
-## 📋 Next Steps for Production
-
-### Phase 1: Enhanced Integration
-- [ ] Implement proper AppleScript record parsing
-- [ ] Add batch operations for performance
-- [ ] Enhance caching with persistence
-- [ ] Add webhook support for real-time updates
-
-### Phase 2: Advanced Features  
-- [ ] Smart templates and quick entry
-- [ ] Natural language processing
-- [ ] Integration with calendar and email
-- [ ] Advanced analytics and reporting
-
-### Phase 3: Scaling
-- [ ] Multi-user support
-- [ ] API rate limiting  
-- [ ] Monitoring and metrics
-- [ ] Docker containerization
-
-## 🎯 Key Accomplishments
-
-1. **✅ Production-Ready**: Full error handling, logging, testing
-2. **✅ FastMCP 2.0**: Latest MCP patterns and best practices  
-3. **✅ Complete Coverage**: All major Things 3 operations supported
-4. **✅ Easy to Use**: Simple CLI and clear documentation
-5. **✅ Extensible**: Clean architecture for future enhancements
-6. **✅ Reliable**: Retry logic, caching, health monitoring
-
-## 🔍 Technical Highlights
-
-- **Modern Python**: Uses Python 3.8+ with type hints and async support
-- **Pydantic Validation**: All inputs validated with clear error messages
-- **Structured Logging**: Comprehensive logging for debugging and monitoring  
-- **Graceful Degradation**: Works even when Things 3 is not running
-- **Resource Management**: Proper cleanup and resource management
-- **Security**: No hardcoded secrets, safe AppleScript execution
-
-The implementation is **complete, tested, and production-ready** for immediate use in MCP-enabled applications. All core requirements have been met with a focus on reliability, maintainability, and ease of use.
+## Testing
+Created test script at `test_new_functions.py` to validate all implementations.
