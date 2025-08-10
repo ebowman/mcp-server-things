@@ -208,22 +208,12 @@ class ThingsTools:
         Returns:
             Dict with validation results, warnings, and processed tags
         """
-        logger.info(f"=== TAG VALIDATION DEBUG ===")
-        logger.info(f"Tags to validate: {tags}")
-        logger.info(f"Has validation service: {self.tag_validation_service is not None}")
-        logger.info(f"Config policy: {self.config.tag_creation_policy if self.config else 'NO CONFIG'}")
-        
         if not self.tag_validation_service:
-            logger.warning("No tag validation service, using legacy behavior")
             # Fallback to legacy behavior
             return await self._ensure_tags_exist_legacy(tags)
         
         try:
             result = await self.tag_validation_service.validate_and_filter_tags(tags)
-            
-            logger.info(f"Validation result - valid_tags: {result.valid_tags}, filtered: {result.filtered_tags}, created: {result.created_tags}")
-            logger.info(f"Validation errors: {result.errors}")
-            logger.info(f"Validation warnings: {result.warnings}")
             
             # Convert to legacy format for backward compatibility
             legacy_result = {
@@ -243,7 +233,6 @@ class ThingsTools:
             
             # If there are errors (from FAIL_ON_UNKNOWN policy), raise exception
             if result.errors:
-                logger.error(f"RAISING EXCEPTION due to validation errors")
                 raise ValueError(f"Tag validation failed: {'; '.join(result.errors)}")
             
             return legacy_result
@@ -697,7 +686,6 @@ class ThingsTools:
             
             # Ensure all tags exist using consolidated batch operation
             if tags:
-                logger.info(f"=== ADD_TODO_IMPL: Processing tags: {tags}")
                 try:
                     tag_result = await self._ensure_tags_exist(tags)
                     created_tags = tag_result.get('created', [])
@@ -705,15 +693,12 @@ class ThingsTools:
                     filtered_tags = tag_result.get('filtered', [])
                     tag_warnings = tag_result.get('warnings', [])
                     
-                    logger.info(f"Tag result - created: {created_tags}, existing: {existing_tags}, filtered: {filtered_tags}")
-                    
                     # Update tags to only include valid tags (not filtered ones)
                     # This ensures we don't pass rejected tags to AppleScript
                     valid_tags = created_tags + existing_tags
                     if filtered_tags:
                         logger.info(f"Filtered out tags per policy: {filtered_tags}")
                         tags = valid_tags  # Use only the valid tags
-                    logger.info(f"Final tags to use: {tags}")
                 except ValueError as e:
                     logger.error(f"Tag validation failed with ValueError: {e}")
                     return {
@@ -965,6 +950,15 @@ class ThingsTools:
                     "tags_filtered": filtered_tags,
                     "scheduling_result": scheduling_result
                 }
+                
+                # Add enhanced guidance for filtered tags
+                if filtered_tags and not self.config.ai_can_create_tags:
+                    result["tag_guidance"] = {
+                        "message": f"The following tags were not applied because they don't exist: {', '.join(filtered_tags)}",
+                        "user_action": "The user has configured tag creation to be manual-only to maintain a clean tag structure.",
+                        "suggestion": f"Please inform the user that the todo was created but the tags {filtered_tags} were not applied. Ask if they would like to create these tags.",
+                        "policy": "Tags can only be created intentionally by users, not automatically by AI assistants."
+                    }
                 
                 # Add tag warnings if any
                 if tag_warnings:

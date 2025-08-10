@@ -200,9 +200,15 @@ class ThingsMCPConfig(BaseSettings):
     )
     
     # Tag management configuration
+    ai_can_create_tags: bool = Field(
+        default=False,
+        description="Whether AI assistants can create new tags (false = human-only tag creation)"
+    )
+    
+    # Keep legacy field for backward compatibility but map to new simplified model
     tag_creation_policy: TagCreationPolicy = Field(
-        default=TagCreationPolicy.ALLOW_ALL,
-        description="Policy for handling unknown tags during operations"
+        default=TagCreationPolicy.FAIL_ON_UNKNOWN,
+        description="[DEPRECATED - use ai_can_create_tags] Policy for handling unknown tags"
     )
     
     tag_validation_case_sensitive: bool = Field(
@@ -304,8 +310,17 @@ class ThingsMCPConfig(BaseSettings):
         return v
     
     @validator('tag_creation_policy', pre=True)
-    def validate_tag_creation_policy(cls, v):
-        """Parse tag creation policy from string, with backward compatibility."""
+    def validate_tag_creation_policy(cls, v, values):
+        """Sync tag policy with ai_can_create_tags setting."""
+        # If ai_can_create_tags is explicitly set, use it to determine policy
+        if 'ai_can_create_tags' in values:
+            if values['ai_can_create_tags']:
+                return TagCreationPolicy.ALLOW_ALL
+            else:
+                # Use FILTER_WARN for better AI guidance
+                return TagCreationPolicy.FILTER_WARN
+        
+        # Otherwise parse from string with backward compatibility
         if isinstance(v, str):
             v_lower = v.lower()
             # Map old names to new ones for backward compatibility
@@ -317,6 +332,24 @@ class ThingsMCPConfig(BaseSettings):
             v_lower = compatibility_map.get(v_lower, v_lower)
             return TagCreationPolicy(v_lower)
         return v
+    
+    @validator('ai_can_create_tags', pre=True)
+    def set_ai_can_create_tags_from_policy(cls, v, values):
+        """Set ai_can_create_tags based on policy if not explicitly set."""
+        # If explicitly set, use that value
+        if v is not None:
+            return v
+        
+        # Otherwise derive from tag_creation_policy if present
+        if 'tag_creation_policy' in values:
+            policy = values['tag_creation_policy']
+            if isinstance(policy, str):
+                policy = policy.lower()
+            # Only ALLOW_ALL means AI can create tags
+            return policy == TagCreationPolicy.ALLOW_ALL or policy == 'allow_all'
+        
+        # Default to False (human-only)
+        return False
     
     class Config:
         env_prefix = "THINGS_MCP_"

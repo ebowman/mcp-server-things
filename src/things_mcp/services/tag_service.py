@@ -125,9 +125,6 @@ class TagValidationService:
             return set()
     
     async def _apply_policy(self, tags: List[str], existing_tags: Set[str]) -> TagValidationResult:
-        logger.info(f"=== TAG SERVICE: Applying policy {self.config.tag_creation_policy}")
-        logger.info(f"Input tags: {tags}")
-        logger.info(f"Existing tags: {existing_tags}")
         """Apply the configured policy to tag validation.
         
         Args:
@@ -196,13 +193,11 @@ class TagValidationService:
         
         elif policy == TagCreationPolicy.FAIL_ON_UNKNOWN:
             # Fail the entire operation if any unknown tags
-            logger.info(f"FAIL_ON_UNKNOWN policy - unknown tags: {unknown_tags}")
             if unknown_tags:
                 error_msg = (
                     f"Operation rejected due to unknown tags: {', '.join(unknown_tags)}. "
                     f"Please create these tags first or change tag policy to allow/filter."
                 )
-                logger.error(f"Adding error: {error_msg}")
                 result.errors.append(error_msg)
                 result.filtered_tags.extend(unknown_tags)
         

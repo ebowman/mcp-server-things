@@ -100,10 +100,64 @@ class ThingsMCPServer:
                 raise
         
         @self.mcp.tool()
+        async def create_tag(
+            tag_name: str = Field(..., description="Name of the tag to create")
+        ) -> Dict[str, Any]:
+            """Create a new tag in Things 3.
+            
+            IMPORTANT: This tool is for HUMAN USE ONLY. AI assistants should not create tags
+            automatically. Tags should be intentionally created by users to maintain a clean
+            and organized tag structure. If you need to use a tag that doesn't exist, please
+            inform the user and ask if they'd like to create it.
+            """
+            # Check if AI can create tags based on configuration
+            if not self.config.ai_can_create_tags:
+                # Provide informative response for AI guidance
+                return {
+                    "success": False,
+                    "error": "Tag creation is restricted to human users only",
+                    "message": "This system is configured to require manual tag creation by users. This helps maintain a clean and intentional tag structure.",
+                    "user_action": f"Please ask the user if they would like to create the tag '{tag_name}'",
+                    "existing_tags_hint": "You can use get_tags to show the user existing tags they can use instead."
+                }
+            
+            # If AI can create tags, proceed
+            try:
+                if self.tools.tag_validation_service:
+                    result = await self.tools.tag_validation_service.create_tags([tag_name])
+                    if result['created']:
+                        return {
+                            "success": True,
+                            "message": f"Tag '{tag_name}' created successfully",
+                            "tag": tag_name
+                        }
+                    else:
+                        errors = result.get('errors', [])
+                        return {
+                            "success": False,
+                            "error": errors[0] if errors else f"Failed to create tag '{tag_name}'",
+                            "message": "Tag creation failed"
+                        }
+                else:
+                    # Fallback if no validation service
+                    return {
+                        "success": False,
+                        "error": "Tag validation service not available",
+                        "message": "Cannot create tags without validation service"
+                    }
+            except Exception as e:
+                logger.error(f"Error creating tag: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": "An error occurred while creating the tag"
+                }
+        
+        @self.mcp.tool()
         async def add_todo(
             title: str = Field(..., description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
-            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the todo"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags. NOTE: Only existing tags will be applied. New tags must be created separately by the user."),
             when: Optional[str] = Field(None, description="When to schedule the todo (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
