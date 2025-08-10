@@ -36,11 +36,11 @@ class LogLevel(str, Enum):
 
 
 class TagCreationPolicy(str, Enum):
-    """Tag creation policy for handling unknown tags"""
-    ALLOW_ALL = "allow_all"
-    FILTER_UNKNOWN = "filter_unknown"
-    WARN_UNKNOWN = "warn_unknown"
-    REJECT_UNKNOWN = "reject_unknown"
+    """Tag creation policy for handling unknown tags - clear, self-contained behaviors"""
+    ALLOW_ALL = "allow_all"              # Create any new tags automatically
+    FILTER_SILENT = "filter_silent"      # Remove unknown tags silently, continue operation
+    FILTER_WARN = "filter_warn"          # Remove unknown tags with warnings, continue operation
+    FAIL_ON_UNKNOWN = "fail_on_unknown"  # Reject entire operation if any unknown tags
 
 
 class ThingsMCPConfig(BaseSettings):
@@ -205,11 +205,6 @@ class ThingsMCPConfig(BaseSettings):
         description="Policy for handling unknown tags during operations"
     )
     
-    tag_policy_strict_mode: bool = Field(
-        default=False,
-        description="Enable strict mode for tag policy enforcement"
-    )
-    
     tag_validation_case_sensitive: bool = Field(
         default=False,
         description="Enable case-sensitive tag validation"
@@ -310,8 +305,17 @@ class ThingsMCPConfig(BaseSettings):
     
     @validator('tag_creation_policy', pre=True)
     def validate_tag_creation_policy(cls, v):
+        """Parse tag creation policy from string, with backward compatibility."""
         if isinstance(v, str):
-            return TagCreationPolicy(v.lower())
+            v_lower = v.lower()
+            # Map old names to new ones for backward compatibility
+            compatibility_map = {
+                'filter_unknown': 'filter_warn',     # Old filter_unknown becomes filter_warn
+                'reject_unknown': 'fail_on_unknown', # Old reject_unknown becomes fail_on_unknown
+                'warn_unknown': 'allow_all',         # Old warn_unknown actually created tags
+            }
+            v_lower = compatibility_map.get(v_lower, v_lower)
+            return TagCreationPolicy(v_lower)
         return v
     
     class Config:
@@ -414,7 +418,6 @@ class ThingsMCPConfig(BaseSettings):
         """Get tag management configuration"""
         return {
             "creation_policy": self.tag_creation_policy,
-            "strict_mode": self.tag_policy_strict_mode,
             "case_sensitive": self.tag_validation_case_sensitive,
             "max_auto_created_per_operation": self.max_auto_created_tags_per_operation
         }

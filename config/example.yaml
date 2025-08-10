@@ -61,26 +61,21 @@ verify_things_availability: true
 #    - Provides feedback about created tags in response
 #    - Best for flexible tag management
 #
-# 2. "filter_unknown":
+# 2. "filter_silent":
 #    - Silently removes unknown tags from operations
 #    - Operations proceed with only known tags
 #    - Best for strict tag control without operation failures
 #
-# 3. "warn_unknown":
-#    - Allows unknown tags but warns they will be auto-created by Things
-#    - Provides warnings in response but doesn't create tags proactively
-#    - Best for awareness of tag creation without blocking operations
+# 3. "filter_warn":
+#    - Removes unknown tags with warnings in response
+#    - Operations proceed with only known tags
+#    - Best for awareness when tags are filtered without blocking operations
 #
-# 4. "reject_unknown":
+# 4. "fail_on_unknown":
 #    - Rejects entire operations if unknown tags are present
 #    - Forces explicit tag creation before use
-#    - Best for strictest tag control (use with tag_policy_strict_mode: true)
+#    - Best for strictest tag control
 tag_creation_policy: "allow_all"
-
-# Enable strict mode for tag policy enforcement
-# When true, policy violations cause operation failures
-# When false, policy violations generate warnings but operations continue
-tag_policy_strict_mode: false
 
 # Case sensitivity for tag validation
 # When true, tags are matched exactly including case

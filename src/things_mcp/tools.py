@@ -92,14 +92,16 @@ class ThingsTools:
             tags: List of tag names to ensure exist
             
         Returns:
-            Dict with 'created' and 'existing' lists of tag names
+            Dict with 'created', 'existing', 'filtered', 'warnings' lists
         """
         result = await self._validate_tags_with_policy(tags)
         
-        # Extract only the legacy fields for compatibility
+        # Return all fields including filtered and warnings for proper policy enforcement
         return {
             'created': result.get('created', []),
-            'existing': result.get('existing', [])
+            'existing': result.get('existing', []),
+            'filtered': result.get('filtered', []),
+            'warnings': result.get('warnings', [])
         }
     
     async def _ensure_tags_exist_original(self, tags: List[str]) -> Dict[str, List[str]]:
@@ -206,12 +208,22 @@ class ThingsTools:
         Returns:
             Dict with validation results, warnings, and processed tags
         """
+        logger.info(f"=== TAG VALIDATION DEBUG ===")
+        logger.info(f"Tags to validate: {tags}")
+        logger.info(f"Has validation service: {self.tag_validation_service is not None}")
+        logger.info(f"Config policy: {self.config.tag_creation_policy if self.config else 'NO CONFIG'}")
+        
         if not self.tag_validation_service:
+            logger.warning("No tag validation service, using legacy behavior")
             # Fallback to legacy behavior
             return await self._ensure_tags_exist_legacy(tags)
         
         try:
             result = await self.tag_validation_service.validate_and_filter_tags(tags)
+            
+            logger.info(f"Validation result - valid_tags: {result.valid_tags}, filtered: {result.filtered_tags}, created: {result.created_tags}")
+            logger.info(f"Validation errors: {result.errors}")
+            logger.info(f"Validation warnings: {result.warnings}")
             
             # Convert to legacy format for backward compatibility
             legacy_result = {
@@ -229,15 +241,22 @@ class ThingsTools:
             for error in result.errors:
                 logger.error(f"Tag validation: {error}")
             
-            # If there are errors in strict mode, raise exception
-            if result.errors and self.config and self.config.tag_policy_strict_mode:
+            # If there are errors (from FAIL_ON_UNKNOWN policy), raise exception
+            if result.errors:
+                logger.error(f"RAISING EXCEPTION due to validation errors")
                 raise ValueError(f"Tag validation failed: {'; '.join(result.errors)}")
             
             return legacy_result
             
+        except ValueError as e:
+            # Re-raise ValueError for policy violations (like FAIL_ON_UNKNOWN)
+            # These should NOT fall back to legacy behavior
+            logger.error(f"Tag validation policy violation: {e}")
+            raise
+            
         except Exception as e:
-            logger.error(f"Error in tag validation service: {e}")
-            # Fallback to legacy behavior
+            logger.error(f"Unexpected error in tag validation service: {e}")
+            # Only fall back to legacy for unexpected errors, not policy violations
             return await self._ensure_tags_exist_legacy(tags)
     
     async def _ensure_tags_exist_legacy(self, tags: List[str]) -> Dict[str, List[str]]:
@@ -678,18 +697,29 @@ class ThingsTools:
             
             # Ensure all tags exist using consolidated batch operation
             if tags:
-                tag_result = await self._ensure_tags_exist(tags)
-                created_tags = tag_result.get('created', [])
-                existing_tags = tag_result.get('existing', [])
-                filtered_tags = tag_result.get('filtered', [])
-                tag_warnings = tag_result.get('warnings', [])
-                
-                # Update tags to only include valid tags (not filtered ones)
-                # This ensures we don't pass rejected tags to AppleScript
-                valid_tags = created_tags + existing_tags
-                if filtered_tags:
-                    logger.info(f"Filtered out tags per policy: {filtered_tags}")
-                    tags = valid_tags  # Use only the valid tags
+                logger.info(f"=== ADD_TODO_IMPL: Processing tags: {tags}")
+                try:
+                    tag_result = await self._ensure_tags_exist(tags)
+                    created_tags = tag_result.get('created', [])
+                    existing_tags = tag_result.get('existing', [])
+                    filtered_tags = tag_result.get('filtered', [])
+                    tag_warnings = tag_result.get('warnings', [])
+                    
+                    logger.info(f"Tag result - created: {created_tags}, existing: {existing_tags}, filtered: {filtered_tags}")
+                    
+                    # Update tags to only include valid tags (not filtered ones)
+                    # This ensures we don't pass rejected tags to AppleScript
+                    valid_tags = created_tags + existing_tags
+                    if filtered_tags:
+                        logger.info(f"Filtered out tags per policy: {filtered_tags}")
+                        tags = valid_tags  # Use only the valid tags
+                    logger.info(f"Final tags to use: {tags}")
+                except ValueError as e:
+                    logger.error(f"Tag validation failed with ValueError: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e)
+                    }
             
             # Handle when/start date - Things 3 supports the schedule command!
             schedule_command = None
@@ -1368,12 +1398,22 @@ class ThingsTools:
         try:
             created_tags = []
             existing_tags = []
+            filtered_tags = []
+            tag_warnings = []
             
             # Ensure all tags exist using consolidated batch operation
             if tags:
                 tag_result = await self._ensure_tags_exist(tags)
-                created_tags = tag_result['created']
-                existing_tags = tag_result['existing']
+                created_tags = tag_result.get('created', [])
+                existing_tags = tag_result.get('existing', [])
+                filtered_tags = tag_result.get('filtered', [])
+                tag_warnings = tag_result.get('warnings', [])
+                
+                # Update tags to only include valid tags (not filtered ones)
+                valid_tags = created_tags + existing_tags
+                if filtered_tags:
+                    logger.info(f"Filtered out tags per policy: {filtered_tags}")
+                    tags = valid_tags  # Use only the valid tags
             
             # Build AppleScript to create project
             escaped_title = self._escape_applescript_string(title)

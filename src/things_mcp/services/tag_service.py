@@ -99,7 +99,7 @@ class TagValidationService:
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, cache_key="all_tags", cache_ttl=60)
+            result = await self.applescript.execute_applescript(script, cache_key="all_tags")
             
             if result.get("success"):
                 tag_names = result.get("output", [])
@@ -125,6 +125,9 @@ class TagValidationService:
             return set()
     
     async def _apply_policy(self, tags: List[str], existing_tags: Set[str]) -> TagValidationResult:
+        logger.info(f"=== TAG SERVICE: Applying policy {self.config.tag_creation_policy}")
+        logger.info(f"Input tags: {tags}")
+        logger.info(f"Existing tags: {existing_tags}")
         """Apply the configured policy to tag validation.
         
         Args:
@@ -144,7 +147,6 @@ class TagValidationService:
         
         policy = self.config.tag_creation_policy
         case_sensitive = self.config.tag_validation_case_sensitive
-        strict_mode = self.config.tag_policy_strict_mode
         max_auto_created = self.config.max_auto_created_tags_per_operation
         
         unknown_tags = []
@@ -178,35 +180,31 @@ class TagValidationService:
             elif tags_to_create:
                 result.warnings.append(f"Created new tags: {', '.join(tags_to_create)}")
         
-        elif policy == TagCreationPolicy.FILTER_UNKNOWN:
-            # Filter out unknown tags silently
+        elif policy == TagCreationPolicy.FILTER_SILENT:
+            # Filter out unknown tags silently (no warnings)
             result.filtered_tags.extend(unknown_tags)
-            if unknown_tags and not strict_mode:
-                result.warnings.append(f"Filtered unknown tags: {', '.join(unknown_tags)}")
+            # Silent means no warnings
         
-        elif policy == TagCreationPolicy.WARN_UNKNOWN:
-            # Include unknown tags but warn about them
-            result.valid_tags.extend(unknown_tags)
+        elif policy == TagCreationPolicy.FILTER_WARN:
+            # Filter out unknown tags with warnings
+            result.filtered_tags.extend(unknown_tags)
             if unknown_tags:
                 result.warnings.append(
-                    f"Using unknown tags (they will be created automatically by Things): {', '.join(unknown_tags)}"
+                    f"Filtered unknown tags: {', '.join(unknown_tags)}. "
+                    f"Only existing tags will be applied."
                 )
         
-        elif policy == TagCreationPolicy.REJECT_UNKNOWN:
-            # Reject operation if unknown tags found
+        elif policy == TagCreationPolicy.FAIL_ON_UNKNOWN:
+            # Fail the entire operation if any unknown tags
+            logger.info(f"FAIL_ON_UNKNOWN policy - unknown tags: {unknown_tags}")
             if unknown_tags:
-                if strict_mode:
-                    result.errors.append(
-                        f"Operation rejected due to unknown tags: {', '.join(unknown_tags)}. "
-                        f"Please create tags first or change tag policy."
-                    )
-                    result.filtered_tags.extend(unknown_tags)
-                else:
-                    result.filtered_tags.extend(unknown_tags)
-                    result.warnings.append(
-                        f"Rejected unknown tags: {', '.join(unknown_tags)}. "
-                        f"Only known tags will be applied."
-                    )
+                error_msg = (
+                    f"Operation rejected due to unknown tags: {', '.join(unknown_tags)}. "
+                    f"Please create these tags first or change tag policy to allow/filter."
+                )
+                logger.error(f"Adding error: {error_msg}")
+                result.errors.append(error_msg)
+                result.filtered_tags.extend(unknown_tags)
         
         return result
     
