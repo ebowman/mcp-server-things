@@ -1,2 +1,0 @@
-[console_scripts]
-things-mcp = src.things_mcp.__main__:main
