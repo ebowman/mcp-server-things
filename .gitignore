@@ -28,3 +28,11 @@ claude-flow/
 
 # Environment variables
 .env
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
