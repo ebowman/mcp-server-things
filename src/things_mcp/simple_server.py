@@ -5,7 +5,16 @@ import atexit
 import logging
 import signal
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Optional dotenv support
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available, continue without it
+    pass
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -13,6 +22,7 @@ from pydantic import BaseModel, Field
 from .applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
+from .config import ThingsMCPConfig, load_config_from_env
 
 # Configure logging
 logging.basicConfig(
@@ -25,14 +35,30 @@ logger = logging.getLogger(__name__)
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
-    def __init__(self):
-        """Initialize the Things MCP server."""
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize the Things MCP server.
+        
+        Args:
+            config_path: Optional path to configuration file
+        """
         self.mcp = FastMCP("things-mcp")
+        
+        # Load configuration
+        if config_path and Path(config_path).exists():
+            try:
+                self.config = ThingsMCPConfig.from_file(Path(config_path))
+                logger.info(f"Loaded configuration from {config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load config from {config_path}: {e}. Using environment/defaults.")
+                self.config = load_config_from_env()
+        else:
+            self.config = load_config_from_env()
+        
         self.applescript_manager = AppleScriptManager()
-        self.tools = ThingsTools(self.applescript_manager)
+        self.tools = ThingsTools(self.applescript_manager, self.config)
         self._register_tools()
         self._register_shutdown_handlers()
-        logger.info("Things MCP Server initialized")
+        logger.info("Things MCP Server initialized with tag validation support")
 
     def _register_shutdown_handlers(self):
         """Register shutdown handlers for graceful cleanup."""
@@ -89,7 +115,7 @@ class ThingsMCPServer:
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
-                return await self.tools.add_todo(
+                result = await self.tools.add_todo(
                     title=title,
                     notes=notes,
                     tags=tag_list,
@@ -100,6 +126,21 @@ class ThingsMCPServer:
                     heading=heading,
                     checklist_items=[item.strip() for item in checklist_items.split("\n")] if checklist_items else None
                 )
+                
+                # Enhance response with tag validation feedback if available
+                if (tag_list and self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+                
+                return result
             except Exception as e:
                 logger.error(f"Error adding todo: {e}")
                 raise
@@ -129,7 +170,7 @@ class ThingsMCPServer:
                 if canceled is not None:
                     canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
                 
-                return await self.tools.update_todo(
+                result = await self.tools.update_todo(
                     todo_id=id,
                     title=title,
                     notes=notes,
@@ -139,6 +180,21 @@ class ThingsMCPServer:
                     completed=completed_bool,
                     canceled=canceled_bool
                 )
+                
+                # Enhance response with tag validation feedback if available
+                if (tag_list and self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+                
+                return result
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
                 raise
@@ -449,7 +505,30 @@ class ThingsMCPServer:
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else []
-                return await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
+                result = await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
+                
+                # Enhance response with tag policy feedback
+                if (self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    policy = self.tools.config.tag_creation_policy if self.tools.config else 'allow_all'
+                    
+                    # Add policy information to response
+                    result['tag_policy'] = {
+                        'policy': policy.value if hasattr(policy, 'value') else str(policy),
+                        'description': self._get_policy_description(policy)
+                    }
+                    
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+                
+                return result
             except Exception as e:
                 logger.error(f"Error adding tags: {e}")
                 raise
@@ -512,6 +591,25 @@ class ThingsMCPServer:
         
         logger.info("All MCP tools registered successfully")
     
+    def _get_policy_description(self, policy) -> str:
+        """Get human-readable description of tag creation policy.
+        
+        Args:
+            policy: Tag creation policy
+            
+        Returns:
+            Description string
+        """
+        policy_descriptions = {
+            'allow_all': 'New tags will be created automatically',
+            'filter_unknown': 'Unknown tags will be filtered out',
+            'warn_unknown': 'Unknown tags allowed with warnings',
+            'reject_unknown': 'Operations with unknown tags will be rejected'
+        }
+        
+        policy_str = policy.value if hasattr(policy, 'value') else str(policy)
+        return policy_descriptions.get(policy_str, 'Custom policy')
+    
     def run(self) -> None:
         """Run the MCP server."""
         try:
@@ -540,7 +638,10 @@ class ThingsMCPServer:
 
 def main():
     """Main entry point for the simple server."""
-    server = ThingsMCPServer()
+    # Check for config path in environment or command line
+    import os
+    config_path = os.getenv('THINGS_MCP_CONFIG_PATH')
+    server = ThingsMCPServer(config_path=config_path)
     server.run()
 
 

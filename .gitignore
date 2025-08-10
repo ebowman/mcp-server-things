@@ -25,3 +25,6 @@ claude-flow.ps1
 hive-mind-prompt-*.txt
 things_auth.txt
 claude-flow/
+
+# Environment variables
+.env

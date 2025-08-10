@@ -50,6 +50,47 @@ things_app_name: "Things3"
 things_url_scheme_base: "things:///"
 verify_things_availability: true
 
+# Tag Management Configuration
+# Controls how the server handles unknown tags during operations
+
+# Tag creation policy - determines what happens with unknown tags
+# Four policy options available:
+#
+# 1. "allow_all" (default):
+#    - Automatically creates unknown tags up to max_auto_created_tags_per_operation limit
+#    - Provides feedback about created tags in response
+#    - Best for flexible tag management
+#
+# 2. "filter_unknown":
+#    - Silently removes unknown tags from operations
+#    - Operations proceed with only known tags
+#    - Best for strict tag control without operation failures
+#
+# 3. "warn_unknown":
+#    - Allows unknown tags but warns they will be auto-created by Things
+#    - Provides warnings in response but doesn't create tags proactively
+#    - Best for awareness of tag creation without blocking operations
+#
+# 4. "reject_unknown":
+#    - Rejects entire operations if unknown tags are present
+#    - Forces explicit tag creation before use
+#    - Best for strictest tag control (use with tag_policy_strict_mode: true)
+tag_creation_policy: "allow_all"
+
+# Enable strict mode for tag policy enforcement
+# When true, policy violations cause operation failures
+# When false, policy violations generate warnings but operations continue
+tag_policy_strict_mode: false
+
+# Case sensitivity for tag validation
+# When true, tags are matched exactly including case
+# When false, tag matching is case-insensitive
+tag_validation_case_sensitive: false
+
+# Maximum number of tags that can be auto-created in a single operation
+# Prevents accidental creation of excessive tags due to typos
+max_auto_created_tags_per_operation: 10
+
 # Development Configuration
 enable_mock_mode: false
 mock_data_path: null

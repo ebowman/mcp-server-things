@@ -10,7 +10,9 @@ from .pure_applescript_scheduler import PureAppleScriptScheduler
 from .operation_queue import get_operation_queue, Priority
 from .locale_aware_dates import locale_handler
 from .services.validation_service import ValidationService
+from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
+from .config import ThingsMCPConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +20,28 @@ logger = logging.getLogger(__name__)
 class ThingsTools:
     """Core tools for Things 3 operations."""
     
-    def __init__(self, applescript_manager: AppleScriptManager):
-        """Initialize with AppleScript manager.
+    def __init__(self, applescript_manager: AppleScriptManager, config: Optional[ThingsMCPConfig] = None):
+        """Initialize with AppleScript manager and optional configuration.
         
         Args:
             applescript_manager: AppleScript manager instance
+            config: Optional configuration for tag validation and policies
         """
         self.applescript = applescript_manager
+        self.config = config
         self.reliable_scheduler = PureAppleScriptScheduler(applescript_manager)
         
         # Initialize validation service and advanced move operations
         self.validation_service = ValidationService(applescript_manager)
         self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
+        
+        # Initialize tag validation service if config is provided
+        self.tag_validation_service = None
+        if config:
+            self.tag_validation_service = TagValidationService(applescript_manager, config)
+            logger.info("Things tools initialized with tag validation service")
+        else:
+            logger.info("Things tools initialized without tag validation (backward compatibility mode)")
         
         logger.info("Things tools initialized with advanced move operations")
     
@@ -71,6 +83,26 @@ class ThingsTools:
                 return iso_date
     
     async def _ensure_tags_exist(self, tags: List[str]) -> Dict[str, List[str]]:
+        """Ensure tags exist, using policy-aware validation if available.
+        
+        This method delegates to either the new policy-aware validation service
+        or falls back to the original behavior for backward compatibility.
+        
+        Args:
+            tags: List of tag names to ensure exist
+            
+        Returns:
+            Dict with 'created' and 'existing' lists of tag names
+        """
+        result = await self._validate_tags_with_policy(tags)
+        
+        # Extract only the legacy fields for compatibility
+        return {
+            'created': result.get('created', []),
+            'existing': result.get('existing', [])
+        }
+    
+    async def _ensure_tags_exist_original(self, tags: List[str]) -> Dict[str, List[str]]:
         """Ensure tags exist, creating them if necessary in a single AppleScript call.
         
         This consolidates all tag existence checking and creation into one efficient
@@ -164,6 +196,63 @@ class ThingsTools:
             logger.error(f"Error ensuring tags exist: {e}")
             # Fallback: assume all tags are existing to avoid breaking the parent operation
             return {'created': [], 'existing': tags}
+    
+    async def _validate_tags_with_policy(self, tags: List[str]) -> Dict[str, Any]:
+        """Validate tags using the configured policy if validation service is available.
+        
+        Args:
+            tags: List of tag names to validate
+            
+        Returns:
+            Dict with validation results, warnings, and processed tags
+        """
+        if not self.tag_validation_service:
+            # Fallback to legacy behavior
+            return await self._ensure_tags_exist_legacy(tags)
+        
+        try:
+            result = await self.tag_validation_service.validate_and_filter_tags(tags)
+            
+            # Convert to legacy format for backward compatibility
+            legacy_result = {
+                'created': result.created_tags,
+                'existing': [tag for tag in result.valid_tags if tag not in result.created_tags],
+                'filtered': result.filtered_tags,
+                'warnings': result.warnings,
+                'errors': result.errors
+            }
+            
+            # Log warnings and errors
+            for warning in result.warnings:
+                logger.warning(f"Tag validation: {warning}")
+            
+            for error in result.errors:
+                logger.error(f"Tag validation: {error}")
+            
+            # If there are errors in strict mode, raise exception
+            if result.errors and self.config and self.config.tag_policy_strict_mode:
+                raise ValueError(f"Tag validation failed: {'; '.join(result.errors)}")
+            
+            return legacy_result
+            
+        except Exception as e:
+            logger.error(f"Error in tag validation service: {e}")
+            # Fallback to legacy behavior
+            return await self._ensure_tags_exist_legacy(tags)
+    
+    async def _ensure_tags_exist_legacy(self, tags: List[str]) -> Dict[str, List[str]]:
+        """Legacy tag existence checking (renamed from _ensure_tags_exist).
+        
+        This is the original implementation kept for backward compatibility.
+        
+        Args:
+            tags: List of tag names to ensure exist
+            
+        Returns:
+            Dict with 'created' and 'existing' lists of tag names
+        """
+        # This is the existing implementation - we'll keep it as fallback
+        return await self._ensure_tags_exist_original(tags)
     
     def _parse_period_date(self, date_input: str) -> dict:
         """Parse period-based dates like 'this week', 'next week' into when+deadline combinations.

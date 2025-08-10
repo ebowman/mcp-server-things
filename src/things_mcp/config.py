@@ -12,7 +12,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 import yaml
-from pydantic import BaseSettings, Field, validator
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings
+from pydantic import Field, validator
 
 
 class ExecutionMethod(str, Enum):
@@ -29,6 +33,14 @@ class LogLevel(str, Enum):
     WARNING = "WARNING"
     ERROR = "ERROR"
     CRITICAL = "CRITICAL"
+
+
+class TagCreationPolicy(str, Enum):
+    """Tag creation policy for handling unknown tags"""
+    ALLOW_ALL = "allow_all"
+    FILTER_UNKNOWN = "filter_unknown"
+    WARN_UNKNOWN = "warn_unknown"
+    REJECT_UNKNOWN = "reject_unknown"
 
 
 class ThingsMCPConfig(BaseSettings):
@@ -187,6 +199,29 @@ class ThingsMCPConfig(BaseSettings):
         description="Allowed hosts for server access"
     )
     
+    # Tag management configuration
+    tag_creation_policy: TagCreationPolicy = Field(
+        default=TagCreationPolicy.ALLOW_ALL,
+        description="Policy for handling unknown tags during operations"
+    )
+    
+    tag_policy_strict_mode: bool = Field(
+        default=False,
+        description="Enable strict mode for tag policy enforcement"
+    )
+    
+    tag_validation_case_sensitive: bool = Field(
+        default=False,
+        description="Enable case-sensitive tag validation"
+    )
+    
+    max_auto_created_tags_per_operation: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of tags that can be auto-created per operation"
+    )
+    
     # Feature flags
     enable_experimental_features: bool = Field(
         default=False,
@@ -254,6 +289,12 @@ class ThingsMCPConfig(BaseSettings):
             return LogLevel(v.upper())
         return v
     
+    @validator('tag_creation_policy', pre=True)
+    def validate_tag_creation_policy(cls, v):
+        if isinstance(v, str):
+            return TagCreationPolicy(v.lower())
+        return v
+    
     class Config:
         env_prefix = "THINGS_MCP_"
         case_sensitive = False
@@ -262,6 +303,9 @@ class ThingsMCPConfig(BaseSettings):
         # THINGS_MCP_APPLESCRIPT_TIMEOUT=60.0
         # THINGS_MCP_CACHE_MAX_SIZE=2000
         # THINGS_MCP_ENABLE_DEBUG_LOGGING=true
+        # THINGS_MCP_TAG_CREATION_POLICY=allow_all
+        # THINGS_MCP_TAG_POLICY_STRICT_MODE=false
+        # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
     
     @classmethod
     def from_file(cls, config_path: Path) -> 'ThingsMCPConfig':
@@ -344,6 +388,15 @@ class ThingsMCPConfig(BaseSettings):
             "max_notes_length": self.max_notes_length,
             "max_tags_per_item": self.max_tags_per_item,
             "max_checklist_items": self.max_checklist_items
+        }
+    
+    def get_tag_config(self) -> Dict[str, Any]:
+        """Get tag management configuration"""
+        return {
+            "creation_policy": self.tag_creation_policy,
+            "strict_mode": self.tag_policy_strict_mode,
+            "case_sensitive": self.tag_validation_case_sensitive,
+            "max_auto_created_per_operation": self.max_auto_created_tags_per_operation
         }
     
     def is_development_mode(self) -> bool:

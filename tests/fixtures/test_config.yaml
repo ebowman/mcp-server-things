@@ -1,0 +1,148 @@
+# Test configuration file for tag creation control
+# This file demonstrates different tag creation policies and configurations
+
+# Default configuration - allows creation with warnings
+default_config:
+  tag_creation:
+    creation_policy: "create_with_warning"
+    case_sensitive: false
+    auto_creation_limit: 5
+    existing_tags:
+      - "work"
+      - "personal"
+      - "urgent"
+
+# Strict configuration - no automatic tag creation
+strict_config:
+  tag_creation:
+    creation_policy: "strict_no_create"
+    case_sensitive: true
+    auto_creation_limit: 0
+    existing_tags:
+      - "Work"
+      - "Personal"
+      - "Project"
+      - "Meeting"
+      - "Review"
+
+# Auto-create configuration - creates all tags automatically
+auto_create_config:
+  tag_creation:
+    creation_policy: "auto_create"
+    case_sensitive: false
+    auto_creation_limit: 100
+    existing_tags: []
+
+# Limited auto-create configuration - creates tags up to a limit
+limited_auto_create_config:
+  tag_creation:
+    creation_policy: "limited_auto_create"
+    case_sensitive: false
+    auto_creation_limit: 3
+    existing_tags:
+      - "baseline"
+      - "template"
+
+# Case-sensitive configuration example
+case_sensitive_config:
+  tag_creation:
+    creation_policy: "create_with_warning"
+    case_sensitive: true
+    auto_creation_limit: 10
+    existing_tags:
+      - "Work"      # Exact case required
+      - "work"      # Different from "Work"
+      - "URGENT"    # All caps
+      - "Personal"  # Title case
+
+# Minimal configuration - only policy specified
+minimal_config:
+  tag_creation:
+    creation_policy: "auto_create"
+
+# Configuration with extensive predefined tags
+extensive_tags_config:
+  tag_creation:
+    creation_policy: "strict_no_create"
+    case_sensitive: false
+    auto_creation_limit: 0
+    existing_tags:
+      # Work-related tags
+      - "work"
+      - "meeting"
+      - "project"
+      - "deadline"
+      - "review"
+      - "planning"
+      - "client"
+      - "development"
+      - "testing"
+      - "deployment"
+      # Personal tags
+      - "personal"
+      - "family"
+      - "health"
+      - "exercise"
+      - "shopping"
+      - "maintenance"
+      - "travel"
+      - "hobby"
+      # Priority tags
+      - "urgent"
+      - "important"
+      - "low-priority"
+      - "someday"
+      - "waiting"
+      # Context tags
+      - "home"
+      - "office"
+      - "phone"
+      - "computer"
+      - "errands"
+      - "online"
+
+# Unicode tags configuration
+unicode_tags_config:
+  tag_creation:
+    creation_policy: "auto_create"
+    case_sensitive: false
+    auto_creation_limit: 20
+    existing_tags:
+      - "工作"        # Work in Chinese
+      - "личное"     # Personal in Russian
+      - "travail"    # Work in French
+      - "trabajo"    # Work in Spanish
+      - "📝メモ"      # Notes with emoji
+      - "✅完了"      # Done with checkmark
+
+# Edge case configuration for testing
+edge_case_config:
+  tag_creation:
+    creation_policy: "limited_auto_create"
+    case_sensitive: true
+    auto_creation_limit: 2
+    existing_tags:
+      - ""           # Empty string (should be ignored)
+      - "   "        # Whitespace only (should be ignored)
+      - "valid-tag"
+      - "Another Tag"
+      - "tag_with_underscore"
+      - "tag-with-dash"
+      - "tag.with.dots"
+      - "123numeric"
+      - "MixedCASE"
+
+# Performance test configuration
+performance_test_config:
+  tag_creation:
+    creation_policy: "auto_create"
+    case_sensitive: false
+    auto_creation_limit: 1000
+    existing_tags: # Large list for performance testing
+      - "tag_001"
+      - "tag_002"
+      - "tag_003"
+      - "tag_004"
+      - "tag_005"
+      # ... (normally would have many more)
+      - "tag_100"
