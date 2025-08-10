@@ -673,12 +673,23 @@ class ThingsTools:
         try:
             created_tags = []
             existing_tags = []
+            filtered_tags = []
+            tag_warnings = []
             
             # Ensure all tags exist using consolidated batch operation
             if tags:
                 tag_result = await self._ensure_tags_exist(tags)
-                created_tags = tag_result['created']
-                existing_tags = tag_result['existing']
+                created_tags = tag_result.get('created', [])
+                existing_tags = tag_result.get('existing', [])
+                filtered_tags = tag_result.get('filtered', [])
+                tag_warnings = tag_result.get('warnings', [])
+                
+                # Update tags to only include valid tags (not filtered ones)
+                # This ensures we don't pass rejected tags to AppleScript
+                valid_tags = created_tags + existing_tags
+                if filtered_tags:
+                    logger.info(f"Filtered out tags per policy: {filtered_tags}")
+                    tags = valid_tags  # Use only the valid tags
             
             # Handle when/start date - Things 3 supports the schedule command!
             schedule_command = None
@@ -915,14 +926,21 @@ class ThingsTools:
                     message_parts.append(f"Warning: Scheduling for '{when}' may have failed")
                 
                 logger.info(f"Successfully created todo with ID {todo_id}: {title}")
-                return {
+                result = {
                     "success": True,
                     "message": ". ".join(message_parts),
                     "todo": todo_data,
                     "tags_created": created_tags,
                     "tags_existing": existing_tags,
+                    "tags_filtered": filtered_tags,
                     "scheduling_result": scheduling_result
                 }
+                
+                # Add tag warnings if any
+                if tag_warnings:
+                    result["tag_warnings"] = tag_warnings
+                
+                return result
             else:
                 logger.error(f"Failed to create todo: {result.get('error')}")
                 return {
@@ -973,12 +991,22 @@ class ThingsTools:
         try:
             created_tags = []
             existing_tags = []
+            filtered_tags = []
+            tag_warnings = []
             
             # Ensure all tags exist using consolidated batch operation
             if tags is not None:
                 tag_result = await self._ensure_tags_exist(tags)
-                created_tags = tag_result['created']
-                existing_tags = tag_result['existing']
+                created_tags = tag_result.get('created', [])
+                existing_tags = tag_result.get('existing', [])
+                filtered_tags = tag_result.get('filtered', [])
+                tag_warnings = tag_result.get('warnings', [])
+                
+                # Update tags to only include valid tags (not filtered ones)
+                valid_tags = created_tags + existing_tags
+                if filtered_tags:
+                    logger.info(f"Filtered out tags per policy: {filtered_tags}")
+                    tags = valid_tags  # Use only the valid tags
             
             # Build AppleScript to update the todo
             escaped_todo_id = self._escape_applescript_string(todo_id)
@@ -1108,15 +1136,22 @@ class ThingsTools:
                         message_parts.append(f"Warning: Scheduling for '{when}' may have failed")
                     
                     logger.info(f"Successfully updated todo: {todo_id}")
-                    return {
+                    result = {
                         "success": True,
                         "message": ". ".join(message_parts),
                         "todo_id": todo_id,
                         "updated_at": datetime.now().isoformat(),
                         "tags_created": created_tags,
                         "tags_existing": existing_tags,
+                        "tags_filtered": filtered_tags,
                         "scheduling_result": scheduling_result
                     }
+                    
+                    # Add tag warnings if any
+                    if tag_warnings:
+                        result["tag_warnings"] = tag_warnings
+                    
+                    return result
                 elif "error:" in output:
                     error_msg = output.replace("error: ", "")
                     logger.error(f"AppleScript error updating todo {todo_id}: {error_msg}")
