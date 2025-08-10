@@ -944,7 +944,6 @@ class ThingsTools:
                         # For specific dates, construct date object safely
                         if "/" in deadline or "-" in deadline:
                             # Parse the ISO date to get components
-                            from datetime import datetime
                             try:
                                 parsed_date = datetime.strptime(parsed_deadline, '%Y-%m-%d')
                                 # Build safe date construction script
