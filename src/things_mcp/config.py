@@ -195,8 +195,8 @@ class ThingsMCPConfig(BaseSettings):
     )
     
     allowed_hosts: List[str] = Field(
-        default_factory=lambda: ["localhost", "127.0.0.1"],
-        description="Allowed hosts for server access"
+        default=["localhost", "127.0.0.1"],
+        description="Allowed hosts for server access (JSON array or comma-separated string)"
     )
     
     # Tag management configuration
@@ -277,6 +277,25 @@ class ThingsMCPConfig(BaseSettings):
             return Path(v)
         return v
     
+    @validator('allowed_hosts', pre=True)
+    def validate_allowed_hosts(cls, v):
+        """Parse allowed_hosts from various formats."""
+        if v is None:
+            return ["localhost", "127.0.0.1"]
+        if isinstance(v, str):
+            # Try to parse as JSON array first (for pydantic-settings v2)
+            if v.startswith('['):
+                try:
+                    import json
+                    return json.loads(v)
+                except:
+                    pass
+            # Otherwise, split comma-separated string
+            return [host.strip() for host in v.split(',') if host.strip()]
+        if isinstance(v, list):
+            return v
+        return ["localhost", "127.0.0.1"]
+    
     @validator('preferred_execution_method', pre=True)
     def validate_execution_method(cls, v):
         if isinstance(v, str):
@@ -303,6 +322,7 @@ class ThingsMCPConfig(BaseSettings):
         # THINGS_MCP_APPLESCRIPT_TIMEOUT=60.0
         # THINGS_MCP_CACHE_MAX_SIZE=2000
         # THINGS_MCP_ENABLE_DEBUG_LOGGING=true
+        # THINGS_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1"]  # JSON array format
         # THINGS_MCP_TAG_CREATION_POLICY=allow_all
         # THINGS_MCP_TAG_POLICY_STRICT_MODE=false
         # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
