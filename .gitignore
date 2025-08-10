@@ -24,7 +24,12 @@ claude-flow
 claude-flow.bat
 claude-flow.ps1
 hive-mind-prompt-*.txt
-things_auth.txt
+# Security - CRITICAL
+.things-auth
+things-auth.txt
+*auth*.txt
+*.key
+*.pem
 claude-flow/
 
 # Environment variables
