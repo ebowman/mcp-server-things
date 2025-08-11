@@ -9,23 +9,48 @@
 
 ## Installation
 
+### From PyPI (Recommended)
+
 ```bash
 pip install things-applescript-mcp
 ```
 
-Or add to your Claude Desktop configuration:
+### From Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/things-applescript-mcp.git
+cd things-applescript-mcp
+```
+
+2. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+```
+
+3. Install in development mode:
+```bash
+pip install -e .
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "things": {
-      "command": "python",
-      "args": ["-m", "things_mcp.main"],
+      "command": "/path/to/things-applescript-mcp/venv/bin/python",
+      "args": ["-m", "things_mcp"],
       "env": {}
     }
   }
 }
 ```
+
+**Note:** When installing from source, use the full path to the Python executable in your virtual environment.
 
 ![Demo showing Claude creating tasks in Things 3](demo.gif)
 *Creating tasks with natural language through Claude*
