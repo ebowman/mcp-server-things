@@ -1907,16 +1907,27 @@ class ThingsTools:
                             -- Get todo properties and clean notes inline
                             set todoNotes to notes of currentTodo
                             
-                            -- Replace newlines with space for clean parsing
+                            -- Replace problematic characters for clean parsing
                             set AppleScript's text item delimiters to return
                             set notesParts to text items of todoNotes
                             set AppleScript's text item delimiters to " "
+                            set cleanNotes to notesParts as text
+                            
+                            -- Also replace commas in notes to avoid parsing issues
+                            set AppleScript's text item delimiters to ","
+                            set notesParts to text items of cleanNotes
+                            set AppleScript's text item delimiters to "§COMMA§"
                             set cleanNotes to notesParts as text
                             set AppleScript's text item delimiters to ""
                             
                             -- Create tab-delimited record for simpler parsing
                             set todoRecord to (id of currentTodo) & tab & (name of currentTodo) & tab & cleanNotes & tab & (status of currentTodo)
-                            set matchingItems to matchingItems & {{todoRecord}}
+                            
+                            -- Use a unique delimiter between records
+                            if length of matchingItems > 0 then
+                                set matchingItems to matchingItems & "|||RECORD_SEPARATOR|||"
+                            end if
+                            set matchingItems to matchingItems & todoRecord
                         on error
                             -- Skip todos that can't be accessed
                         end try
@@ -1937,8 +1948,8 @@ class ThingsTools:
                 items = []
                 
                 if output and output.strip():
-                    # Parse tab-delimited output: "id<tab>name<tab>notes<tab>status", ...
-                    entries = output.strip().split(', ')
+                    # Parse output with new record separator
+                    entries = output.strip().split('|||RECORD_SEPARATOR|||')
                     
                     for entry in entries:
                         entry = entry.strip()
@@ -1949,6 +1960,8 @@ class ThingsTools:
                                 item_id = parts[0].strip()
                                 item_name = parts[1].strip() if len(parts) > 1 else ""
                                 item_notes = parts[2].strip() if len(parts) > 2 else ""
+                                # Restore commas in notes
+                                item_notes = item_notes.replace("§COMMA§", ",")
                                 item_status = parts[3].strip() if len(parts) > 3 else "open"
                                 
                                 if item_id:
