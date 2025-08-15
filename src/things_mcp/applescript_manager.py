@@ -589,6 +589,40 @@ class AppleScriptManager:
                     protected_value = tag_value.replace(',', '§COMMA§')
                     temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
             
+            # Also protect commas in date fields which contain "date Thursday, 4. September 2025 at 00:00:00"
+            for date_field in ['creation_date:', 'modification_date:', 'due_date:', 'start_date:']:
+                if date_field in temp_output:
+                    # Find all instances of this date field
+                    field_start = 0
+                    while True:
+                        field_idx = temp_output.find(date_field, field_start)
+                        if field_idx == -1:
+                            break
+                            
+                        start_idx = field_idx + len(date_field)
+                        
+                        # Find the next field or end of this date value
+                        end_idx = len(temp_output)
+                        for field in known_fields:
+                            next_field_idx = temp_output.find(field, start_idx)
+                            if next_field_idx != -1 and next_field_idx < end_idx:
+                                # Back up to the comma before this field
+                                comma_idx = temp_output.rfind(',', start_idx, next_field_idx)
+                                if comma_idx != -1:
+                                    end_idx = comma_idx
+                                else:
+                                    end_idx = next_field_idx
+                        
+                        # Extract the date value and protect its commas
+                        date_value = temp_output[start_idx:end_idx].strip()
+                        if date_value and 'date' in date_value.lower():
+                            protected_value = date_value.replace(',', '§COMMA§')
+                            temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
+                            # Adjust field_start to continue searching after the replaced text
+                            field_start = start_idx + len(protected_value)
+                        else:
+                            field_start = start_idx
+            
             # Now split by commas safely
             parts = self._split_applescript_output(temp_output)
             
@@ -696,9 +730,15 @@ class AppleScriptManager:
             
             if not cleaned or cleaned == 'missing value':
                 return None
+            
+            # Restore protected commas if any
+            if '§COMMA§' in cleaned:
+                cleaned = cleaned.replace('§COMMA§', ',')
                 
             # Try to parse various AppleScript date formats
             date_patterns = [
+                # European format: "Thursday, 4. September 2025 at 00:00:00" (24-hour)
+                r'^(\w+),\s+(\d+)\.\s+(\w+)\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})$',
                 # "Monday, January 1, 2024 at 12:00:00 PM"
                 r'^(\w+),\s+(\w+)\s+(\d+),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$',
                 # "January 1, 2024 at 12:00:00 PM" 
@@ -721,20 +761,29 @@ class AppleScriptManager:
                     groups = match.groups()
                     
                     if pattern.startswith('^(\\w+),\\s+'):
-                        # Full format with day name
-                        _, month_str, day, year, hour, minute, second, ampm = groups
-                        month = month_names.get(month_str.lower())
-                        if not month:
-                            continue
-                            
-                        hour = int(hour)
-                        if ampm.upper() == 'PM' and hour != 12:
-                            hour += 12
-                        elif ampm.upper() == 'AM' and hour == 12:
-                            hour = 0
-                            
-                        dt = datetime(int(year), month, int(day), hour, int(minute), int(second))
-                        return dt.isoformat()
+                        if len(groups) == 7 and '\\.' in pattern:
+                            # European format: "Thursday, 4. September 2025 at 00:00:00" (24-hour)
+                            _, day, month_str, year, hour, minute, second = groups
+                            month = month_names.get(month_str.lower())
+                            if not month:
+                                continue
+                            dt = datetime(int(year), month, int(day), int(hour), int(minute), int(second))
+                            return dt.isoformat()
+                        elif len(groups) == 8:
+                            # US format with AM/PM: "Monday, January 1, 2024 at 12:00:00 PM"
+                            _, month_str, day, year, hour, minute, second, ampm = groups
+                            month = month_names.get(month_str.lower())
+                            if not month:
+                                continue
+                                
+                            hour = int(hour)
+                            if ampm.upper() == 'PM' and hour != 12:
+                                hour += 12
+                            elif ampm.upper() == 'AM' and hour == 12:
+                                hour = 0
+                                
+                            dt = datetime(int(year), month, int(day), hour, int(minute), int(second))
+                            return dt.isoformat()
                         
                     elif pattern.startswith('^(\\w+)\\s+'):
                         # Month day, year format
@@ -778,6 +827,118 @@ class AppleScriptManager:
         except Exception as e:
             logger.warning(f"Could not parse date '{date_str}': {e}")
             return date_str  # Return original on error
+    
+    def get_applescript_date_formatter(self, date_property: str, fallback_value: str = "missing value") -> str:
+        """Generate AppleScript code to format a date property as YYYY-MM-DD HH:MM:SS.
+        
+        Args:
+            date_property: The AppleScript date property (e.g., "creation date of theTodo")
+            fallback_value: Value to return if date is missing (default: "missing value")
+            
+        Returns:
+            AppleScript code that formats the date or returns fallback
+        """
+        return f'''
+        try
+            set dateValue to {date_property}
+            if dateValue is missing value then
+                "{fallback_value}"
+            else
+                set yyyy to (year of dateValue) as string
+                set mm to (month of dateValue as integer) as string
+                if length of mm = 1 then set mm to "0" & mm
+                set dd to (day of dateValue) as string
+                if length of dd = 1 then set dd to "0" & dd
+                set timeStr to time string of dateValue
+                yyyy & "-" & mm & "-" & dd & " " & timeStr
+            end if
+        on error
+            "{fallback_value}"
+        end try
+        '''
+    
+    def format_applescript_date_to_iso(self, date_str: str) -> Optional[str]:
+        """Convert AppleScript date string to ISO format YYYY-MM-DD HH:MM:SS.
+        
+        This method handles AppleScript's native date format and converts it
+        to the standardized ISO format expected by the MCP API.
+        
+        Args:
+            date_str: AppleScript date string (e.g., "date Friday, 15. August 2025 at 17:01:55")
+            
+        Returns:
+            ISO formatted date string or None if missing/invalid
+        """
+        try:
+            # Handle missing values
+            if not date_str or date_str.strip() in ['missing value', '{}', '']:
+                return None
+                
+            # Clean the string
+            cleaned = date_str.strip()
+            if cleaned.startswith('date'):
+                cleaned = cleaned[4:].strip()
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1]
+            
+            # Enhanced pattern matching for AppleScript date formats
+            patterns = [
+                # "Friday, 15. August 2025 at 17:01:55"
+                r'^(\w+),\s+(\d+)\.\s+(\w+)\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})$',
+                # "Friday, August 15, 2025 at 5:01:55 PM" 
+                r'^(\w+),\s+(\w+)\s+(\d+),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$',
+                # Already ISO-ish: "2025-08-15 17:01:55"
+                r'^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})$'
+            ]
+            
+            month_names = {
+                'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                'may': 5, 'june': 6, 'july': 7, 'august': 8, 
+                'september': 9, 'october': 10, 'november': 11, 'december': 12
+            }
+            
+            for pattern in patterns:
+                match = re.match(pattern, cleaned, re.IGNORECASE)
+                if match:
+                    groups = match.groups()
+                    
+                    if pattern.startswith('^(\\w+),\\s+(\\d+)\\.'):
+                        # "Friday, 15. August 2025 at 17:01:55"
+                        weekday, day, month_str, year, hour, minute, second = groups
+                        month_num = month_names.get(month_str.lower())
+                        if month_num:
+                            return f"{year}-{month_num:02d}-{int(day):02d} {int(hour):02d}:{minute}:{second}"
+                            
+                    elif pattern.startswith('^(\\w+),\\s+(\\w+)\\s+'):
+                        # "Friday, August 15, 2025 at 5:01:55 PM"
+                        weekday, month_str, day, year, hour, minute, second, ampm = groups
+                        month_num = month_names.get(month_str.lower())
+                        if month_num:
+                            hour_24 = int(hour)
+                            if ampm.upper() == 'PM' and hour_24 != 12:
+                                hour_24 += 12
+                            elif ampm.upper() == 'AM' and hour_24 == 12:
+                                hour_24 = 0
+                            return f"{year}-{month_num:02d}-{int(day):02d} {hour_24:02d}:{minute}:{second}"
+                            
+                    elif pattern.startswith('^(\\d{4})'):
+                        # Already ISO format
+                        return cleaned
+            
+            # If no pattern matches, try the existing parser
+            existing_result = self._parse_applescript_date(date_str)
+            if existing_result and existing_result != date_str:
+                # Convert date-only to datetime format
+                if len(existing_result) == 10:  # YYYY-MM-DD
+                    return f"{existing_result} 00:00:00"
+                return existing_result
+                
+            logger.debug(f"Could not parse AppleScript date format: '{cleaned}'")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error formatting AppleScript date '{date_str}': {e}")
+            return None
     
     def _parse_applescript_tags(self, tags_str: str) -> List[str]:
         """Parse AppleScript tag names list."""

@@ -387,7 +387,7 @@ class ThingsTools:
             return {"success": False, "error": str(e)}
     
     def _parse_relative_date(self, date_input: str) -> str:
-        """Parse relative date input like 'tomorrow', 'Friday', etc. to YYYY-MM-DD format.
+        """Parse relative date input like 'tomorrow', 'Friday', 'September 10', etc. to YYYY-MM-DD format.
         
         Args:
             date_input: User input date string
@@ -400,6 +400,19 @@ class ThingsTools:
             
         input_lower = date_input.lower().strip()
         today = datetime.now().date()
+        
+        # Try dateutil first for natural language dates like "September 10", "next Friday", etc.
+        try:
+            from dateutil import parser as date_parser
+            # Use dateutil to parse natural language dates
+            parsed_date = date_parser.parse(date_input, default=datetime.now())
+            return parsed_date.date().isoformat()
+        except ImportError:
+            # dateutil not available, fall back to manual parsing
+            pass
+        except Exception:
+            # dateutil couldn't parse it, fall back to manual parsing
+            pass
         
         # Handle relative dates
         if input_lower == 'today':
@@ -924,7 +937,6 @@ class ThingsTools:
                     "heading": heading,
                     "checklist_items": checklist_items or [],
                     "created_at": datetime.now().isoformat(),
-                    "scheduling_result": scheduling_result
                 }
                 
                 # Build informative message
@@ -934,9 +946,7 @@ class ThingsTools:
                 if existing_tags:
                     message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
                 if scheduling_result and scheduling_result.get("success"):
-                    method = scheduling_result.get("method", "unknown")
-                    reliability = scheduling_result.get("reliability", "unknown")
-                    message_parts.append(f"Scheduled using {method} ({reliability} reliability)")
+                    message_parts.append("Successfully scheduled")
                 elif when:
                     message_parts.append(f"Warning: Scheduling for '{when}' may have failed")
                 
@@ -948,7 +958,6 @@ class ThingsTools:
                     "tags_created": created_tags,
                     "tags_existing": existing_tags,
                     "tags_filtered": filtered_tags,
-                    "scheduling_result": scheduling_result
                 }
                 
                 # Add enhanced guidance for filtered tags
@@ -1017,6 +1026,50 @@ class ThingsTools:
             existing_tags = []
             filtered_tags = []
             tag_warnings = []
+            date_warnings = []
+            
+            # Check for date conflicts if 'when' is being updated
+            if when is not None:
+                try:
+                    # Get the current todo to check its due date
+                    current_todo = await self.get_todo_by_id(todo_id)
+                    current_due_date = current_todo.get('due_date')
+                    
+                    # Check if the todo has a due date (now properly normalized to ISO format or None)
+                    if current_due_date is not None:
+                        # Parse the new 'when' date
+                        new_when_date = self._parse_relative_date(when)
+                        new_when_parsed = datetime.strptime(new_when_date, '%Y-%m-%d').date()
+                        
+                        # Parse the current due date (now in ISO format: YYYY-MM-DDTHH:MM:SS)
+                        current_due_parsed = None
+                        try:
+                            # Current due date is in ISO format, extract just the date part
+                            if 'T' in current_due_date:
+                                # ISO format: 2025-09-04T00:00:00
+                                date_part = current_due_date.split('T')[0]
+                                current_due_parsed = datetime.strptime(date_part, '%Y-%m-%d').date()
+                            else:
+                                # Fallback: try parsing as date directly
+                                current_due_parsed = datetime.strptime(current_due_date, '%Y-%m-%d').date()
+                        except (ValueError, TypeError) as e:
+                            # If we can't parse the due date, give a generic warning
+                            date_warnings.append(
+                                f"Warning: This todo has a due date ('{current_due_date}') and you are rescheduling it to '{when}'. "
+                                f"Please verify the new schedule doesn't conflict with the due date."
+                            )
+                        
+                        if current_due_parsed:
+                            # Check if the new 'when' date is after the due date
+                            if new_when_parsed > current_due_parsed:
+                                date_warnings.append(
+                                    f"Warning: You are scheduling this todo for {new_when_parsed}, "
+                                    f"but it has a due date of {current_due_parsed}. "
+                                    f"The todo is now scheduled AFTER its due date - you may want to update the due date as well."
+                                )
+                except Exception as e:
+                    logger.debug(f"Could not check for date conflicts: {e}")
+                    # Don't fail the update if we can't check dates, just skip the warning
             
             # Ensure all tags exist using consolidated batch operation
             if tags is not None:
@@ -1153,9 +1206,7 @@ class ThingsTools:
                     if existing_tags:
                         message_parts.append(f"Applied existing tag(s): {', '.join(existing_tags)}")
                     if scheduling_result and scheduling_result.get("success"):
-                        method = scheduling_result.get("method", "unknown")
-                        reliability = scheduling_result.get("reliability", "unknown")
-                        message_parts.append(f"Scheduled using {method} ({reliability} reliability)")
+                        message_parts.append("Successfully scheduled")
                     elif when is not None:
                         message_parts.append(f"Warning: Scheduling for '{when}' may have failed")
                     
@@ -1168,12 +1219,15 @@ class ThingsTools:
                         "tags_created": created_tags,
                         "tags_existing": existing_tags,
                         "tags_filtered": filtered_tags,
-                        "scheduling_result": scheduling_result
-                    }
+                        }
                     
                     # Add tag warnings if any
                     if tag_warnings:
                         result["tag_warnings"] = tag_warnings
+                    
+                    # Add date warnings if any
+                    if date_warnings:
+                        result["date_warnings"] = date_warnings
                     
                     return result
                 elif "error:" in output:
@@ -1214,7 +1268,7 @@ class ThingsTools:
             script = f'''
             tell application "Things3"
                 set theTodo to to do id "{todo_id}"
-                return {{id:id of theTodo, name:name of theTodo, notes:notes of theTodo, status:status of theTodo, tag_names:tag names of theTodo, creation_date:creation date of theTodo, modification_date:modification date of theTodo}}
+                return {{id:id of theTodo, name:name of theTodo, notes:notes of theTodo, status:status of theTodo, tag_names:tag names of theTodo, creation_date:creation date of theTodo, modification_date:modification date of theTodo, due_date:due date of theTodo, start_date:activation date of theTodo}}
             end tell
             '''
             
@@ -1240,6 +1294,8 @@ class ThingsTools:
                         "tags": tags,
                         "creation_date": record.get("creation_date"),
                         "modification_date": record.get("modification_date"),
+                        "due_date": record.get("due_date"),
+                        "start_date": record.get("start_date"),
                         "retrieved_at": datetime.now().isoformat()
                     }
                 else:
@@ -2023,6 +2079,8 @@ class ThingsTools:
                         set todoRecord to todoRecord & {{tag_names:(tag names of theTodo)}}
                         set todoRecord to todoRecord & {{creation_date:(creation date of theTodo)}}
                         set todoRecord to todoRecord & {{modification_date:(modification date of theTodo)}}
+                        set todoRecord to todoRecord & {{due_date:(due date of theTodo)}}
+                        set todoRecord to todoRecord & {{start_date:(activation date of theTodo)}}
                         
                         -- Try to get project info if it exists
                         try
