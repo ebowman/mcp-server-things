@@ -65,7 +65,7 @@ class AppleScriptManager:
                 except Exception as e:
                     logger.warning(f"Failed to read auth token from {auth_file}: {e}")
         
-        logger.warning("No Things auth token found. Some operations may require manual authorization.")
+        logger.debug("No Things auth token found - will use direct AppleScript execution")
         return None
     
     async def is_things_running(self) -> bool:
@@ -362,12 +362,19 @@ class AppleScriptManager:
                         set cancellationDateStr to "missing value"
                     end try
                     
-                    -- Handle tag names (projects can have tags)
+                    -- Handle tag names (projects can have tags)  
                     set tagNamesStr to ""
                     try
-                        set tagNamesStr to ((tag names of theProject) as string)
+                        set tagList to (tag names of theProject)
+                        if (count of tagList) > 0 then
+                            set AppleScript's text item delimiters to ","
+                            set tagNamesStr to (tagList as string)
+                            set AppleScript's text item delimiters to {}
+                        else
+                            set tagNamesStr to ""
+                        end if
                     on error
-                        set tagNamesStr to "missing value"
+                        set tagNamesStr to ""
                     end try
                     
                     -- Handle contact (projects can have contacts)
@@ -735,7 +742,31 @@ class AppleScriptManager:
                         
                         current_record[key] = value
                 else:
-                    logger.warning(f"Invalid AppleScript output part (no colon): '{part}'")
+                    # Handle AppleScript list items that don't have colons (like tag names)
+                    part_stripped = part.strip()
+                    
+                    # Skip empty parts
+                    if not part_stripped:
+                        continue
+                    
+                    # If we're in the middle of parsing a record, this might be a tag name
+                    # that got split from an AppleScript list
+                    if current_record:
+                        # Initialize tags list if we don't have it yet
+                        if 'tags' not in current_record:
+                            current_record['tags'] = []
+                        
+                        # If this looks like a tag name (no colon, reasonable length, alphanumeric+spaces)
+                        if (part_stripped and 
+                            len(part_stripped) < 100 and 
+                            not any(char in part_stripped for char in [':', '{', '}', '(', ')']) and
+                            part_stripped.replace(' ', '').replace('-', '').replace('_', '').isalnum()):
+                            current_record['tags'].append(part_stripped)
+                            logger.debug(f"Recovered tag name: '{part_stripped}'")
+                        else:
+                            logger.debug(f"Skipping unparseable part: '{part_stripped}'")
+                    else:
+                        logger.debug(f"Orphaned part (no current record): '{part_stripped}'")
             
             # Don't forget the last record
             if current_record:
@@ -751,8 +782,15 @@ class AppleScriptManager:
         
         except Exception as e:
             logger.error(f"Error parsing AppleScript output: {e}")
-            # Re-raise the exception instead of silently returning empty list
-            raise ValueError(f"Failed to parse AppleScript output: {e}") from e
+            logger.debug(f"Problematic output was: {output[:500]}...")
+            
+            # In production, we should try to continue with partial data rather than failing completely
+            if records:
+                logger.warning(f"Partial parsing successful - returning {len(records)} records despite error")
+                return records
+            else:
+                # Only fail completely if we got no usable data at all
+                raise ValueError(f"Failed to parse AppleScript output: {e}") from e
     
     def _split_applescript_output(self, output: str) -> List[str]:
         """Split AppleScript output by commas, handling quoted strings and braces properly."""
