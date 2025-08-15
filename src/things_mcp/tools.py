@@ -1386,18 +1386,31 @@ class ThingsTools:
         try:
             projects = await self.applescript.get_projects()
             
-            # Convert to standardized format
+            # Convert to standardized format using the same structure as todos
+            # since projects inherit from todos in Things 3
             result = []
             for project in projects:
+                # Parse the complete project using the same logic as todos
+                # The parser already converts tag_names to 'tags' key and parses them
+                tags = project.get("tags", [])
+                
                 project_dict = {
                     "id": project.get("id"),
                     "uuid": project.get("id"),
                     "title": project.get("name", ""),
                     "notes": project.get("notes", ""),
                     "status": project.get("status", "open"),
+                    "tags": tags,  # Now properly extracted from AppleScript
                     "creation_date": project.get("creation_date"),
                     "modification_date": project.get("modification_date"),
-                    "tags": [],  # TODO: Extract tags
+                    "due_date": project.get("due_date"),
+                    "start_date": project.get("start_date"),
+                    "completion_date": project.get("completion_date"),
+                    "cancellation_date": project.get("cancellation_date"),
+                    "area": project.get("area"),
+                    "project": project.get("project"),  # Parent project for sub-projects
+                    "contact": project.get("contact"),
+                    "retrieved_at": datetime.now().isoformat(),
                     "todos": []  # TODO: Extract todos if include_items
                 }
                 result.append(project_dict)

@@ -288,7 +288,11 @@ class AppleScriptManager:
             raise
     
     async def get_projects(self) -> List[Dict[str, Any]]:
-        """Get all projects from Things 3 using optimized batch property retrieval."""
+        """Get all projects from Things 3 using optimized batch property retrieval.
+        
+        Projects in Things 3 inherit from todos and have identical properties.
+        This method now fetches all inherited fields to maintain proper inheritance.
+        """
         try:
             script = '''
             on replaceText(someText, oldText, newText)
@@ -315,7 +319,7 @@ class AppleScriptManager:
                         set outputText to outputText & ", "
                     end if
                     
-                    -- Handle date conversion properly
+                    -- Handle all date fields that projects inherit from todos
                     set creationDateStr to ""
                     try
                         set creationDateStr to ((creation date of theProject) as string)
@@ -330,6 +334,66 @@ class AppleScriptManager:
                         set modificationDateStr to "missing value"
                     end try
                     
+                    set dueDateStr to ""
+                    try
+                        set dueDateStr to ((due date of theProject) as string)
+                    on error
+                        set dueDateStr to "missing value"
+                    end try
+                    
+                    set startDateStr to ""
+                    try
+                        set startDateStr to ((activation date of theProject) as string)
+                    on error
+                        set startDateStr to "missing value"
+                    end try
+                    
+                    set completionDateStr to ""
+                    try
+                        set completionDateStr to ((completion date of theProject) as string)
+                    on error
+                        set completionDateStr to "missing value"
+                    end try
+                    
+                    set cancellationDateStr to ""
+                    try
+                        set cancellationDateStr to ((cancellation date of theProject) as string)
+                    on error
+                        set cancellationDateStr to "missing value"
+                    end try
+                    
+                    -- Handle tag names (projects can have tags)
+                    set tagNamesStr to ""
+                    try
+                        set tagNamesStr to ((tag names of theProject) as string)
+                    on error
+                        set tagNamesStr to "missing value"
+                    end try
+                    
+                    -- Handle contact (projects can have contacts)
+                    set contactStr to ""
+                    try
+                        set contactStr to ((contact of theProject) as string)
+                    on error
+                        set contactStr to "missing value"
+                    end try
+                    
+                    -- Handle area (projects can be in areas)
+                    set areaStr to ""
+                    try
+                        set areaStr to ((area of theProject) as string)
+                    on error
+                        set areaStr to "missing value"
+                    end try
+                    
+                    -- Handle parent project (projects can be sub-projects)
+                    set projectStr to ""
+                    try
+                        set projectStr to ((project of theProject) as string)
+                    on error
+                        set projectStr to "missing value"
+                    end try
+                    
                     -- Handle notes which might contain commas
                     set noteStr to ""
                     try
@@ -340,7 +404,8 @@ class AppleScriptManager:
                         set noteStr to "missing value"
                     end try
                     
-                    set outputText to outputText & "id:" & (id of theProject) & ", name:" & (name of theProject) & ", notes:" & noteStr & ", status:" & (status of theProject) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
+                    -- Build complete project record with all inherited todo fields
+                    set outputText to outputText & "id:" & (id of theProject) & ", name:" & (name of theProject) & ", notes:" & noteStr & ", status:" & (status of theProject) & ", tag_names:" & tagNamesStr & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", due_date:" & dueDateStr & ", start_date:" & startDateStr & ", completion_date:" & completionDateStr & ", cancellation_date:" & cancellationDateStr & ", contact:" & contactStr & ", area:" & areaStr & ", project:" & projectStr
                 end repeat
                 
                 return outputText
@@ -564,7 +629,8 @@ class AppleScriptManager:
             
             # Known field names that can follow tag_names
             known_fields = ['creation_date:', 'modification_date:', 'due_date:', 'status:', 
-                          'notes:', 'id:', 'name:', 'area:', 'project:', 'start_date:']
+                          'notes:', 'id:', 'name:', 'area:', 'project:', 'start_date:', 
+                          'completion_date:', 'cancellation_date:', 'contact:']
             
             # Find tag_names and protect its commas
             if 'tag_names:' in temp_output:
@@ -590,7 +656,7 @@ class AppleScriptManager:
                     temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
             
             # Also protect commas in date fields which contain "date Thursday, 4. September 2025 at 00:00:00"
-            for date_field in ['creation_date:', 'modification_date:', 'due_date:', 'start_date:']:
+            for date_field in ['creation_date:', 'modification_date:', 'due_date:', 'start_date:', 'completion_date:', 'cancellation_date:']:
                 if date_field in temp_output:
                     # Find all instances of this date field
                     field_start = 0
