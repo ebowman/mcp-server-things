@@ -53,3 +53,4 @@ ENV/
 dist/
 build/
 *.egg
+.DS_Store
