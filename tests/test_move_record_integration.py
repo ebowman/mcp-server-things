@@ -12,7 +12,7 @@ from datetime import datetime
 
 # Import the classes we're testing
 from src.things_mcp.tools import ThingsTools
-from src.things_mcp.applescript_manager import AppleScriptManager
+from src.things_mcp.services.applescript_manager import AppleScriptManager
 from src.things_mcp.services.validation_service import ValidationService
 from src.things_mcp.move_operations import MoveOperationsTools
 

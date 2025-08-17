@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from src.things_mcp.simple_server import ThingsMCPServer
-from src.things_mcp.applescript_manager import AppleScriptManager
+from src.things_mcp.server import ThingsMCPServer
+from src.things_mcp.services.applescript_manager import AppleScriptManager
 from src.things_mcp.tools import ThingsTools
 
 

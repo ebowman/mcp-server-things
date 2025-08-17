@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # Add src to path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.tools import ThingsTools
 
 async def benchmark_date_operations():

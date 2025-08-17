@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from things_mcp.simple_server import ThingsMCPServer
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.server import ThingsMCPServer
+from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.operation_queue import get_operation_queue, shutdown_operation_queue, OperationQueue, Priority
 from things_mcp.shared_cache import SharedCache, get_shared_cache
 from things_mcp.tools import ThingsTools

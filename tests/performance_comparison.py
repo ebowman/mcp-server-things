@@ -14,7 +14,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.services.applescript_manager import AppleScriptManager
 
 
 async def performance_comparison():

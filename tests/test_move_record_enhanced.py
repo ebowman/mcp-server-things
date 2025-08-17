@@ -21,7 +21,7 @@ from typing import Dict, Any, List
 
 # Import the classes we're testing
 from src.things_mcp.tools import ThingsTools
-from src.things_mcp.applescript_manager import AppleScriptManager
+from src.things_mcp.services.applescript_manager import AppleScriptManager
 from src.things_mcp.services.validation_service import ValidationService
 from src.things_mcp.move_operations import MoveOperationsTools
 
@@ -337,7 +337,7 @@ class TestMoveRecordEnhanced:
         # Mock todo not found
         mock_applescript_manager.execute_applescript.return_value = {
             "success": True,
-            "output": 'ERROR:Can\\'t get to do id "nonexistent".'
+            "output": 'ERROR:Can\'t get to do id "nonexistent".'
         }
         
         result = await things_tools.move_record("nonexistent", "inbox")

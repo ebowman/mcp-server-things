@@ -6,7 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from things_mcp.simple_server import ThingsMCPServer
+from things_mcp.server import ThingsMCPServer
 
 async def test_update_todo_completion():
     """Test that updating a todo's completion status works without error."""

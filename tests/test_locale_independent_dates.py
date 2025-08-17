@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from things_mcp.locale_aware_dates import LocaleAwareDateHandler, locale_handler
 from things_mcp.tools import ThingsTools
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.services.applescript_manager import AppleScriptManager
 
 
 class TestResult:

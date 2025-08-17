@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .simple_server import ThingsMCPServer
-from .applescript_manager import AppleScriptManager
+from .server import ThingsMCPServer
+from .services.applescript_manager import AppleScriptManager
 
 # Configure logging
 logging.basicConfig(

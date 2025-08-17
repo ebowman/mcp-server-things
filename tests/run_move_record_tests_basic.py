@@ -26,7 +26,7 @@ sys.path.insert(0, str(src_path))
 # Import the modules we're testing
 try:
     from things_mcp.tools import ThingsTools
-    from things_mcp.applescript_manager import AppleScriptManager
+    from things_mcp.services.applescript_manager import AppleScriptManager
     from things_mcp.services.validation_service import ValidationService
     from things_mcp.move_operations import MoveOperationsTools
     print("✅ Successfully imported required modules")

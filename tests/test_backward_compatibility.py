@@ -28,8 +28,8 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 # Import our components
-from things_mcp.simple_server import ThingsMCPServer
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.server import ThingsMCPServer
+from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.tools import ThingsTools
 from things_mcp.locale_aware_dates import locale_handler
 

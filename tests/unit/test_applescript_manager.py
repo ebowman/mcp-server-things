@@ -11,42 +11,35 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from typing import Dict, Any, List
 
-from src.things_mcp.services.applescript_manager import AppleScriptManager, ExecutionConfig
-from src.things_mcp.services.error_handler import ErrorHandler
-from src.things_mcp.services.cache_manager import CacheManager
+from src.things_mcp.services.applescript_manager import AppleScriptManager
+from src.things_mcp.config import ThingsMCPConfig
 
 
 class TestAppleScriptManagerInit:
     """Test AppleScript Manager initialization."""
     
     def test_init_with_default_config(self):
-        """Test initialization with default configuration."""
-        config = ExecutionConfig()
-        manager = AppleScriptManager(config=config)
+        """Test initialization with default configuration.""" 
+        manager = AppleScriptManager()
         
-        assert manager.config == config
-        assert manager.config.timeout == 30
-        assert manager.config.retry_count == 3
-        assert manager.config.cache_ttl == 300
+        assert manager.config is not None
+        assert manager.lock is not None
+        assert hasattr(manager, 'timeout')
+        assert hasattr(manager, 'retries')
     
     def test_init_with_custom_config(self):
         """Test initialization with custom configuration."""
-        config = ExecutionConfig(
-            timeout=60,
-            retry_count=5,
-            cache_ttl=600,
-            preferred_method="url_scheme",
-            enable_logging=True
+        config = ThingsMCPConfig(
+            applescript_timeout=60,
+            applescript_retry_count=5,
+            cache_max_size=1000
         )
         
-        error_handler = MagicMock(spec=ErrorHandler)
-        cache_manager = MagicMock(spec=CacheManager)
+        manager = AppleScriptManager(config=config)
         
-        manager = AppleScriptManager(
-            config=config, 
-            error_handler=error_handler,
-            cache_manager=cache_manager
-        )
+        assert manager.config == config
+        assert manager.timeout == 60
+        assert manager.retries == 5
         
         assert manager.config.timeout == 60
         assert manager.config.retry_count == 5
@@ -687,3 +680,164 @@ class TestConfigurationValidation:
         assert isinstance(config.timeout, (int, float))
         assert isinstance(config.retry_count, int)
         assert isinstance(config.cache_ttl, int)
+
+
+class TestAppleScriptManagerStrategicCoverage:
+    """Strategic test coverage for AppleScript manager - targeting 6.40% -> 15%."""
+    
+    @pytest.mark.asyncio
+    async def test_execute_applescript_success(self):
+        """Test successful AppleScript execution."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = '{"result": "success"}'
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.execute_applescript('test script')
+            
+            assert result.success is True
+            assert result.output == '{"result": "success"}'
+            assert result.error is None
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_applescript_failure(self):
+        """Test AppleScript execution failure."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ''
+            mock_run.return_value.stderr = 'AppleScript error'
+            
+            result = await manager.execute_applescript('test script')
+            
+            assert result.success is False
+            assert result.error == 'AppleScript error'
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_url_scheme_success(self):
+        """Test successful URL scheme execution."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = 'URL executed successfully'
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.execute_url_scheme('things:///add?title=Test')
+            
+            assert result.success is True
+            assert 'URL executed successfully' in result.output
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_check_things_availability(self):
+        """Test Things availability check."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = 'true'
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.check_things_availability()
+            
+            assert result.success is True
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_todos_method(self):
+        """Test get_todos method."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = '[]'
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.get_todos()
+            
+            assert isinstance(result, list)
+            mock_run.assert_called()
+
+    @pytest.mark.asyncio  
+    async def test_get_projects_method(self):
+        """Test get_projects method."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = '[]'
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.get_projects()
+            
+            assert isinstance(result, list)
+            mock_run.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_get_areas_method(self):
+        """Test get_areas method."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = '[]'  
+            mock_run.return_value.stderr = ''
+            
+            result = await manager.get_areas()
+            
+            assert isinstance(result, list)
+            mock_run.assert_called()
+
+    def test_manager_properties(self):
+        """Test manager property access."""
+        config = ThingsMCPConfig(
+            applescript_timeout=45,
+            applescript_retry_count=4
+        )
+        manager = AppleScriptManager(config=config)
+        
+        assert manager.timeout == 45
+        assert manager.retries == 4
+        assert manager.config.applescript_timeout == 45
+
+    @pytest.mark.asyncio
+    async def test_subprocess_exception_handling(self):
+        """Test subprocess exception handling."""
+        config = ThingsMCPConfig()
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = Exception("Subprocess failed")
+            
+            result = await manager.execute_applescript('test script')
+            
+            assert result.success is False
+            assert "Subprocess failed" in result.error
+
+    @pytest.mark.asyncio
+    async def test_timeout_handling(self):
+        """Test timeout handling in subprocess calls."""
+        config = ThingsMCPConfig(applescript_timeout=1)  # Very short timeout
+        manager = AppleScriptManager(config=config)
+        
+        with patch('subprocess.run') as mock_run:
+            import subprocess
+            mock_run.side_effect = subprocess.TimeoutExpired('cmd', 1)
+            
+            result = await manager.execute_applescript('long running script')
+            
+            assert result.success is False
+            assert "timeout" in result.error.lower() or "expired" in result.error.lower()

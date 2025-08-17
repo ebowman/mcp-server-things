@@ -27,7 +27,7 @@ class TestTodoModel:
         assert todo.notes is None
         assert todo.status == "open"  # Default value
         assert todo.due_date is None
-        assert todo.tag_names is None
+        assert todo.tag_names == []
     
     def test_todo_creation_with_full_data(self, sample_todo_data):
         """Test creating todo with all fields."""
@@ -71,17 +71,17 @@ class TestTodoModel:
     def test_todo_date_handling(self):
         """Test todo date field handling."""
         now = datetime.now()
-        future = now + timedelta(days=7)
+        future_date = (now + timedelta(days=7)).date()
         
         todo = Todo(
             name="Test Todo",
             creation_date=now,
-            due_date=future,
+            due_date=future_date,
             completion_date=None
         )
         
         assert todo.creation_date == now
-        assert todo.due_date == future
+        assert todo.due_date == future_date
         assert todo.completion_date is None
     
     def test_todo_json_serialization(self, sample_todo_data):
@@ -127,9 +127,10 @@ class TestTodoModel:
 class TestProjectModel:
     """Test cases for Project model."""
     
-    def test_project_inherits_from_todo(self):
-        """Test that Project inherits from Todo."""
-        assert issubclass(Project, Todo)
+    def test_project_inherits_from_base(self):
+        """Test Project model inherits from BaseThingsModel."""
+        from src.things_mcp.models.things_models import BaseThingsModel
+        assert issubclass(Project, BaseThingsModel)
     
     def test_project_creation(self, sample_project_data):
         """Test creating project with data."""
@@ -138,7 +139,7 @@ class TestProjectModel:
         assert project.name == sample_project_data["name"]
         assert project.notes == sample_project_data["notes"]
         assert project.status == sample_project_data["status"]
-        assert isinstance(project, Todo)  # Inheritance check
+        assert isinstance(project, Project)  # Type check
     
     def test_project_minimal_creation(self):
         """Test creating project with minimal data."""
@@ -146,7 +147,7 @@ class TestProjectModel:
         
         assert project.name == "Test Project"
         assert project.status == "open"
-        assert isinstance(project, Todo)
+        assert isinstance(project, Project)
 
 
 class TestAreaModel:

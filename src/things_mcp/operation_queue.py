@@ -8,6 +8,7 @@ and prevent race conditions when multiple operations are performed concurrently.
 import asyncio
 import logging
 import time
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, List, Awaitable
@@ -15,6 +16,22 @@ from uuid import uuid4
 import traceback
 
 logger = logging.getLogger(__name__)
+
+
+def safe_log(level: int, message: str, *args, **kwargs):
+    """Safe logging that prevents errors during shutdown when streams are closed."""
+    try:
+        # Check if stdout/stderr are still available
+        if hasattr(sys.stdout, 'closed') and sys.stdout.closed:
+            return
+        if hasattr(sys.stderr, 'closed') and sys.stderr.closed:
+            return
+        
+        # Use the logger normally if streams are available
+        logger.log(level, message, *args, **kwargs)
+    except (ValueError, OSError):
+        # Streams are closed or unavailable, silently ignore
+        pass
 
 
 class Priority(Enum):
@@ -130,7 +147,7 @@ class OperationQueue:
             except asyncio.CancelledError:
                 pass
 
-        logger.info("Operation queue worker stopped")
+        safe_log(logging.INFO, "Operation queue worker stopped")
 
     async def enqueue(
         self,
@@ -321,9 +338,9 @@ class OperationQueue:
                     logger.debug(traceback.format_exc())
                     
         except asyncio.CancelledError:
-            logger.info("Queue worker cancelled")
+            safe_log(logging.INFO, "Queue worker cancelled")
         finally:
-            logger.info("Queue worker stopped")
+            safe_log(logging.INFO, "Queue worker stopped")
 
     async def _process_operation(self, operation: Operation):
         """Process a single operation with timeout and retry logic"""

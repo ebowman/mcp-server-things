@@ -1,503 +1,739 @@
-"""
-Things 3 MCP Server
-
-Main FastMCP server implementation with comprehensive tool registration,
-resource management, and error handling for Things 3 integration.
-"""
+"""Simple FastMCP 2.0 server implementation for Things 3 integration."""
 
 import asyncio
+import atexit
 import logging
-from typing import Optional, Dict, Any
+import signal
+import sys
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# Optional dotenv support
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available, continue without it
+    pass
 
 from fastmcp import FastMCP
+from pydantic import BaseModel, Field
 
-# Import all tool modules
-from .tools.core_operations import CoreOperationsTools
-from .tools.search_tools import SearchTools
-from .tools.batch_operations import BatchOperationsTools
-from .tools.scheduling_tools import SchedulingTools
-from .tools.ui_integration import UIIntegrationTools
+from .services.applescript_manager import AppleScriptManager
+from .tools import ThingsTools
+from .operation_queue import shutdown_operation_queue, get_operation_queue
+from .config import ThingsMCPConfig, load_config_from_env
 
-# Import resource modules
-from .resources.data_views import DataViewsResources
-from .resources.analytics import AnalyticsResources
-from .resources.export_views import ExportViewsResources
-
-# Import prompt modules
-from .prompts.quick_entry import QuickEntryPrompts
-from .prompts.workflow_templates import WorkflowTemplatePrompts
-
-# Import service modules
-from .services.applescript_manager import AppleScriptManager, ExecutionConfig
-from .services.error_handler import ErrorHandler
-from .services.validation_service import ValidationService
-from .services.cache_manager import CacheManager
-from .services.url_scheme_handler import URLSchemeHandler
-
-# Import configuration
-from .config import ThingsMCPConfig
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class ThingsMCPServer:
-    """
-    Main Things 3 MCP Server implementation.
+    """Simple MCP server for Things 3 integration."""
     
-    Provides a comprehensive interface to Things 3 through FastMCP,
-    including CRUD operations, search, batch operations, scheduling,
-    and UI integration.
-    """
-    
-    def __init__(self, config: Optional[ThingsMCPConfig] = None):
-        """
-        Initialize the Things 3 MCP Server.
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize the Things MCP server.
         
         Args:
-            config: Optional configuration object
+            config_path: Optional path to configuration file
         """
-        self.config = config or ThingsMCPConfig()
+        self.mcp = FastMCP("things-mcp")
         
-        # Initialize FastMCP server
-        self.mcp = FastMCP(
-            name="things3-mcp-server",
-            version="1.0.0", 
-            description="MCP server for Things 3 task management integration"
-        )
-        
-        # Initialize services
-        self._init_services()
-        
-        # Initialize and register tools
-        self._init_tools()
-        
-        # Initialize and register resources
-        self._init_resources()
-        
-        # Initialize and register prompts
-        self._init_prompts()
-        
-        # Setup server lifecycle hooks
-        self._setup_lifecycle_hooks()
-        
-        # Configure logging
-        self._configure_logging()
-    
-    def _init_services(self):
-        """Initialize all service dependencies"""
-        # Error handler
-        self.error_handler = ErrorHandler(
-            enable_detailed_logging=self.config.enable_detailed_logging
-        )
-        
-        # Cache manager
-        self.cache_manager = CacheManager(
-            max_size=self.config.cache_max_size,
-            default_ttl=self.config.cache_default_ttl
-        )
-        
-        # AppleScript manager
-        execution_config = ExecutionConfig(
-            timeout=self.config.applescript_timeout,
-            retry_count=self.config.applescript_retry_count,
-            cache_ttl=self.config.cache_default_ttl,
-            preferred_method=self.config.preferred_execution_method,
-            enable_logging=self.config.enable_detailed_logging
-        )
-        
-        self.applescript_manager = AppleScriptManager(
-            config=execution_config,
-            error_handler=self.error_handler,
-            cache_manager=self.cache_manager
-        )
-        
-        # URL scheme handler
-        self.url_scheme_handler = URLSchemeHandler(
-            applescript_manager=self.applescript_manager
-        )
-        
-        # Validation service
-        self.validation_service = ValidationService(
-            config=self.config
-        )
-    
-    def _init_tools(self):
-        """Initialize and register all MCP tools"""
-        # Core CRUD operations (5 tools)
-        self.core_operations = CoreOperationsTools(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            validation_service=self.validation_service
-        )
-        
-        # Search and filtering tools (4 tools)
-        self.search_tools = SearchTools(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            validation_service=self.validation_service
-        )
-        
-        # Batch operations tools (3 tools)
-        self.batch_operations = BatchOperationsTools(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            validation_service=self.validation_service
-        )
-        
-        # Scheduling tools (4 tools)
-        self.scheduling_tools = SchedulingTools(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            validation_service=self.validation_service
-        )
-        
-        # UI integration tools (4 tools)
-        self.ui_integration = UIIntegrationTools(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            url_scheme_handler=self.url_scheme_handler
-        )
-        
-        # Register server management tools
-        self._register_server_tools()
-    
-    def _init_resources(self):
-        """Initialize and register all MCP resources"""
-        # Data view resources (Today, Upcoming, etc.)
-        self.data_views = DataViewsResources(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager,
-            cache_manager=self.cache_manager
-        )
-        
-        # Analytics resources
-        self.analytics = AnalyticsResources(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager
-        )
-        
-        # Export view resources
-        self.export_views = ExportViewsResources(
-            mcp=self.mcp,
-            applescript_manager=self.applescript_manager
-        )
-    
-    def _init_prompts(self):
-        """Initialize and register all MCP prompts"""
-        # Quick entry prompts
-        self.quick_entry_prompts = QuickEntryPrompts(
-            mcp=self.mcp
-        )
-        
-        # Workflow template prompts
-        self.workflow_prompts = WorkflowTemplatePrompts(
-            mcp=self.mcp
-        )
-    
-    def _register_server_tools(self):
-        """Register server management and utility tools"""
-        
-        @self.mcp.tool
-        async def health_check() -> Dict[str, Any]:
-            """
-            Perform comprehensive health check of the Things 3 MCP server.
-            
-            Returns:
-                Dict with server health status, Things 3 connectivity, and system info
-            """
+        # Load configuration
+        if config_path and Path(config_path).exists():
             try:
-                health_data = {
-                    "server_status": "healthy",
-                    "timestamp": self._get_timestamp(),
-                    "version": "1.0.0"
-                }
-                
-                # Check Things 3 connectivity
-                things_check = await self.applescript_manager.check_things_availability()
-                health_data["things3"] = {
-                    "available": things_check.success,
-                    "version": things_check.data.get("version") if things_check.success else None,
-                    "error": things_check.error if not things_check.success else None
-                }
-                
-                # Get execution statistics
-                exec_stats = await self.applescript_manager.get_execution_stats()
-                health_data["execution_stats"] = exec_stats
-                
-                # Get error statistics
-                error_stats = await self.error_handler.get_error_statistics()
-                health_data["error_stats"] = error_stats
-                
-                # Get cache statistics
-                health_data["cache_stats"] = {
-                    "size": await self.cache_manager.size(),
-                    "max_size": self.config.cache_max_size,
-                    "hit_rate": exec_stats.get("cache_hit_rate", 0)
-                }
-                
-                # Overall health assessment
-                if not things_check.success:
-                    health_data["server_status"] = "degraded"
-                elif error_stats["total_errors"] > 10:  # Threshold for concern
-                    health_data["server_status"] = "warning"
-                
-                return health_data
-                
+                self.config = ThingsMCPConfig.from_file(Path(config_path))
+                logger.info(f"Loaded configuration from {config_path}")
             except Exception as e:
-                return {
-                    "server_status": "error",
-                    "error": str(e),
-                    "timestamp": self._get_timestamp()
-                }
+                logger.warning(f"Failed to load config from {config_path}: {e}. Using environment/defaults.")
+                self.config = load_config_from_env()
+        else:
+            self.config = load_config_from_env()
         
-        @self.mcp.tool
-        async def get_server_stats() -> Dict[str, Any]:
-            """
-            Get comprehensive server statistics and metrics.
-            
-            Returns:
-                Dict with execution statistics, error rates, and performance metrics
-            """
+        self.applescript_manager = AppleScriptManager()
+        self.tools = ThingsTools(self.applescript_manager, self.config)
+        self._register_tools()
+        self._register_shutdown_handlers()
+        logger.info("Things MCP Server initialized with tag validation support")
+
+    def _register_shutdown_handlers(self):
+        """Register shutdown handlers for graceful cleanup."""
+        def shutdown_handler():
+            """Handle server shutdown."""
             try:
-                stats = {
-                    "timestamp": self._get_timestamp(),
-                    "uptime": self._get_uptime(),
-                    "execution_stats": await self.applescript_manager.get_execution_stats(),
-                    "error_stats": await self.error_handler.get_error_statistics(),
-                    "cache_stats": {
-                        "size": await self.cache_manager.size(),
-                        "max_size": self.config.cache_max_size,
-                        "memory_usage": await self.cache_manager.get_memory_usage()
-                    },
-                    "configuration": {
-                        "applescript_timeout": self.config.applescript_timeout,
-                        "retry_count": self.config.applescript_retry_count,
-                        "preferred_method": self.config.preferred_execution_method.value,
-                        "cache_enabled": self.config.enable_caching
+                import sys
+                # Skip shutdown during pytest to prevent stream conflicts
+                if hasattr(sys, '_called_from_test') or 'pytest' in sys.modules:
+                    return
+                    
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're in an async context, schedule the shutdown
+                    loop.create_task(shutdown_operation_queue())
+                else:
+                    # If not, run it directly
+                    loop.run_until_complete(shutdown_operation_queue())
+            except Exception as e:
+                # Use safe logging during shutdown
+                try:
+                    logger.error(f"Error during shutdown: {e}")
+                except (ValueError, OSError):
+                    # Streams already closed, ignore
+                    pass
+        
+        # Register cleanup for normal exit
+        atexit.register(shutdown_handler)
+        
+        # Register signal handlers for graceful shutdown
+        if sys.platform != 'win32':
+            signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
+            signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
+    
+    def _register_tools(self) -> None:
+        """Register all MCP tools with the server."""
+        
+        # Todo management tools
+        @self.mcp.tool()
+        async def get_todos(
+            project_uuid: Optional[str] = Field(None, description="Optional UUID of a specific project to get todos from"),
+            include_items: bool = Field(True, description="Include checklist items")
+        ) -> List[Dict[str, Any]]:
+            """Get todos from Things, optionally filtered by project."""
+            try:
+                return await self.tools.get_todos(project_uuid=project_uuid, include_items=include_items)
+            except Exception as e:
+                logger.error(f"Error getting todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def create_tag(
+            tag_name: str = Field(..., description="Name of the tag to create")
+        ) -> Dict[str, Any]:
+            """Create a new tag in Things 3.
+            
+            IMPORTANT: This tool is for HUMAN USE ONLY. AI assistants should not create tags
+            automatically. Tags should be intentionally created by users to maintain a clean
+            and organized tag structure. If you need to use a tag that doesn't exist, please
+            inform the user and ask if they'd like to create it.
+            """
+            # Check if AI can create tags based on configuration
+            if not self.config.ai_can_create_tags:
+                # Provide informative response for AI guidance
+                return {
+                    "success": False,
+                    "error": "Tag creation is restricted to human users only",
+                    "message": "This system is configured to require manual tag creation by users. This helps maintain a clean and intentional tag structure.",
+                    "user_action": f"Please ask the user if they would like to create the tag '{tag_name}'",
+                    "existing_tags_hint": "You can use get_tags to show the user existing tags they can use instead."
+                }
+            
+            # If AI can create tags, proceed
+            try:
+                if self.tools.tag_validation_service:
+                    result = await self.tools.tag_validation_service.create_tags([tag_name])
+                    if result['created']:
+                        return {
+                            "success": True,
+                            "message": f"Tag '{tag_name}' created successfully",
+                            "tag": tag_name
+                        }
+                    else:
+                        errors = result.get('errors', [])
+                        return {
+                            "success": False,
+                            "error": errors[0] if errors else f"Failed to create tag '{tag_name}'",
+                            "message": "Tag creation failed"
+                        }
+                else:
+                    # Fallback if no validation service
+                    return {
+                        "success": False,
+                        "error": "Tag validation service not available",
+                        "message": "Cannot create tags without validation service"
                     }
-                }
-                
-                return stats
-                
             except Exception as e:
-                return {
-                    "error": str(e),
-                    "timestamp": self._get_timestamp()
-                }
-        
-        @self.mcp.tool
-        async def clear_cache() -> Dict[str, Any]:
-            """
-            Clear all cached data and reset cache statistics.
-            
-            Returns:
-                Dict with cache clearing status
-            """
-            try:
-                success = await self.cache_manager.clear()
-                await self.applescript_manager.stats.update({"cache_hits": 0})
-                
-                return {
-                    "success": success,
-                    "message": "Cache cleared successfully",
-                    "timestamp": self._get_timestamp()
-                }
-                
-            except Exception as e:
+                logger.error(f"Error creating tag: {e}")
                 return {
                     "success": False,
                     "error": str(e),
-                    "timestamp": self._get_timestamp()
+                    "message": "An error occurred while creating the tag"
                 }
         
-        @self.mcp.tool
-        async def reset_error_stats() -> Dict[str, Any]:
-            """
-            Reset error statistics and counters.
+        @self.mcp.tool()
+        async def add_todo(
+            title: str = Field(..., description="Title of the todo"),
+            notes: Optional[str] = Field(None, description="Notes for the todo"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags. NOTE: Only existing tags will be applied. New tags must be created separately by the user."),
+            when: Optional[str] = Field(None, description="When to schedule the todo. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
+            list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
+            list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
+            heading: Optional[str] = Field(None, description="Heading to add under"),
+            checklist_items: Optional[str] = Field(None, description="Newline-separated checklist items to add")
+        ) -> Dict[str, Any]:
+            """Create a new todo in Things. 
             
-            Returns:
-                Dict with reset status
+            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
+            - 'today@18:00' creates a reminder today at 6 PM
+            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
+            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
             """
             try:
-                await self.error_handler.reset_statistics()
-                
-                return {
-                    "success": True,
-                    "message": "Error statistics reset successfully",
-                    "timestamp": self._get_timestamp()
-                }
-                
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "timestamp": self._get_timestamp()
-                }
-        
-        @self.mcp.tool
-        async def test_applescript_execution() -> Dict[str, Any]:
-            """
-            Test AppleScript execution with a simple version check.
-            
-            Returns:
-                Dict with test results and execution details
-            """
-            try:
-                # Test URL scheme execution
-                url_result = await self.applescript_manager.execute_url_scheme(
-                    action="show",
-                    parameters={"id": "today"},
-                    cache_key=None
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                result = await self.tools.add_todo(
+                    title=title,
+                    notes=notes,
+                    tags=tag_list,
+                    when=when,
+                    deadline=deadline,
+                    list_id=list_id,
+                    list_title=list_title,
+                    heading=heading,
+                    checklist_items=[item.strip() for item in checklist_items.split("\n")] if checklist_items else None
                 )
                 
-                # Test AppleScript execution
-                script_result = await self.applescript_manager.execute_applescript(
-                    script='tell application "Things3" to return version',
-                    script_name="version_test"
+                # Enhance response with tag validation feedback if available
+                if (tag_list and self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error adding todo: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def update_todo(
+            id: str = Field(..., description="ID of the todo to update"),
+            title: Optional[str] = Field(None, description="New title"),
+            notes: Optional[str] = Field(None, description="New notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
+            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="New deadline"),
+            completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
+        ) -> Dict[str, Any]:
+            """Update an existing todo in Things."""
+            try:
+                # Convert comma-separated tags to list  
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                
+                # Convert string booleans to actual booleans
+                completed_bool = None
+                if completed is not None:
+                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
+                    
+                canceled_bool = None
+                if canceled is not None:
+                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                
+                result = await self.tools.update_todo(
+                    todo_id=id,
+                    title=title,
+                    notes=notes,
+                    tags=tag_list,
+                    when=when,
+                    deadline=deadline,
+                    completed=completed_bool,
+                    canceled=canceled_bool
                 )
                 
-                return {
-                    "url_scheme_test": {
-                        "success": url_result.success,
-                        "method": url_result.method,
-                        "error": url_result.error if not url_result.success else None
-                    },
-                    "applescript_test": {
-                        "success": script_result.success,
-                        "output": script_result.output if script_result.success else None,
-                        "error": script_result.error if not script_result.success else None
-                    },
-                    "timestamp": self._get_timestamp()
-                }
+                # Enhance response with tag validation feedback if available
+                if (tag_list and self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
                 
+                return result
             except Exception as e:
+                logger.error(f"Error updating todo: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_todo_by_id(
+            todo_id: str = Field(..., description="ID of the todo to retrieve")
+        ) -> Dict[str, Any]:
+            """Get a specific todo by its ID."""
+            try:
+                return await self.tools.get_todo_by_id(todo_id)
+            except Exception as e:
+                logger.error(f"Error getting todo by ID: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def delete_todo(
+            todo_id: str = Field(..., description="ID of the todo to delete")
+        ) -> Dict[str, Any]:
+            """Delete a todo from Things."""
+            try:
+                return await self.tools.delete_todo(todo_id)
+            except Exception as e:
+                logger.error(f"Error deleting todo: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def move_record(
+            todo_id: str = Field(..., description="ID of the todo to move"),
+            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
+        ) -> Dict[str, Any]:
+            """Move a todo to a different list, project, or area in Things."""
+            try:
+                return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
+            except Exception as e:
+                logger.error(f"Error moving todo: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def bulk_move_records(
+            todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
+            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID"),
+            preserve_scheduling: bool = Field(True, description="Whether to preserve existing scheduling when moving"),
+            max_concurrent: int = Field(5, description="Maximum concurrent operations (1-10)", ge=1, le=10)
+        ) -> Dict[str, Any]:
+            """Move multiple todos to the same destination efficiently."""
+            try:
+                # Parse the comma-separated todo IDs
+                todo_id_list = [tid.strip() for tid in todo_ids.split(",") if tid.strip()]
+                if not todo_id_list:
+                    return {
+                        "success": False,
+                        "error": "NO_TODO_IDS",
+                        "message": "No valid todo IDs provided",
+                        "total_requested": 0
+                    }
+                
+                # Use the advanced bulk move functionality
+                result = await self.tools.move_operations.bulk_move(
+                    todo_ids=todo_id_list,
+                    destination=destination,
+                    preserve_scheduling=preserve_scheduling,
+                    max_concurrent=max_concurrent
+                )
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error in bulk move operation: {e}")
+                raise
+        
+        # Project management tools
+        @self.mcp.tool()
+        async def get_projects(
+            include_items: bool = Field(False, description="Include tasks within projects")
+        ) -> List[Dict[str, Any]]:
+            """Get all projects from Things."""
+            try:
+                return await self.tools.get_projects(include_items=include_items)
+            except Exception as e:
+                logger.error(f"Error getting projects: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def add_project(
+            title: str = Field(..., description="Title of the project"),
+            notes: Optional[str] = Field(None, description="Notes for the project"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
+            when: Optional[str] = Field(None, description="When to schedule the project. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="Deadline for the project"),
+            area_id: Optional[str] = Field(None, description="ID of area to add to"),
+            area_title: Optional[str] = Field(None, description="Title of area to add to"),
+            todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
+        ) -> Dict[str, Any]:
+            """Create a new project in Things.
+            
+            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
+            - 'today@18:00' creates a reminder today at 6 PM
+            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
+            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
+            """
+            try:
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                return await self.tools.add_project(
+                    title=title,
+                    notes=notes,
+                    tags=tag_list,
+                    when=when,
+                    deadline=deadline,
+                    area_id=area_id,
+                    area_title=area_title,
+                    todos=[todo.strip() for todo in todos.split("\n")] if todos else None
+                )
+            except Exception as e:
+                logger.error(f"Error adding project: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def update_project(
+            id: str = Field(..., description="ID of the project to update"),
+            title: Optional[str] = Field(None, description="New title"),
+            notes: Optional[str] = Field(None, description="New notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
+            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="New deadline"),
+            completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
+        ) -> Dict[str, Any]:
+            """Update an existing project in Things."""
+            try:
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                
+                # Convert string booleans to actual booleans
+                completed_bool = None
+                if completed is not None:
+                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
+                    
+                canceled_bool = None
+                if canceled is not None:
+                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                
+                return await self.tools.update_project(
+                    project_id=id,
+                    title=title,
+                    notes=notes,
+                    tags=tag_list,
+                    when=when,
+                    deadline=deadline,
+                    completed=completed_bool,
+                    canceled=canceled_bool
+                )
+            except Exception as e:
+                logger.error(f"Error updating project: {e}")
+                raise
+        
+        # Area management tools
+        @self.mcp.tool()
+        async def get_areas(
+            include_items: bool = Field(False, description="Include projects and tasks within areas")
+        ) -> List[Dict[str, Any]]:
+            """Get all areas from Things."""
+            try:
+                return await self.tools.get_areas(include_items=include_items)
+            except Exception as e:
+                logger.error(f"Error getting areas: {e}")
+                raise
+        
+        # List-based tools
+        @self.mcp.tool()
+        async def get_inbox() -> List[Dict[str, Any]]:
+            """Get todos from Inbox."""
+            try:
+                return await self.tools.get_inbox()
+            except Exception as e:
+                logger.error(f"Error getting inbox: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_today() -> List[Dict[str, Any]]:
+            """Get todos due today."""
+            try:
+                return await self.tools.get_today()
+            except Exception as e:
+                logger.error(f"Error getting today's todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_upcoming() -> List[Dict[str, Any]]:
+            """Get upcoming todos."""
+            try:
+                return await self.tools.get_upcoming()
+            except Exception as e:
+                logger.error(f"Error getting upcoming todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_anytime() -> List[Dict[str, Any]]:
+            """Get todos from Anytime list."""
+            try:
+                return await self.tools.get_anytime()
+            except Exception as e:
+                logger.error(f"Error getting anytime todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_someday() -> List[Dict[str, Any]]:
+            """Get todos from Someday list."""
+            try:
+                return await self.tools.get_someday()
+            except Exception as e:
+                logger.error(f"Error getting someday todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_logbook(
+            limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
+            period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
+        ) -> List[Dict[str, Any]]:
+            """Get completed todos from Logbook, defaults to last 7 days."""
+            try:
+                return await self.tools.get_logbook(limit=limit, period=period)
+            except Exception as e:
+                logger.error(f"Error getting logbook: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_trash() -> List[Dict[str, Any]]:
+            """Get trashed todos."""
+            try:
+                return await self.tools.get_trash()
+            except Exception as e:
+                logger.error(f"Error getting trash: {e}")
+                raise
+        
+        # Tag management tools
+        @self.mcp.tool()
+        async def get_tags(
+            include_items: bool = Field(False, description="Include items tagged with each tag")
+        ) -> List[Dict[str, Any]]:
+            """Get all tags."""
+            try:
+                return await self.tools.get_tags(include_items=include_items)
+            except Exception as e:
+                logger.error(f"Error getting tags: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_tagged_items(
+            tag: str = Field(..., description="Tag title to filter by")
+        ) -> List[Dict[str, Any]]:
+            """Get items with a specific tag."""
+            try:
+                return await self.tools.get_tagged_items(tag=tag)
+            except Exception as e:
+                logger.error(f"Error getting tagged items: {e}")
+                raise
+        
+        # Search tools
+        @self.mcp.tool()
+        async def search_todos(
+            query: str = Field(..., description="Search term to look for in todo titles and notes")
+        ) -> List[Dict[str, Any]]:
+            """Search todos by title or notes."""
+            try:
+                return await self.tools.search_todos(query=query)
+            except Exception as e:
+                logger.error(f"Error searching todos: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def search_advanced(
+            status: Optional[str] = Field(None, description="Filter by todo status", pattern="^(incomplete|completed|canceled)$"),
+            type: Optional[str] = Field(None, description="Filter by item type", pattern="^(to-do|project|heading)$"),
+            tag: Optional[str] = Field(None, description="Filter by tag"),
+            area: Optional[str] = Field(None, description="Filter by area UUID"),
+            start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
+            deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
+            limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500)
+        ) -> List[Dict[str, Any]]:
+            """Advanced todo search with multiple filters."""
+            try:
+                return await self.tools.search_advanced(
+                    status=status,
+                    type=type,
+                    tag=tag,
+                    area=area,
+                    start_date=start_date,
+                    deadline=deadline,
+                    limit=limit
+                )
+            except Exception as e:
+                logger.error(f"Error in advanced search: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def get_recent(
+            period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
+        ) -> List[Dict[str, Any]]:
+            """Get recently created items."""
+            try:
+                return await self.tools.get_recent(period=period)
+            except Exception as e:
+                logger.error(f"Error getting recent items: {e}")
+                raise
+        
+        # Navigation tools
+        @self.mcp.tool()
+        async def add_tags(
+            todo_id: str = Field(..., description="ID of the todo"),
+            tags: str = Field(..., description="Comma-separated tags to add")
+        ) -> Dict[str, Any]:
+            """Add tags to a todo."""
+            try:
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                result = await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
+                
+                # Enhance response with tag policy feedback
+                if (self.tools.tag_validation_service and 
+                    hasattr(result, 'get') and result.get('success')):
+                    policy = self.tools.config.tag_creation_policy if self.tools.config else 'allow_all'
+                    
+                    # Add policy information to response
+                    result['tag_policy'] = {
+                        'policy': policy.value if hasattr(policy, 'value') else str(policy),
+                        'description': self._get_policy_description(policy)
+                    }
+                    
+                    # Get tag validation info from the result
+                    if 'tag_info' in result:
+                        tag_info = result['tag_info']
+                        if tag_info.get('created_tags'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
+                        if tag_info.get('filtered_tags'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error adding tags: {e}")
+                raise
+        
+        @self.mcp.tool()
+        async def remove_tags(
+            todo_id: str = Field(..., description="ID of the todo"),
+            tags: str = Field(..., description="Comma-separated tags to remove")
+        ) -> Dict[str, Any]:
+            """Remove tags from a todo."""
+            try:
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                return await self.tools.remove_tags(todo_id=todo_id, tags=tag_list)
+            except Exception as e:
+                logger.error(f"Error removing tags: {e}")
+                raise
+        
+        # Removed show_item and search_items as they trigger UI changes
+        # which are not appropriate for MCP server operations
+        
+        # Health check tool
+        @self.mcp.tool()
+        async def health_check() -> Dict[str, Any]:
+            """Check server health and Things 3 connectivity."""
+            try:
+                is_running = await self.applescript_manager.is_things_running()
                 return {
-                    "success": False,
-                    "error": str(e),
-                    "timestamp": self._get_timestamp()
+                    "server_status": "healthy",
+                    "things_running": is_running,
+                    "applescript_available": True,
+                    "timestamp": self.applescript_manager._get_current_timestamp()
                 }
-    
-    def _setup_lifecycle_hooks(self):
-        """Setup server lifecycle hooks"""
+            except Exception as e:
+                logger.error(f"Health check failed: {e}")
+                return {
+                    "server_status": "unhealthy",
+                    "error": str(e),
+                    "timestamp": self.applescript_manager._get_current_timestamp()
+                }
+
+        @self.mcp.tool()
+        async def queue_status() -> Dict[str, Any]:
+            """Get operation queue status and statistics."""
+            try:
+                queue = await get_operation_queue()
+                status = queue.get_queue_status()
+                active_ops = queue.get_active_operations()
+                return {
+                    "queue_status": status,
+                    "active_operations": active_ops,
+                    "timestamp": self.applescript_manager._get_current_timestamp()
+                }
+            except Exception as e:
+                logger.error(f"Queue status check failed: {e}")
+                return {
+                    "error": str(e),
+                    "timestamp": self.applescript_manager._get_current_timestamp()
+                }
         
-        @self.mcp.startup
-        async def startup():
-            """Server startup hook"""
-            self.logger.info("Things 3 MCP Server starting up...")
-            
-            # Test Things 3 connectivity
-            availability = await self.applescript_manager.check_things_availability()
-            if availability.success:
-                self.logger.info(f"Things 3 detected: {availability.data.get('version', 'Unknown version')}")
-            else:
-                self.logger.warning(f"Things 3 connectivity issue: {availability.error}")
-            
-            # Initialize cache
-            await self.cache_manager.initialize()
-            
-            self.logger.info("Things 3 MCP Server started successfully")
-        
-        @self.mcp.shutdown
-        async def shutdown():
-            """Server shutdown hook"""
-            self.logger.info("Things 3 MCP Server shutting down...")
-            
-            # Clear cache
-            await self.cache_manager.clear()
-            
-            # Log final statistics
-            exec_stats = await self.applescript_manager.get_execution_stats()
-            error_stats = await self.error_handler.get_error_statistics()
-            
-            self.logger.info(f"Final execution stats: {exec_stats}")
-            self.logger.info(f"Final error stats: {error_stats}")
-            
-            self.logger.info("Things 3 MCP Server shutdown complete")
+        logger.info("All MCP tools registered successfully")
     
-    def _configure_logging(self):
-        """Configure logging for the server"""
-        logging.basicConfig(
-            level=logging.INFO if not self.config.enable_debug_logging else logging.DEBUG,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
-        self.logger = logging.getLogger(__name__)
-        
-        # Suppress verbose logging from dependencies if not in debug mode
-        if not self.config.enable_debug_logging:
-            logging.getLogger("httpx").setLevel(logging.WARNING)
-            logging.getLogger("fastmcp").setLevel(logging.INFO)
-    
-    def _get_timestamp(self) -> str:
-        """Get current timestamp in ISO format"""
-        from datetime import datetime
-        return datetime.now().isoformat()
-    
-    def _get_uptime(self) -> str:
-        """Get server uptime (placeholder implementation)"""
-        return "0:00:00"  # Would track actual uptime in production
-    
-    async def run(self, **kwargs):
-        """
-        Run the MCP server.
+    def _get_policy_description(self, policy) -> str:
+        """Get human-readable description of tag creation policy.
         
         Args:
-            **kwargs: Additional arguments to pass to FastMCP.run()
+            policy: Tag creation policy
+            
+        Returns:
+            Description string
         """
-        try:
-            await self.mcp.run(**kwargs)
-        except KeyboardInterrupt:
-            self.logger.info("Server stopped by user")
-        except Exception as e:
-            self.logger.error(f"Server error: {e}")
-            raise
-
-
-# Server factory function
-def create_server(config_path: Optional[Path] = None) -> ThingsMCPServer:
-    """
-    Factory function to create a Things 3 MCP server instance.
-    
-    Args:
-        config_path: Optional path to configuration file
+        policy_descriptions = {
+            'allow_all': 'New tags will be created automatically',
+            'filter_unknown': 'Unknown tags will be filtered out',
+            'warn_unknown': 'Unknown tags allowed with warnings',
+            'reject_unknown': 'Operations with unknown tags will be rejected'
+        }
         
-    Returns:
-        Configured ThingsMCPServer instance
-    """
-    config = None
-    if config_path and config_path.exists():
-        config = ThingsMCPConfig.from_file(config_path)
+        policy_str = policy.value if hasattr(policy, 'value') else str(policy)
+        return policy_descriptions.get(policy_str, 'Custom policy')
     
-    return ThingsMCPServer(config)
+    def run(self) -> None:
+        """Run the MCP server."""
+        try:
+            logger.info("Starting Things MCP Server...")
+            self.mcp.run()
+        except KeyboardInterrupt:
+            logger.info("Server stopped by user")
+        except Exception as e:
+            logger.error(f"Server error: {e}")
+            raise
+    
+    def stop(self) -> None:
+        """Stop the MCP server gracefully."""
+        try:
+            logger.info("Stopping Things MCP Server...")
+        except (ValueError, OSError):
+            # Streams may be closed during shutdown
+            pass
+            
+        try:
+            # Shutdown operation queue
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(shutdown_operation_queue())
+            else:
+                loop.run_until_complete(shutdown_operation_queue())
+        except Exception as e:
+            try:
+                logger.error(f"Error stopping operation queue: {e}")
+            except (ValueError, OSError):
+                # Streams already closed, ignore
+                pass
+                
+        try:
+            logger.info("Things MCP Server stopped")
+        except (ValueError, OSError):
+            # Streams may be closed during shutdown
+            pass
 
 
-# Main entry point
-async def main():
-    """Main entry point for the server"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Things 3 MCP Server")
-    parser.add_argument(
-        "--config", 
-        type=Path, 
-        help="Path to configuration file"
-    )
-    parser.add_argument(
-        "--debug", 
-        action="store_true", 
-        help="Enable debug logging"
-    )
-    
-    args = parser.parse_args()
-    
-    # Create and run server
-    server = create_server(args.config)
-    
-    if args.debug:
-        server.config.enable_debug_logging = True
-        server._configure_logging()
-    
-    await server.run()
+def main():
+    """Main entry point for the simple server."""
+    # Check for config path in environment or command line
+    import os
+    config_path = os.getenv('THINGS_MCP_CONFIG_PATH')
+    server = ThingsMCPServer(config_path=config_path)
+    server.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
-from .applescript_manager import AppleScriptManager
+from .services.applescript_manager import AppleScriptManager
 from .pure_applescript_scheduler import PureAppleScriptScheduler
 from .operation_queue import get_operation_queue, Priority
 from .locale_aware_dates import locale_handler

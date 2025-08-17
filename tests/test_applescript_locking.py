@@ -6,7 +6,7 @@ import time
 import logging
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.things_mcp.applescript_manager import AppleScriptManager
+from src.things_mcp.services.applescript_manager import AppleScriptManager
 
 # Set up logging to see lock timing
 logging.basicConfig(level=logging.DEBUG)

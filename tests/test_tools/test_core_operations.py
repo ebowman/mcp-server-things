@@ -10,10 +10,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, date
 
-from things_mcp.tools.core_operations import CoreOperationsTools
+from things_mcp.tools import ThingsTools
 from things_mcp.models.things_models import Todo, TodoResult, ThingsStatus
 from things_mcp.models.response_models import AppleScriptResult, OperationResult
-from things_mcp.services.applescript_manager import AppleScriptManager, ExecutionMethod
+from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.services.error_handler import ErrorHandler
 from things_mcp.services.validation_service import ValidationService
 

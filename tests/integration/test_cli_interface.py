@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from argparse import Namespace
 
-from src.things_mcp.server import main, create_server
+from src.things_mcp.server import main
+from src.things_mcp.server import ThingsMCPServer
 from src.things_mcp.__main__ import main as main_entry_point
 
 

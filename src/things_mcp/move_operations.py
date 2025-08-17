@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 import logging
 
-from .applescript_manager import AppleScriptManager
+from .services.applescript_manager import AppleScriptManager
 from .services.validation_service import ValidationService
 
 logger = logging.getLogger(__name__)

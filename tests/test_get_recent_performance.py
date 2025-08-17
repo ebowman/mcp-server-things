@@ -4,7 +4,7 @@
 import asyncio
 import time
 from things_mcp.tools import ThingsTools
-from things_mcp.applescript_manager import AppleScriptManager
+from things_mcp.services.applescript_manager import AppleScriptManager
 
 
 async def test_get_recent_performance():

@@ -13,10 +13,10 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.things_mcp.models import Todo, Project, Area, Tag, TodoResult
-from src.things_mcp.config import ThingsMCPConfig
-from src.things_mcp.server import ThingsMCPServer
-from src.things_mcp.services.applescript_manager import AppleScriptManager
+from things_mcp.models import Todo, Project, Area, Tag, TodoResult
+from things_mcp.config import ThingsMCPConfig
+from things_mcp.server import ThingsMCPServer
+from things_mcp.services.applescript_manager import AppleScriptManager
 
 
 # Test Data Fixtures
@@ -34,7 +34,7 @@ def sample_todo_data():
         "activation_date": None,
         "completion_date": None,
         "cancellation_date": None,
-        "tag_names": "urgent,work",
+        "tag_names": ["urgent", "work"],
         "area_name": "Personal",
         "project_name": None,
         "contact_name": None
@@ -51,11 +51,11 @@ def sample_project_data():
         "status": "open",
         "creation_date": datetime.now() - timedelta(days=5),
         "modification_date": datetime.now(),
-        "due_date": datetime.now() + timedelta(days=30),
+        "due_date": (datetime.now() + timedelta(days=30)).date(),
         "activation_date": datetime.now(),
         "completion_date": None,
         "cancellation_date": None,
-        "tag_names": "work,important",
+        "tag_names": ["work", "important"],
         "area_name": "Work",
         "project_name": None,
         "contact_name": None
@@ -69,7 +69,7 @@ def sample_area_data():
         "id": "area-789",
         "name": "Work Area",
         "collapsed": False,
-        "tag_names": "work"
+        "tag_names": ["work"]
     }
 
 
@@ -80,7 +80,7 @@ def sample_tag_data():
         "id": "tag-101",
         "name": "urgent",
         "keyboard_shortcut": "u",
-        "parent_tag_name": None
+        "parent_tag": None
     }
 
 
@@ -219,6 +219,55 @@ class MockAppleScriptManager:
         """Reset call tracking."""
         self.execution_calls.clear()
         self.url_scheme_calls.clear()
+    
+    # Add missing methods expected by tests
+    async def get_todos(self, **kwargs):
+        """Mock get_todos method."""
+        return self.mock_responses.get("get_todos", {
+            "success": True,
+            "data": [],
+            "error": None
+        })
+    
+    async def get_projects(self, **kwargs):
+        """Mock get_projects method."""
+        return self.mock_responses.get("get_projects", {
+            "success": True,
+            "data": [],
+            "error": None
+        })
+    
+    async def get_areas(self, **kwargs):
+        """Mock get_areas method.""" 
+        return self.mock_responses.get("get_areas", {
+            "success": True,
+            "data": [],
+            "error": None
+        })
+    
+    async def add_todo(self, **kwargs):
+        """Mock add_todo method."""
+        return self.mock_responses.get("add_todo", {
+            "success": True,
+            "data": {"id": "new-todo-123"},
+            "error": None
+        })
+    
+    async def update_todo(self, **kwargs):
+        """Mock update_todo method."""
+        return self.mock_responses.get("update_todo", {
+            "success": True,
+            "data": {"id": kwargs.get("id", "todo-123"), "updated": True},
+            "error": None
+        })
+    
+    async def delete_todo(self, **kwargs):
+        """Mock delete_todo method."""
+        return self.mock_responses.get("delete_todo", {
+            "success": True,
+            "data": {"deleted": True},
+            "error": None
+        })
 
 
 @pytest.fixture
@@ -406,10 +455,10 @@ def test_config():
 @pytest.fixture
 async def mock_server(test_config, mock_applescript_manager_with_data, mock_error_handler, mock_cache_manager, mock_validation_service):
     """Fixture providing fully mocked Things MCP server."""
-    with patch('src.things_mcp.server.AppleScriptManager') as mock_asm_class, \
-         patch('src.things_mcp.server.ErrorHandler') as mock_eh_class, \
-         patch('src.things_mcp.server.CacheManager') as mock_cm_class, \
-         patch('src.things_mcp.server.ValidationService') as mock_vs_class:
+    with patch('things_mcp.server.AppleScriptManager') as mock_asm_class, \
+         patch('things_mcp.server.ErrorHandler') as mock_eh_class, \
+         patch('things_mcp.server.CacheManager') as mock_cm_class, \
+         patch('things_mcp.server.ValidationService') as mock_vs_class:
         
         # Configure the mocked classes to return our mock instances
         mock_asm_class.return_value = mock_applescript_manager_with_data

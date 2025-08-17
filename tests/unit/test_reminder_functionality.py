@@ -14,7 +14,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.things_mcp.tools import ThingsTools
-from src.things_mcp.applescript_manager import AppleScriptManager
+from src.things_mcp.services.applescript_manager import AppleScriptManager
 
 
 @pytest.fixture

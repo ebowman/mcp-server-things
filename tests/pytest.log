@@ -1,0 +1,56 @@
+2025-08-17 18:50:18 [   DEBUG] locale_aware_dates.py:63 - __init__(): Initializing LocaleAwareDateHandler
+2025-08-17 18:50:18 [   DEBUG] shared_cache.py:59 - __init__(): SharedCache initialized with directory: /var/folders/ms/8skj9_fx6zs08v2ydsjcjjhc0000gp/T/things_mcp_cache
+2025-08-17 18:50:18 [   DEBUG] applescript_manager.py:68 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-08-17 18:50:18 [    INFO] applescript_manager.py:46 - __init__(): AppleScript manager initialized with shared cache
+2025-08-17 18:50:18 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-08-17 18:50:18 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
+2025-08-17 18:50:18 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-08-17 18:50:18 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-08-17 18:50:18 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-08-17 18:50:18 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
+2025-08-17 18:50:18 [   ERROR] tools.py:580 - get_todos(): Error getting todos: object MagicMock can't be used in 'await' expression
+2025-08-17 18:50:18 [    INFO] operation_queue.py:131 - start(): Operation queue worker started
+2025-08-17 18:50:18 [   DEBUG] operation_queue.py:197 - enqueue(): Enqueued operation f76353a2: add_todo(Test...)
+2025-08-17 18:50:18 [    INFO] operation_queue.py:320 - _worker(): Queue worker started
+2025-08-17 18:50:18 [   DEBUG] operation_queue.py:352 - _process_operation(): Processing operation f76353a2: add_todo(Test...)
+2025-08-17 18:50:18 [   DEBUG] tools.py:972 - _add_todo_impl(): Generated AppleScript for add_todo:
+tell application "Things3"
+    try
+        set newTodo to make new to do with properties {name:"Test"}
+        return id of newTodo
+    on error errMsg
+        return "error: " & errMsg
+    end try
+end tell
+2025-08-17 18:50:18 [   ERROR] tools.py:1089 - _add_todo_impl(): Error adding todo: 'AppleScriptResult' object has no attribute 'get'
+2025-08-17 18:50:18 [ WARNING] operation_queue.py:373 - _process_operation(): Operation f76353a2 failed: 'AppleScriptResult' object has no attribute 'get'
+2025-08-17 18:50:18 [    INFO] operation_queue.py:385 - _handle_operation_failure(): Retrying operation f76353a2 (attempt 1/2)
+2025-08-17 18:50:19 [   DEBUG] operation_queue.py:352 - _process_operation(): Processing operation f76353a2: add_todo(Test...)
+2025-08-17 18:50:19 [   DEBUG] tools.py:972 - _add_todo_impl(): Generated AppleScript for add_todo:
+tell application "Things3"
+    try
+        set newTodo to make new to do with properties {name:"Test"}
+        return id of newTodo
+    on error errMsg
+        return "error: " & errMsg
+    end try
+end tell
+2025-08-17 18:50:19 [   ERROR] tools.py:1089 - _add_todo_impl(): Error adding todo: 'AppleScriptResult' object has no attribute 'get'
+2025-08-17 18:50:19 [ WARNING] operation_queue.py:373 - _process_operation(): Operation f76353a2 failed: 'AppleScriptResult' object has no attribute 'get'
+2025-08-17 18:50:19 [    INFO] operation_queue.py:385 - _handle_operation_failure(): Retrying operation f76353a2 (attempt 2/2)
+2025-08-17 18:50:19 [    INFO] operation_queue.py:31 - safe_log(): Queue worker cancelled
+2025-08-17 18:50:19 [    INFO] operation_queue.py:31 - safe_log(): Queue worker stopped
+2025-08-17 18:50:19 [   DEBUG] server.py:153 - __init__(): Initializing server 'things-mcp'
+2025-08-17 18:50:19 [   DEBUG] server.py:385 - decorator(): Registering handler for ListToolsRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:262 - decorator(): Registering handler for ListResourcesRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:275 - decorator(): Registering handler for ListResourceTemplatesRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:234 - decorator(): Registering handler for PromptListRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:446 - decorator(): Registering handler for CallToolRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:290 - decorator(): Registering handler for ReadResourceRequest
+2025-08-17 18:50:19 [   DEBUG] server.py:249 - decorator(): Registering handler for GetPromptRequest
+2025-08-17 18:50:19 [   DEBUG] applescript_manager.py:68 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-08-17 18:50:19 [    INFO] applescript_manager.py:46 - __init__(): AppleScript manager initialized with shared cache
+2025-08-17 18:50:19 [    INFO] tools.py:42 - __init__(): Things tools initialized with tag validation service
+2025-08-17 18:50:19 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
+2025-08-17 18:50:19 [    INFO] server.py:668 - _register_tools(): All MCP tools registered successfully
+2025-08-17 18:50:19 [    INFO] server.py:61 - __init__(): Things MCP Server initialized with tag validation support

@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass
 
-from ..applescript_manager import AppleScriptManager
+from .applescript_manager import AppleScriptManager
 from ..config import ThingsMCPConfig, TagCreationPolicy
 
 logger = logging.getLogger(__name__)

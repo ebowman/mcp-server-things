@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-from src.things_mcp.server import ThingsMCPServer, create_server
+from src.things_mcp.server import ThingsMCPServer
 from src.things_mcp.config import ThingsMCPConfig
 
 

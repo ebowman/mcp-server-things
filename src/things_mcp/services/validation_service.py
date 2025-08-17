@@ -9,7 +9,7 @@ import re
 from typing import Dict, Any, Optional
 import logging
 
-from ..applescript_manager import AppleScriptManager
+from .applescript_manager import AppleScriptManager
 
 logger = logging.getLogger(__name__)
 
