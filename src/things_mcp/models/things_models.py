@@ -8,7 +8,7 @@ serialization, and type safety.
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Union
 from enum import Enum
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator, root_validator, model_validator
 from uuid import UUID
 
 
@@ -143,13 +143,17 @@ class Project(BaseThingsModel):
     # Tags
     tag_names: List[str] = Field(default_factory=list, description="Associated tag names")
     
+    # Reminder functionality (Phase 1 & 2 implementation)  
+    has_reminder: bool = Field(False, description="True if project has a specific reminder time set")
+    reminder_time: Optional[str] = Field(None, description="Time component of reminder in HH:MM format")
+    
     @validator('name')
     def validate_project_name(cls, v):
         if not v or not v.strip():
             raise ValueError('Project name cannot be empty')
         return v.strip()
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_dates(cls, values):
         completion_date = values.get('completion_date')
         cancellation_date = values.get('cancellation_date')
@@ -209,6 +213,10 @@ class Todo(BaseThingsModel):
     # Checklist
     checklist_items: List[str] = Field(default_factory=list, description="Checklist items")
     
+    # Reminder functionality (Phase 1 & 2 implementation)
+    has_reminder: bool = Field(False, description="True if todo has a specific reminder time set")
+    reminder_time: Optional[str] = Field(None, description="Time component of reminder in HH:MM format")
+    
     @validator('name')
     def validate_todo_name(cls, v):
         if not v or not v.strip():
@@ -228,7 +236,41 @@ class Todo(BaseThingsModel):
                     raise ValueError(f'Invalid schedule option: {v}. Use one of {valid_options} or YYYY-MM-DD format')
         return v
     
-    @root_validator
+    @validator('reminder_time')
+    def validate_reminder_time(cls, v):
+        """Validate reminder time format (HH:MM)."""
+        if v is None:
+            return v
+            
+        if not isinstance(v, str):
+            raise ValueError('Reminder time must be a string in HH:MM format')
+            
+        # Validate HH:MM format
+        try:
+            if ':' not in v:
+                raise ValueError('Reminder time must contain colon separator')
+            
+            parts = v.split(':')
+            if len(parts) != 2:
+                raise ValueError('Reminder time must be in HH:MM format')
+                
+            hour, minute = parts
+            hour_int = int(hour)
+            minute_int = int(minute)
+            
+            if not (0 <= hour_int <= 23):
+                raise ValueError('Hour must be between 0 and 23')
+            if not (0 <= minute_int <= 59):
+                raise ValueError('Minute must be between 0 and 59')
+                
+            return v
+            
+        except (ValueError, TypeError) as e:
+            if "invalid literal" in str(e).lower():
+                raise ValueError('Reminder time must contain only numeric values')
+            raise
+    
+    @root_validator(skip_on_failure=True)
     def validate_relationships(cls, values):
         project = values.get('project')
         project_name = values.get('project_name')
@@ -247,7 +289,7 @@ class Todo(BaseThingsModel):
         
         return values
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_status_dates(cls, values):
         completion_date = values.get('completion_date')
         cancellation_date = values.get('cancellation_date')
@@ -276,7 +318,9 @@ class Todo(BaseThingsModel):
                 "due_date": "2024-01-15",
                 "scheduled_date": "today",
                 "tag_names": ["work", "urgent"],
-                "checklist_items": ["Review revenue", "Check expenses", "Approve final version"]
+                "checklist_items": ["Review revenue", "Check expenses", "Approve final version"],
+                "has_reminder": True,
+                "reminder_time": "14:30"
             }
         }
 

@@ -116,7 +116,12 @@ class AppleScriptManager:
             Dict with success status and result information
         """
         try:
-            url = self._build_things_url(action, parameters or {})
+            # Handle url_override for complete URLs (for reminder functionality)
+            if parameters and "url_override" in parameters:
+                url = parameters["url_override"]
+            else:
+                url = self._build_things_url(action, parameters or {})
+            
             # Use do shell script with open -g to avoid bringing Things to foreground
             script = f'''do shell script "open -g '{url}'"'''
             
@@ -205,7 +210,15 @@ class AppleScriptManager:
                             set noteStr to "missing value"
                         end try
                         
-                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
+                        -- Handle activation date extraction with time components for reminder detection
+                        set activationDateStr to ""
+                        try
+                            set activationDateStr to ((activation date of theTodo) as string)
+                        on error
+                            set activationDateStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr
                     end repeat
                     
                     return outputText
@@ -262,7 +275,15 @@ class AppleScriptManager:
                             set noteStr to "missing value"
                         end try
                         
-                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr
+                        -- Handle activation date extraction with time components for reminder detection
+                        set activationDateStr to ""
+                        try
+                            set activationDateStr to ((activation date of theTodo) as string)
+                        on error
+                            set activationDateStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr
                     end repeat
                     
                     return outputText
@@ -634,10 +655,10 @@ class AppleScriptManager:
             # Strategy: find tag_names: and extract value until we hit another known field
             temp_output = output.strip()
             
-            # Known field names that can follow tag_names
+            # Known field names that can follow tag_names (added activation_date for reminder support)
             known_fields = ['creation_date:', 'modification_date:', 'due_date:', 'status:', 
                           'notes:', 'id:', 'name:', 'area:', 'project:', 'start_date:', 
-                          'completion_date:', 'cancellation_date:', 'contact:']
+                          'completion_date:', 'cancellation_date:', 'contact:', 'activation_date:']
             
             # Find tag_names and protect its commas
             if 'tag_names:' in temp_output:
@@ -663,7 +684,7 @@ class AppleScriptManager:
                     temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
             
             # Also protect commas in date fields which contain "date Thursday, 4. September 2025 at 00:00:00"
-            for date_field in ['creation_date:', 'modification_date:', 'due_date:', 'start_date:', 'completion_date:', 'cancellation_date:']:
+            for date_field in ['creation_date:', 'modification_date:', 'due_date:', 'start_date:', 'completion_date:', 'cancellation_date:', 'activation_date:']:
                 if date_field in temp_output:
                     # Find all instances of this date field
                     field_start = 0
@@ -719,7 +740,7 @@ class AppleScriptManager:
                         current_record = {}
                     
                     # Parse different value types
-                    if key in ['creation_date', 'modification_date', 'due_date', 'start_date']:
+                    if key in ['creation_date', 'modification_date', 'due_date', 'start_date', 'activation_date']:
                         # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
                         # The value might be incomplete due to comma splitting, so skip if it looks incomplete
                         if 'date' in value.lower() or 'day' in value.lower():
@@ -770,7 +791,13 @@ class AppleScriptManager:
             
             # Don't forget the last record
             if current_record:
+                # Add reminder detection fields to all records before finalizing
+                self._enhance_record_with_reminder_info(current_record)
                 records.append(current_record)
+                
+            # Also enhance any previously added records with reminder info
+            for record in records:
+                self._enhance_record_with_reminder_info(record)
             
             logger.debug(f"Parsed {len(records)} records from AppleScript output")
             
@@ -1240,3 +1267,73 @@ class AppleScriptManager:
         """Clear all cached results."""
         self._cache.clear()
         logger.info("AppleScript shared cache cleared")
+    
+    def _has_reminder_time(self, activation_date_str: Optional[str]) -> bool:
+        """Detect if an activation_date indicates a reminder is set.
+        
+        Args:
+            activation_date_str: The activation_date field from AppleScript
+            
+        Returns:
+            True if time components indicate a reminder, False for date-only scheduling
+        """
+        if not activation_date_str or activation_date_str == "missing value":
+            return False
+            
+        try:
+            # Parse the activation_date to check time components
+            parsed_date = self._parse_applescript_date(activation_date_str)
+            if not parsed_date:
+                return False
+                
+            # Convert to datetime to analyze time components
+            dt = datetime.fromisoformat(parsed_date.replace('Z', '+00:00'))
+            
+            # If any time component is non-zero, it's a reminder
+            return dt.hour != 0 or dt.minute != 0 or dt.second != 0
+            
+        except Exception as e:
+            logger.debug(f"Error detecting reminder time in '{activation_date_str}': {e}")
+            return False
+    
+    def _extract_reminder_time(self, activation_date_str: Optional[str]) -> Optional[str]:
+        """Extract the time component from activation_date for reminder display.
+        
+        Args:
+            activation_date_str: The activation_date field from AppleScript
+            
+        Returns:
+            Time string in HH:MM format if reminder is set, None otherwise
+        """
+        if not self._has_reminder_time(activation_date_str):
+            return None
+            
+        try:
+            parsed_date = self._parse_applescript_date(activation_date_str)
+            if not parsed_date:
+                return None
+                
+            dt = datetime.fromisoformat(parsed_date.replace('Z', '+00:00'))
+            return f"{dt.hour:02d}:{dt.minute:02d}"
+            
+        except Exception as e:
+            logger.debug(f"Error extracting reminder time from '{activation_date_str}': {e}")
+            return None
+    
+    def _enhance_record_with_reminder_info(self, record: Dict[str, Any]) -> None:
+        """Enhance a record with reminder detection fields.
+        
+        Args:
+            record: The record dictionary to enhance with reminder information
+        """
+        if not isinstance(record, dict):
+            return
+            
+        activation_date_str = record.get('activation_date')
+        
+        # Add reminder detection fields
+        record['has_reminder'] = self._has_reminder_time(activation_date_str)
+        record['reminder_time'] = self._extract_reminder_time(activation_date_str)
+        
+        logger.debug(f"Enhanced record {record.get('id', 'unknown')} with reminder info: "
+                    f"has_reminder={record['has_reminder']}, reminder_time={record['reminder_time']}")

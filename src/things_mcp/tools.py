@@ -395,6 +395,67 @@ class ThingsTools:
         Returns:
             Formatted date string or original input if not recognized
         """
+        # Check if this is a datetime format (YYYY-MM-DD@HH:MM) for reminder support
+        if '@' in date_input:
+            return self._parse_datetime_input(date_input)
+            
+        return self._parse_date_only_input(date_input)
+    
+    def _parse_datetime_input(self, datetime_input: str) -> str:
+        """Parse datetime input in YYYY-MM-DD@HH:MM format for reminder support.
+        
+        Processes datetime strings with @ separators to create reminders at specific times.
+        Handles both relative dates (today, tomorrow) and absolute dates (YYYY-MM-DD).
+        Falls back gracefully by returning original input if parsing fails.
+        
+        Args:
+            datetime_input: Input in format like "today@14:30" or "2024-01-15@09:00"
+                Supported date formats:
+                - "today@HH:MM" - reminder today at specified time
+                - "tomorrow@HH:MM" - reminder tomorrow at specified time  
+                - "YYYY-MM-DD@HH:MM" - reminder on specific date and time
+                - Input without @ symbol - returned unchanged
+                
+        Returns:
+            Formatted datetime string for URL scheme or original input if invalid
+            
+        Examples:
+            >>> parser._parse_datetime_input("today@14:30")        # "2025-08-17@14:30"
+            >>> parser._parse_datetime_input("2024-12-25@09:00")   # "2024-12-25@09:00"
+            >>> parser._parse_datetime_input("today@25:00")        # "today@25:00" (invalid, returned as-is)
+            >>> parser._parse_datetime_input("tomorrow")           # "tomorrow" (no @ symbol, passed through)
+        """
+        if '@' not in datetime_input:
+            return datetime_input
+            
+        try:
+            date_part, time_part = datetime_input.split('@', 1)
+            
+            # Parse the date part using existing logic
+            parsed_date = self._parse_date_only_input(date_part.strip())
+            
+            # Validate time format (HH:MM or H:MM)
+            time_part = time_part.strip()
+            if not self._validate_time_format(time_part):
+                logger.warning(f"Invalid time format '{time_part}' in datetime input '{datetime_input}'")
+                return datetime_input  # Return original if invalid
+            
+            # Return in the format expected for URL scheme
+            return f"{parsed_date}@{time_part}"
+            
+        except Exception as e:
+            logger.warning(f"Error parsing datetime input '{datetime_input}': {e}")
+            return datetime_input
+    
+    def _parse_date_only_input(self, date_input: str) -> str:
+        """Parse date-only input like 'tomorrow', 'Friday', 'September 10', etc. to YYYY-MM-DD format.
+        
+        Args:
+            date_input: User input date string
+            
+        Returns:
+            Formatted date string or original input if not recognized
+        """
         if not date_input:
             return date_input
             
@@ -772,7 +833,50 @@ class ThingsTools:
                 else:
                     notes = checklist_text
             
-            # Prepare properties for the new todo
+            # PHASE 2: Check if this is a datetime reminder and use URL scheme if needed
+            if when and self._has_datetime_reminder(when):
+                logger.info(f"Detected datetime reminder in '{when}', using URL scheme instead of AppleScript")
+                try:
+                    # Parse datetime format
+                    parsed_when = self._parse_datetime_input(when)
+                    
+                    # Build URL scheme for reminder creation
+                    url_scheme = self._build_url_scheme_with_reminder(title, parsed_when, notes, tags)
+                    logger.info(f"Built reminder URL scheme: {url_scheme}")
+                    
+                    # Execute URL scheme through AppleScript manager
+                    url_result = await self.applescript.execute_url_scheme(
+                        action="add",
+                        parameters={"url_override": url_scheme}
+                    )
+                    
+                    if url_result.get("success"):
+                        # URL scheme doesn't return the todo ID directly, so we need to find it
+                        # This is a limitation - for now return success without specific ID
+                        logger.info(f"Successfully created todo with reminder using URL scheme: {url_result.get('url')}")
+                        return {
+                            "success": True,
+                            "message": f"Todo '{title}' created with reminder at {parsed_when.split('@')[1] if '@' in parsed_when else 'unknown time'}",
+                            "reminder_time": parsed_when.split('@')[1] if '@' in parsed_when else None,
+                            "method": "url_scheme",
+                            "todo_id": "created_via_url_scheme",  # URL scheme limitation
+                            "url_used": url_result.get('url'),  # For debugging
+                            "created_tags": created_tags,
+                            "existing_tags": existing_tags,
+                            "filtered_tags": filtered_tags,
+                            "tag_warnings": tag_warnings
+                        }
+                    else:
+                        logger.warning(f"URL scheme reminder creation failed: {url_result.get('error')}, falling back to AppleScript")
+                        # Fall through to AppleScript creation (without time component)
+                        when = self._parse_date_only_input(when.split('@')[0])
+                        
+                except Exception as e:
+                    logger.warning(f"URL scheme reminder creation failed: {e}, falling back to AppleScript")
+                    # Fall through to AppleScript creation (without time component)  
+                    when = self._parse_date_only_input(when.split('@')[0]) if when and '@' in when else when
+
+            # Prepare properties for the new todo (AppleScript fallback path)
             escaped_title = self._escape_applescript_string(title)
             escaped_notes = self._escape_applescript_string(notes or "")
             
@@ -2733,7 +2837,11 @@ class ThingsTools:
                     "area": record.get("area"),
                     "project": record.get("project"),
                     "due_date": record.get("due_date"),
-                    "start_date": record.get("start_date")
+                    "start_date": record.get("start_date"),
+                    # New reminder fields from Phase 1 implementation
+                    "activation_date": record.get("activation_date"),
+                    "has_reminder": record.get("has_reminder", False),
+                    "reminder_time": record.get("reminder_time")
                 }
                 todos.append(todo)
                 
@@ -2834,3 +2942,191 @@ class ThingsTools:
         except (ValueError, IndexError):
             logger.warning(f"Could not parse period: {period}, defaulting to 7 days")
             return 7
+    
+    def _validate_time_format(self, time_str: str) -> bool:
+        """Validate time format for reminder support.
+        
+        Validates time strings in HH:MM or H:MM format for use in reminder creation.
+        Supports both 24-hour format with hours 0-23 and minutes 0-59.
+        
+        Args:
+            time_str: Time string to validate. Accepted formats:
+                - "14:30" (2-digit hour, 2-digit minute)  
+                - "9:15" (1-digit hour, 2-digit minute)
+                - "00:00" (midnight)
+                - "23:59" (end of day)
+                - None or empty string (returns False)
+                
+        Returns:
+            True if valid time format, False otherwise
+            
+        Examples:
+            >>> validator._validate_time_format("14:30")  # True
+            >>> validator._validate_time_format("9:15")   # True  
+            >>> validator._validate_time_format("25:00")  # False (invalid hour)
+            >>> validator._validate_time_format("12:60")  # False (invalid minute)
+            >>> validator._validate_time_format("14")     # False (missing minute)
+        """
+        if not time_str:
+            return False
+            
+        try:
+            # Expected format: HH:MM or H:MM
+            if ':' not in time_str:
+                return False
+            
+            parts = time_str.split(':')
+            if len(parts) != 2:
+                return False
+                
+            hour, minute = parts
+            hour_int = int(hour)
+            minute_int = int(minute)
+            
+            # Validate ranges
+            if not (0 <= hour_int <= 23):
+                return False
+            if not (0 <= minute_int <= 59):
+                return False
+                
+            return True
+            
+        except (ValueError, TypeError):
+            return False
+    
+    def _has_datetime_reminder(self, when_value: str) -> bool:
+        """Check if a when value contains datetime reminder format.
+        
+        Args:
+            when_value: The when parameter value
+            
+        Returns:
+            True if contains @HH:MM time component, False otherwise
+        """
+        return '@' in when_value if when_value else False
+    
+    def _convert_to_things_datetime_format(self, when_datetime: str) -> str:
+        """Convert datetime to Things-preferred format.
+        
+        Converts 24-hour time format to 12-hour AM/PM format for Things URL scheme compatibility.
+        Things prefers formats like "today@6pm" rather than "today@18:00" for better parsing.
+        Handles edge cases like midnight (00:00 -> 12am) and noon (12:00 -> 12pm).
+        
+        Args:
+            when_datetime: Datetime string in format "date@HH:MM"
+                Examples: "today@18:00", "2024-12-25@14:30", "tomorrow@09:15"
+            
+        Returns:
+            Datetime string in Things-preferred format "date@Hpm/Ham"
+            Returns original string if format is invalid or doesn't contain @ symbol
+            
+        Examples:
+            >>> converter._convert_to_things_datetime_format("today@18:00")      # "today@6pm"
+            >>> converter._convert_to_things_datetime_format("today@14:30")     # "today@2:30pm"  
+            >>> converter._convert_to_things_datetime_format("today@00:00")     # "today@12am" (midnight)
+            >>> converter._convert_to_things_datetime_format("today@12:00")     # "today@12pm" (noon)
+            >>> converter._convert_to_things_datetime_format("today@09:15")     # "today@9:15am"
+            >>> converter._convert_to_things_datetime_format("no_at_symbol")    # "no_at_symbol" (unchanged)
+        """
+        if '@' not in when_datetime:
+            return when_datetime
+            
+        try:
+            date_part, time_part = when_datetime.split('@', 1)
+            
+            # Parse the time part
+            if ':' in time_part:
+                hour_str, minute_str = time_part.split(':', 1)
+                hour = int(hour_str)
+                minute = int(minute_str)
+            else:
+                hour = int(time_part)
+                minute = 0
+            
+            # Convert to 12-hour format with proper handling of edge cases
+            if hour == 0:
+                hour_12 = 12        # Midnight: 00:00 -> 12am
+                period = 'am'
+            elif hour < 12:
+                hour_12 = hour      # Morning: 1-11 stays the same in AM
+                period = 'am'
+            elif hour == 12:
+                hour_12 = 12        # Noon: 12:00 -> 12pm (not 0pm)
+                period = 'pm'
+            else:
+                hour_12 = hour - 12 # Afternoon/Evening: 13-23 becomes 1-11 PM
+                period = 'pm'
+            
+            # Format the time part - use simple format like "6pm" for on-the-hour times
+            if minute == 0:
+                time_formatted = f"{hour_12}{period}"
+            else:
+                time_formatted = f"{hour_12}:{minute:02d}{period}"
+            
+            result = f"{date_part}@{time_formatted}"
+            logger.debug(f"Converted datetime '{when_datetime}' to Things format '{result}'")
+            return result
+            
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Could not convert datetime format '{when_datetime}': {e}")
+            return when_datetime  # Return original if conversion fails
+    
+    def _build_url_scheme_with_reminder(self, title: str, when_datetime: str, notes: Optional[str] = None, 
+                                       tags: Optional[List[str]] = None) -> str:
+        """Build Things URL scheme for creating todo with reminder.
+        
+        Constructs a Things URL scheme string that creates a todo with a specific reminder time.
+        The URL will automatically open Things and create the todo when executed. Handles
+        URL encoding of special characters and converts time format for Things compatibility.
+        
+        Args:
+            title: Todo title (will be URL-encoded for safety)
+            when_datetime: Datetime string in format "YYYY-MM-DD@HH:MM" or "today@HH:MM"
+                Will be converted to Things-preferred 12-hour format internally
+            notes: Optional notes content (will be URL-encoded if provided)
+            tags: Optional list of tags to apply (will be comma-separated and URL-encoded)
+            
+        Returns:
+            Complete Things URL scheme string for reminder creation
+            Format: "things:///add?title=...&when=...&notes=...&tags=..."
+            
+        Examples:
+            >>> builder._build_url_scheme_with_reminder("Meeting", "today@14:30")
+            # "things:///add?title=Meeting&when=today%402%3A30pm"
+            
+            >>> builder._build_url_scheme_with_reminder("Review & Approve", "2024-12-25@09:00", 
+            ...                                        notes="Important deadline", tags=["work", "urgent"])
+            # "things:///add?title=Review%20%26%20Approve&when=2024-12-25%409am&notes=Important%20deadline&tags=work%2Curgent"
+        """
+        try:
+            # URL encode components for safety - Things is strict about special characters
+            from urllib.parse import quote
+            
+            # Build parameter list starting with required title
+            params = [f"title={quote(title)}"]
+            
+            # Convert 24-hour time format to 12-hour format for Things URL scheme
+            # Things prefers formats like "today@6pm" rather than "today@18:00"
+            converted_datetime = self._convert_to_things_datetime_format(when_datetime)
+            
+            # Add when parameter with converted datetime - this is the key for reminder creation
+            params.append(f"when={quote(converted_datetime)}")
+            
+            # Add optional parameters if provided
+            if notes:
+                params.append(f"notes={quote(notes)}")
+                
+            if tags:
+                # Convert tag list to comma-separated string and encode
+                tags_str = ",".join(tags)
+                params.append(f"tags={quote(tags_str)}")
+            
+            # Construct the final Things URL scheme 
+            url_scheme = "things:///add?" + "&".join(params)
+            logger.debug(f"Built URL scheme for reminder: {url_scheme}")
+            
+            return url_scheme
+            
+        except Exception as e:
+            logger.error(f"Error building URL scheme for reminder: {e}")
+            raise

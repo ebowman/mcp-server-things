@@ -158,14 +158,20 @@ class ThingsMCPServer:
             title: str = Field(..., description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
             tags: Optional[str] = Field(None, description="Comma-separated tags. NOTE: Only existing tags will be applied. New tags must be created separately by the user."),
-            when: Optional[str] = Field(None, description="When to schedule the todo (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD)"),
+            when: Optional[str] = Field(None, description="When to schedule the todo. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
             checklist_items: Optional[str] = Field(None, description="Newline-separated checklist items to add")
         ) -> Dict[str, Any]:
-            """Create a new todo in Things."""
+            """Create a new todo in Things. 
+            
+            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
+            - 'today@18:00' creates a reminder today at 6 PM
+            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
+            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -205,7 +211,7 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title"),
             notes: Optional[str] = Field(None, description="New notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="New schedule"),
+            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="New deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
@@ -336,13 +342,19 @@ class ThingsMCPServer:
             title: str = Field(..., description="Title of the project"),
             notes: Optional[str] = Field(None, description="Notes for the project"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
-            when: Optional[str] = Field(None, description="When to schedule the project"),
+            when: Optional[str] = Field(None, description="When to schedule the project. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="Deadline for the project"),
             area_id: Optional[str] = Field(None, description="ID of area to add to"),
             area_title: Optional[str] = Field(None, description="Title of area to add to"),
             todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
         ) -> Dict[str, Any]:
-            """Create a new project in Things."""
+            """Create a new project in Things.
+            
+            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
+            - 'today@18:00' creates a reminder today at 6 PM
+            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
+            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -366,7 +378,7 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title"),
             notes: Optional[str] = Field(None, description="New notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="New schedule"),
+            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="New deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
