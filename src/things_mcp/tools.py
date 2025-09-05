@@ -2778,6 +2778,8 @@ class ThingsTools:
                             set todoRecord to todoRecord & {{tag_names:tag names of theTodo}}
                             set todoRecord to todoRecord & {{creation_date:creation date of theTodo}}
                             set todoRecord to todoRecord & {{modification_date:modification date of theTodo}}
+                            set todoRecord to todoRecord & {{due_date:due date of theTodo}}
+                            set todoRecord to todoRecord & {{activation_date:activation date of theTodo}}
                             set todoList to todoList & {{todoRecord}}
                         end try
                     end repeat

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 import re
+import dateparser
 
 from ..shared_cache import get_shared_cache
 from ..locale_aware_dates import locale_handler
@@ -742,7 +743,7 @@ class AppleScriptManager:
                         
                         # Extract the date value and protect its commas
                         date_value = temp_output[start_idx:end_idx].strip()
-                        if date_value and 'date' in date_value.lower():
+                        if date_value and date_value != 'missing value':
                             protected_value = date_value.replace(',', '§COMMA§')
                             temp_output = temp_output[:start_idx] + protected_value + temp_output[end_idx:]
                             # Adjust field_start to continue searching after the replaced text
@@ -774,7 +775,9 @@ class AppleScriptManager:
                     
                     # Parse different value types
                     if key in ['creation_date', 'modification_date', 'due_date', 'start_date', 'activation_date']:
-                        # Restore colons that were escaped
+                        # Restore both commas and colons that were escaped
+                        if '§COMMA§' in value:
+                            value = value.replace('§COMMA§', ',')
                         if '§COLON§' in value:
                             value = value.replace('§COLON§', ':')
                         # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
@@ -1374,9 +1377,9 @@ class AppleScriptManager:
                     f"has_reminder={record['has_reminder']}, reminder_time={record['reminder_time']}")
     
     async def get_todos_due_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Get todos due within specified number of days using structured date comparison.
+        """Get todos due within specified number of days using efficient 'whose' clause.
         
-        Uses AppleScript's native date objects for reliable comparison.
+        Uses AppleScript's native 'whose' clause for efficient filtering at the database level.
         
         Args:
             days: Number of days ahead to check for due todos (default: 30)
@@ -1385,107 +1388,114 @@ class AppleScriptManager:
             List of todo dictionaries with due dates within the specified range
         """
         try:
-            # Build AppleScript that uses proper date objects
+            # Build AppleScript that uses 'whose' clause for efficient filtering
             script = f'''
             tell application "Things3"
                 set nowDate to (current date)
                 set cutoffDate to nowDate + ({days} * days)
                 
-                set matchingTodos to {{}}
+                -- Use 'whose' clause for efficient filtering at the database level
+                -- This is MUCH faster than iterating through all todos
+                -- Note: We can't use "is not missing value" in a whose clause, so we just check the date range
+                -- AppleScript will automatically skip todos without due dates
+                try
+                    set matchingTodos to (to dos whose status is open and due date ≥ nowDate and due date ≤ cutoffDate)
+                on error
+                    set matchingTodos to {{}}
+                end try
                 
-                -- Get all open todos
-                set allTodos to to dos whose status is open
+                set todoRecords to {{}}
                 
-                repeat with t in allTodos
+                repeat with t in matchingTodos
                     try
+                        set todoRecord to {{}}
+                        set todoRecord to todoRecord & {{id:(id of t)}}
+                        set todoRecord to todoRecord & {{name:(name of t)}}
+                        
+                        -- Get due date
                         set d to due date of t
                         if d is not missing value then
-                            -- Compare using date objects directly
-                            if d ≥ nowDate and d ≤ cutoffDate then
-                                -- Build a record for this todo
-                                set todoInfo to "{{" & ¬
-                                    "\\"id\\": \\"" & (id of t) & "\\"," & ¬
-                                    "\\"name\\": \\"" & my escapeString(name of t as string) & "\\"," & ¬
-                                    "\\"status\\": \\"" & (status of t as string) & "\\","
-                                
-                                -- Add due date with structured format
-                                set y to year of d
-                                set m to month of d as string
-                                set dy to day of d
-                                set todoInfo to todoInfo & "\\"due_date\\": \\"" & dy & " " & m & " " & y & "\\","
-                                
-                                -- Add notes if present
-                                try
-                                    set n to notes of t
-                                    if n is not missing value then
-                                        set todoInfo to todoInfo & "\\"notes\\": \\"" & my escapeString(n as string) & "\\","
-                                    end if
-                                end try
-                                
-                                -- Add tags if present
-                                try
-                                    set tgs to tag names of t
-                                    if tgs is not missing value and (count of tgs) > 0 then
-                                        set tagList to ""
-                                        repeat with tg in tgs
-                                            set tagList to tagList & "\\"" & my escapeString(tg as string) & "\\","
-                                        end repeat
-                                        if tagList ends with "," then
-                                            set tagList to text 1 thru -2 of tagList
-                                        end if
-                                        set todoInfo to todoInfo & "\\"tag_names\\": [" & tagList & "],"
-                                    end if
-                                end try
-                                
-                                -- Close the record
-                                if todoInfo ends with "," then
-                                    set todoInfo to text 1 thru -2 of todoInfo
-                                end if
-                                set todoInfo to todoInfo & "}}"
-                                
-                                set end of matchingTodos to todoInfo
-                            end if
+                            set todoRecord to todoRecord & {{due_date:(d as string)}}
                         end if
+                        
+                        -- Get status
+                        set todoRecord to todoRecord & {{status:(status of t as string)}}
+                        
+                        -- Get notes if present
+                        try
+                            set n to notes of t
+                            if n is not missing value then
+                                set todoRecord to todoRecord & {{notes:n}}
+                            end if
+                        end try
+                        
+                        -- Get tags
+                        try
+                            set todoRecord to todoRecord & {{tag_names:(tag names of t)}}
+                        end try
+                        
+                        -- Get creation and modification dates
+                        try
+                            set todoRecord to todoRecord & {{creation_date:(creation date of t as string)}}
+                            set todoRecord to todoRecord & {{modification_date:(modification date of t as string)}}
+                        end try
+                        
+                        -- Get activation date if present
+                        try
+                            set a to activation date of t
+                            if a is not missing value then
+                                set todoRecord to todoRecord & {{activation_date:(a as string)}}
+                                -- Check for reminder time
+                                set h to hours of a
+                                set m to minutes of a
+                                if h > 0 or m > 0 then
+                                    set todoRecord to todoRecord & {{has_reminder:true}}
+                                    set reminderTime to ""
+                                    if h < 10 then set reminderTime to "0"
+                                    set reminderTime to reminderTime & h & ":"
+                                    if m < 10 then set reminderTime to reminderTime & "0"
+                                    set reminderTime to reminderTime & m
+                                    set todoRecord to todoRecord & {{reminder_time:reminderTime}}
+                                else
+                                    set todoRecord to todoRecord & {{has_reminder:false}}
+                                end if
+                            end if
+                        end try
+                        
+                        -- Get project info if available
+                        try
+                            set p to project of t
+                            if p is not missing value then
+                                set todoRecord to todoRecord & {{project_id:(id of p)}}
+                                set todoRecord to todoRecord & {{project_name:(name of p)}}
+                            end if
+                        end try
+                        
+                        -- Get area info if available
+                        try
+                            set ar to area of t
+                            if ar is not missing value then
+                                set todoRecord to todoRecord & {{area_id:(id of ar)}}
+                                set todoRecord to todoRecord & {{area_name:(name of ar)}}
+                            end if
+                        end try
+                        
+                        set end of todoRecords to todoRecord
+                    on error errMsg
+                        -- Skip problematic todos
                     end try
                 end repeat
                 
-                -- Convert to JSON array
-                set AppleScript's text item delimiters to ","
-                set jsonResult to "[" & (matchingTodos as text) & "]"
-                return jsonResult
+                return todoRecords
             end tell
-            
-            on escapeString(str)
-                set str to my replaceText(str, "\\\\", "\\\\\\\\")
-                set str to my replaceText(str, "\\"", "\\\\\\"")
-                set str to my replaceText(str, return, "\\\\n")
-                set str to my replaceText(str, linefeed, "\\\\n")
-                return str
-            end escapeString
-            
-            on replaceText(str, findStr, replaceStr)
-                set AppleScript's text item delimiters to findStr
-                set textItems to text items of str
-                set AppleScript's text item delimiters to replaceStr
-                set str to textItems as text
-                set AppleScript's text item delimiters to ""
-                return str
-            end replaceText
             '''
             
             result = await self._execute_script(script)
             
             if result.get("success"):
-                output = result.get("output", "[]").strip()
-                try:
-                    todos = json.loads(output) if output != "[]" else []
-                    # Enhance each todo with reminder info
-                    for todo in todos:
-                        self._enhance_record_with_reminder_info(todo)
-                    return todos
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse todos JSON: {output[:200]}")
-                    return []
+                todos = self._parse_applescript_list(result.get("output", ""))
+                logger.info(f"Found {len(todos)} todos due within {days} days")
+                return todos
             else:
                 logger.error(f"AppleScript error getting todos due in {days} days: {result.get('error')}")
                 return []
@@ -1495,9 +1505,9 @@ class AppleScriptManager:
             return []
     
     async def get_todos_activating_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Get todos with activation dates within specified number of days using structured date comparison.
+        """Get todos with activation dates within specified number of days using efficient 'whose' clause.
         
-        Uses AppleScript's native date objects for reliable comparison.
+        Uses AppleScript's native 'whose' clause for efficient filtering at the database level.
         
         Args:
             days: Number of days ahead to check for activating todos (default: 30)
@@ -1506,114 +1516,114 @@ class AppleScriptManager:
             List of todo dictionaries with activation dates within the specified range
         """
         try:
-            # Build AppleScript that uses proper date objects
+            # Build AppleScript that uses 'whose' clause for efficient filtering
             script = f'''
             tell application "Things3"
                 set nowDate to (current date)
                 set cutoffDate to nowDate + ({days} * days)
                 
-                set matchingTodos to {{}}
+                -- Use 'whose' clause for efficient filtering at the database level
+                -- This is MUCH faster than iterating through all todos
+                -- Note: We can't use "is not missing value" in a whose clause, so we just check the date range
+                -- AppleScript will automatically skip todos without activation dates
+                try
+                    set matchingTodos to (to dos whose status is open and activation date ≥ nowDate and activation date ≤ cutoffDate)
+                on error
+                    set matchingTodos to {{}}
+                end try
                 
-                -- Get all open todos
-                set allTodos to to dos whose status is open
+                set todoRecords to {{}}
                 
-                repeat with t in allTodos
+                repeat with t in matchingTodos
                     try
+                        set todoRecord to {{}}
+                        set todoRecord to todoRecord & {{id:(id of t)}}
+                        set todoRecord to todoRecord & {{name:(name of t)}}
+                        
+                        -- Get activation date with time info for reminders
                         set a to activation date of t
                         if a is not missing value then
-                            -- Compare using date objects directly
-                            if a ≥ nowDate and a ≤ cutoffDate then
-                                -- Build a record for this todo
-                                set todoInfo to "{{" & ¬
-                                    "\\"id\\": \\"" & (id of t) & "\\"," & ¬
-                                    "\\"name\\": \\"" & my escapeString(name of t as string) & "\\"," & ¬
-                                    "\\"status\\": \\"" & (status of t as string) & "\\","
-                                
-                                -- Add activation date with structured format including time for reminders
-                                set y to year of a
-                                set m to month of a as string
-                                set dy to day of a
-                                set h to hours of a
-                                set min to minutes of a
-                                set todoInfo to todoInfo & "\\"activation_date\\": \\"" & dy & " " & m & " " & y & " at " & h & ":" & min & "\\","
-                                
-                                -- Check if this is a reminder (has non-zero time)
-                                if h > 0 or min > 0 then
-                                    set todoInfo to todoInfo & "\\"has_reminder\\": true,"
-                                    set todoInfo to todoInfo & "\\"reminder_time\\": \\"" & h & ":" & min & "\\","
-                                else
-                                    set todoInfo to todoInfo & "\\"has_reminder\\": false,"
-                                end if
-                                
-                                -- Add notes if present
-                                try
-                                    set n to notes of t
-                                    if n is not missing value then
-                                        set todoInfo to todoInfo & "\\"notes\\": \\"" & my escapeString(n as string) & "\\","
-                                    end if
-                                end try
-                                
-                                -- Add tags if present
-                                try
-                                    set tgs to tag names of t
-                                    if tgs is not missing value and (count of tgs) > 0 then
-                                        set tagList to ""
-                                        repeat with tg in tgs
-                                            set tagList to tagList & "\\"" & my escapeString(tg as string) & "\\","
-                                        end repeat
-                                        if tagList ends with "," then
-                                            set tagList to text 1 thru -2 of tagList
-                                        end if
-                                        set todoInfo to todoInfo & "\\"tag_names\\": [" & tagList & "],"
-                                    end if
-                                end try
-                                
-                                -- Close the record
-                                if todoInfo ends with "," then
-                                    set todoInfo to text 1 thru -2 of todoInfo
-                                end if
-                                set todoInfo to todoInfo & "}}"
-                                
-                                set end of matchingTodos to todoInfo
+                            set todoRecord to todoRecord & {{activation_date:(a as string)}}
+                            -- Check for reminder time
+                            set h to hours of a
+                            set m to minutes of a
+                            if h > 0 or m > 0 then
+                                set todoRecord to todoRecord & {{has_reminder:true}}
+                                set reminderTime to ""
+                                if h < 10 then set reminderTime to "0"
+                                set reminderTime to reminderTime & h & ":"
+                                if m < 10 then set reminderTime to reminderTime & "0"
+                                set reminderTime to reminderTime & m
+                                set todoRecord to todoRecord & {{reminder_time:reminderTime}}
+                            else
+                                set todoRecord to todoRecord & {{has_reminder:false}}
                             end if
                         end if
+                        
+                        -- Get status
+                        set todoRecord to todoRecord & {{status:(status of t as string)}}
+                        
+                        -- Get due date if present
+                        try
+                            set d to due date of t
+                            if d is not missing value then
+                                set todoRecord to todoRecord & {{due_date:(d as string)}}
+                            end if
+                        end try
+                        
+                        -- Get notes if present
+                        try
+                            set n to notes of t
+                            if n is not missing value then
+                                set todoRecord to todoRecord & {{notes:n}}
+                            end if
+                        end try
+                        
+                        -- Get tags
+                        try
+                            set todoRecord to todoRecord & {{tag_names:(tag names of t)}}
+                        end try
+                        
+                        -- Get creation and modification dates
+                        try
+                            set todoRecord to todoRecord & {{creation_date:(creation date of t as string)}}
+                            set todoRecord to todoRecord & {{modification_date:(modification date of t as string)}}
+                        end try
+                        
+                        -- Get project info if available
+                        try
+                            set p to project of t
+                            if p is not missing value then
+                                set todoRecord to todoRecord & {{project_id:(id of p)}}
+                                set todoRecord to todoRecord & {{project_name:(name of p)}}
+                            end if
+                        end try
+                        
+                        -- Get area info if available
+                        try
+                            set ar to area of t
+                            if ar is not missing value then
+                                set todoRecord to todoRecord & {{area_id:(id of ar)}}
+                                set todoRecord to todoRecord & {{area_name:(name of ar)}}
+                            end if
+                        end try
+                        
+                        set end of todoRecords to todoRecord
+                    on error errMsg
+                        -- Skip problematic todos
                     end try
                 end repeat
                 
-                -- Convert to JSON array
-                set AppleScript's text item delimiters to ","
-                set jsonResult to "[" & (matchingTodos as text) & "]"
-                return jsonResult
+                return todoRecords
             end tell
-            
-            on escapeString(str)
-                set str to my replaceText(str, "\\\\", "\\\\\\\\")
-                set str to my replaceText(str, "\\"", "\\\\\\"")
-                set str to my replaceText(str, return, "\\\\n")
-                set str to my replaceText(str, linefeed, "\\\\n")
-                return str
-            end escapeString
-            
-            on replaceText(str, findStr, replaceStr)
-                set AppleScript's text item delimiters to findStr
-                set textItems to text items of str
-                set AppleScript's text item delimiters to replaceStr
-                set str to textItems as text
-                set AppleScript's text item delimiters to ""
-                return str
-            end replaceText
             '''
             
             result = await self._execute_script(script)
             
             if result.get("success"):
-                output = result.get("output", "[]").strip()
-                try:
-                    todos = json.loads(output) if output != "[]" else []
-                    return todos
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse todos JSON: {output[:200]}")
-                    return []
+                todos = self._parse_applescript_list(result.get("output", ""))
+                logger.info(f"Found {len(todos)} todos activating within {days} days")
+                return todos
             else:
                 logger.error(f"AppleScript error getting todos activating in {days} days: {result.get('error')}")
                 return []
