@@ -29,7 +29,12 @@ python3 -m venv venv
 source venv/bin/activate  # On macOS/Linux
 ```
 
-3. Install in development mode:
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Install in development mode:
 ```bash
 pip install -e .
 ```
@@ -44,7 +49,9 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
     "things": {
       "command": "/path/to/things-applescript-mcp/venv/bin/python",
       "args": ["-m", "things_mcp"],
-      "env": {}
+      "env": {
+        "PYTHONPATH": "/path/to/things-applescript-mcp/src"
+      }
     }
   }
 }
