@@ -190,6 +190,8 @@ class AppleScriptManager:
                         set creationDateStr to ""
                         try
                             set creationDateStr to ((creation date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set creationDateStr to my replaceText(creationDateStr, ":", "§COLON§")
                         on error
                             set creationDateStr to "missing value"
                         end try
@@ -197,6 +199,8 @@ class AppleScriptManager:
                         set modificationDateStr to ""
                         try
                             set modificationDateStr to ((modification date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set modificationDateStr to my replaceText(modificationDateStr, ":", "§COLON§")
                         on error
                             set modificationDateStr to "missing value"
                         end try
@@ -215,11 +219,23 @@ class AppleScriptManager:
                         set activationDateStr to ""
                         try
                             set activationDateStr to ((activation date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set activationDateStr to my replaceText(activationDateStr, ":", "§COLON§")
                         on error
                             set activationDateStr to "missing value"
                         end try
                         
-                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr
+                        -- Handle due date
+                        set dueDateStr to ""
+                        try
+                            set dueDateStr to ((due date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set dueDateStr to my replaceText(dueDateStr, ":", "§COLON§")
+                        on error
+                            set dueDateStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
                     end repeat
                     
                     return outputText
@@ -255,6 +271,8 @@ class AppleScriptManager:
                         set creationDateStr to ""
                         try
                             set creationDateStr to ((creation date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set creationDateStr to my replaceText(creationDateStr, ":", "§COLON§")
                         on error
                             set creationDateStr to "missing value"
                         end try
@@ -262,6 +280,8 @@ class AppleScriptManager:
                         set modificationDateStr to ""
                         try
                             set modificationDateStr to ((modification date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set modificationDateStr to my replaceText(modificationDateStr, ":", "§COLON§")
                         on error
                             set modificationDateStr to "missing value"
                         end try
@@ -280,11 +300,23 @@ class AppleScriptManager:
                         set activationDateStr to ""
                         try
                             set activationDateStr to ((activation date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set activationDateStr to my replaceText(activationDateStr, ":", "§COLON§")
                         on error
                             set activationDateStr to "missing value"
                         end try
                         
-                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr
+                        -- Handle due date
+                        set dueDateStr to ""
+                        try
+                            set dueDateStr to ((due date of theTodo) as string)
+                            -- Escape colons in dates to avoid parsing issues
+                            set dueDateStr to my replaceText(dueDateStr, ":", "§COLON§")
+                        on error
+                            set dueDateStr to "missing value"
+                        end try
+                        
+                        set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
                     end repeat
                     
                     return outputText
@@ -742,13 +774,15 @@ class AppleScriptManager:
                     
                     # Parse different value types
                     if key in ['creation_date', 'modification_date', 'due_date', 'start_date', 'activation_date']:
+                        # Restore colons that were escaped
+                        if '§COLON§' in value:
+                            value = value.replace('§COLON§', ':')
                         # Handle date parsing - AppleScript dates come as "date Monday, January 1, 2024..."
                         # The value might be incomplete due to comma splitting, so skip if it looks incomplete
-                        if 'date' in value.lower() or 'day' in value.lower():
+                        if value and value != 'missing value':
                             current_record[key] = self._parse_applescript_date(value)
                         else:
-                            # This is probably a partial date due to splitting, skip it
-                            continue
+                            current_record[key] = None
                     elif key == 'tag_names':
                         # Restore commas in tag names and parse
                         value = value.replace('§COMMA§', ',')
@@ -1340,10 +1374,9 @@ class AppleScriptManager:
                     f"has_reminder={record['has_reminder']}, reminder_time={record['reminder_time']}")
     
     async def get_todos_due_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Get todos due within specified number of days using efficient AppleScript filtering.
+        """Get todos due within specified number of days using structured date comparison.
         
-        Uses AppleScript's 'whose' clause for fast filtering directly in Things 3,
-        avoiding expensive O(n) loops in Python.
+        Uses AppleScript's native date objects for reliable comparison.
         
         Args:
             days: Number of days ahead to check for due todos (default: 30)
@@ -1352,53 +1385,75 @@ class AppleScriptManager:
             List of todo dictionaries with due dates within the specified range
         """
         try:
+            # Build AppleScript that uses proper date objects
             script = f'''
-            set nowDate to (current date)
-            set cutoffDate to nowDate + ({days} * days)
-            set todoData to {{}}
-            
             tell application "Things3"
-                -- Filter inside Things using 'whose' clause (fast)
-                -- Note: We must check for missing value separately from date comparisons
-                set matchingTodos to to dos ¬
-                    whose status is open ¬
-                    and due date is not missing value
+                set nowDate to (current date)
+                set cutoffDate to nowDate + ({days} * days)
                 
-                repeat with t in matchingTodos
-                    -- Check date range inside the loop for safety
-                    set d to due date of t
-                    if d ≥ nowDate and d ≤ cutoffDate then
-                        set todoRecord to "{{" & ¬
-                            "\\"id\\": \\"" & (id of t) & "\\"," & ¬
-                            "\\"name\\": \\"" & my escapeString(name of t) & "\\"," & ¬
-                            "\\"status\\": \\"" & (status of t as string) & "\\","
-                        
-                        -- Add due date
-                        set todoRecord to todoRecord & "\\"due_date\\": \\"" & (d as string) & "\\","
-                        
-                        -- Add other fields as needed
-                        try
-                            set n to notes of t
-                            if n is not missing value then
-                                set todoRecord to todoRecord & "\\"notes\\": \\"" & my escapeString(n) & "\\","
+                set matchingTodos to {{}}
+                
+                -- Get all open todos
+                set allTodos to to dos whose status is open
+                
+                repeat with t in allTodos
+                    try
+                        set d to due date of t
+                        if d is not missing value then
+                            -- Compare using date objects directly
+                            if d ≥ nowDate and d ≤ cutoffDate then
+                                -- Build a record for this todo
+                                set todoInfo to "{{" & ¬
+                                    "\\"id\\": \\"" & (id of t) & "\\"," & ¬
+                                    "\\"name\\": \\"" & my escapeString(name of t as string) & "\\"," & ¬
+                                    "\\"status\\": \\"" & (status of t as string) & "\\","
+                                
+                                -- Add due date with structured format
+                                set y to year of d
+                                set m to month of d as string
+                                set dy to day of d
+                                set todoInfo to todoInfo & "\\"due_date\\": \\"" & dy & " " & m & " " & y & "\\","
+                                
+                                -- Add notes if present
+                                try
+                                    set n to notes of t
+                                    if n is not missing value then
+                                        set todoInfo to todoInfo & "\\"notes\\": \\"" & my escapeString(n as string) & "\\","
+                                    end if
+                                end try
+                                
+                                -- Add tags if present
+                                try
+                                    set tgs to tag names of t
+                                    if tgs is not missing value and (count of tgs) > 0 then
+                                        set tagList to ""
+                                        repeat with tg in tgs
+                                            set tagList to tagList & "\\"" & my escapeString(tg as string) & "\\","
+                                        end repeat
+                                        if tagList ends with "," then
+                                            set tagList to text 1 thru -2 of tagList
+                                        end if
+                                        set todoInfo to todoInfo & "\\"tag_names\\": [" & tagList & "],"
+                                    end if
+                                end try
+                                
+                                -- Close the record
+                                if todoInfo ends with "," then
+                                    set todoInfo to text 1 thru -2 of todoInfo
+                                end if
+                                set todoInfo to todoInfo & "}}"
+                                
+                                set end of matchingTodos to todoInfo
                             end if
-                        end try
-                        
-                        -- Close the record (remove trailing comma)
-                        if (todoRecord ends with ",") then
-                            set todoRecord to (text 1 thru -2 of todoRecord)
                         end if
-                        set todoRecord to todoRecord & "}}"
-                        
-                        set end of todoData to todoRecord
-                    end if
+                    end try
                 end repeat
+                
+                -- Convert to JSON array
+                set AppleScript's text item delimiters to ","
+                set jsonResult to "[" & (matchingTodos as text) & "]"
+                return jsonResult
             end tell
-            
-            -- Convert to JSON array
-            set AppleScript's text item delimiters to ","
-            set jsonArray to "[" & (todoData as text) & "]"
-            return jsonArray
             
             on escapeString(str)
                 set str to my replaceText(str, "\\\\", "\\\\\\\\")
@@ -1423,7 +1478,6 @@ class AppleScriptManager:
             if result.get("success"):
                 output = result.get("output", "[]").strip()
                 try:
-                    # Parse the JSON array
                     todos = json.loads(output) if output != "[]" else []
                     # Enhance each todo with reminder info
                     for todo in todos:
@@ -1441,9 +1495,9 @@ class AppleScriptManager:
             return []
     
     async def get_todos_activating_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Get todos with activation dates within specified number of days using efficient filtering.
+        """Get todos with activation dates within specified number of days using structured date comparison.
         
-        Uses AppleScript's 'whose' clause for fast filtering directly in Things 3.
+        Uses AppleScript's native date objects for reliable comparison.
         
         Args:
             days: Number of days ahead to check for activating todos (default: 30)
@@ -1452,53 +1506,85 @@ class AppleScriptManager:
             List of todo dictionaries with activation dates within the specified range
         """
         try:
+            # Build AppleScript that uses proper date objects
             script = f'''
-            set nowDate to (current date)
-            set cutoffDate to nowDate + ({days} * days)
-            set todoData to {{}}
-            
             tell application "Things3"
-                -- Filter inside Things using 'whose' clause (fast)
-                -- Note: We must check for missing value separately from date comparisons
-                set matchingTodos to to dos ¬
-                    whose status is open ¬
-                    and activation date is not missing value
+                set nowDate to (current date)
+                set cutoffDate to nowDate + ({days} * days)
                 
-                repeat with t in matchingTodos
-                    -- Check date range inside the loop for safety
-                    set a to activation date of t
-                    if a ≥ nowDate and a ≤ cutoffDate then
-                        set todoRecord to "{{" & ¬
-                            "\\"id\\": \\"" & (id of t) & "\\"," & ¬
-                            "\\"name\\": \\"" & my escapeString(name of t) & "\\"," & ¬
-                            "\\"status\\": \\"" & (status of t as string) & "\\","
-                        
-                        -- Add activation date
-                        set todoRecord to todoRecord & "\\"activation_date\\": \\"" & (a as string) & "\\","
-                        
-                        -- Add other fields as needed
-                        try
-                            set n to notes of t
-                            if n is not missing value then
-                                set todoRecord to todoRecord & "\\"notes\\": \\"" & my escapeString(n) & "\\","
+                set matchingTodos to {{}}
+                
+                -- Get all open todos
+                set allTodos to to dos whose status is open
+                
+                repeat with t in allTodos
+                    try
+                        set a to activation date of t
+                        if a is not missing value then
+                            -- Compare using date objects directly
+                            if a ≥ nowDate and a ≤ cutoffDate then
+                                -- Build a record for this todo
+                                set todoInfo to "{{" & ¬
+                                    "\\"id\\": \\"" & (id of t) & "\\"," & ¬
+                                    "\\"name\\": \\"" & my escapeString(name of t as string) & "\\"," & ¬
+                                    "\\"status\\": \\"" & (status of t as string) & "\\","
+                                
+                                -- Add activation date with structured format including time for reminders
+                                set y to year of a
+                                set m to month of a as string
+                                set dy to day of a
+                                set h to hours of a
+                                set min to minutes of a
+                                set todoInfo to todoInfo & "\\"activation_date\\": \\"" & dy & " " & m & " " & y & " at " & h & ":" & min & "\\","
+                                
+                                -- Check if this is a reminder (has non-zero time)
+                                if h > 0 or min > 0 then
+                                    set todoInfo to todoInfo & "\\"has_reminder\\": true,"
+                                    set todoInfo to todoInfo & "\\"reminder_time\\": \\"" & h & ":" & min & "\\","
+                                else
+                                    set todoInfo to todoInfo & "\\"has_reminder\\": false,"
+                                end if
+                                
+                                -- Add notes if present
+                                try
+                                    set n to notes of t
+                                    if n is not missing value then
+                                        set todoInfo to todoInfo & "\\"notes\\": \\"" & my escapeString(n as string) & "\\","
+                                    end if
+                                end try
+                                
+                                -- Add tags if present
+                                try
+                                    set tgs to tag names of t
+                                    if tgs is not missing value and (count of tgs) > 0 then
+                                        set tagList to ""
+                                        repeat with tg in tgs
+                                            set tagList to tagList & "\\"" & my escapeString(tg as string) & "\\","
+                                        end repeat
+                                        if tagList ends with "," then
+                                            set tagList to text 1 thru -2 of tagList
+                                        end if
+                                        set todoInfo to todoInfo & "\\"tag_names\\": [" & tagList & "],"
+                                    end if
+                                end try
+                                
+                                -- Close the record
+                                if todoInfo ends with "," then
+                                    set todoInfo to text 1 thru -2 of todoInfo
+                                end if
+                                set todoInfo to todoInfo & "}}"
+                                
+                                set end of matchingTodos to todoInfo
                             end if
-                        end try
-                        
-                        -- Close the record (remove trailing comma)
-                        if (todoRecord ends with ",") then
-                            set todoRecord to (text 1 thru -2 of todoRecord)
                         end if
-                        set todoRecord to todoRecord & "}}"
-                        
-                        set end of todoData to todoRecord
-                    end if
+                    end try
                 end repeat
+                
+                -- Convert to JSON array
+                set AppleScript's text item delimiters to ","
+                set jsonResult to "[" & (matchingTodos as text) & "]"
+                return jsonResult
             end tell
-            
-            -- Convert to JSON array
-            set AppleScript's text item delimiters to ","
-            set jsonArray to "[" & (todoData as text) & "]"
-            return jsonArray
             
             on escapeString(str)
                 set str to my replaceText(str, "\\\\", "\\\\\\\\")
@@ -1523,11 +1609,7 @@ class AppleScriptManager:
             if result.get("success"):
                 output = result.get("output", "[]").strip()
                 try:
-                    # Parse the JSON array
                     todos = json.loads(output) if output != "[]" else []
-                    # Enhance each todo with reminder info
-                    for todo in todos:
-                        self._enhance_record_with_reminder_info(todo)
                     return todos
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse todos JSON: {output[:200]}")
@@ -1544,7 +1626,6 @@ class AppleScriptManager:
         """Get todos due or activating within specified number of days (union).
         
         Combines results from due dates and activation dates, removing duplicates.
-        Uses efficient AppleScript filtering.
         
         Args:
             days: Number of days ahead to check (default: 30)
@@ -1553,157 +1634,30 @@ class AppleScriptManager:
             List of unique todo dictionaries due or activating within the range
         """
         try:
-            script = f'''
-            set nowDate to (current date)
-            set cutoffDate to nowDate + ({days} * days)
+            # Get todos with due dates
+            due_todos = await self.get_todos_due_in_days(days)
             
-            tell application "Things3"
-                -- Get todos with due dates (filter date range later for safety)
-                set dueHits to to dos ¬
-                    whose status is open ¬
-                    and due date is not missing value
-                
-                -- Get todos with activation dates (filter date range later for safety)
-                set whenHits to to dos ¬
-                    whose status is open ¬
-                    and activation date is not missing value
-                
-                -- Union and de-duplicate by id, filtering for date range
-                set seenIDs to {{}}
-                set matches to {{}}
-                repeat with t in (dueHits & whenHits)
-                    set tid to id of t
-                    if seenIDs does not contain tid then
-                        -- Check if this todo is actually in our date range
-                        set inRange to false
-                        
-                        -- Check due date
-                        try
-                            set d to due date of t
-                            if d is not missing value then
-                                if d ≥ nowDate and d ≤ cutoffDate then
-                                    set inRange to true
-                                end if
-                            end if
-                        end try
-                        
-                        -- Check activation date if not already in range
-                        if not inRange then
-                            try
-                                set a to activation date of t
-                                if a is not missing value then
-                                    if a ≥ nowDate and a ≤ cutoffDate then
-                                        set inRange to true
-                                    end if
-                                end if
-                            end try
-                        end if
-                        
-                        -- Only add if in date range
-                        if inRange then
-                            set end of seenIDs to tid
-                            set end of matches to t
-                        end if
-                    end if
-                end repeat
-                
-                -- Build JSON array
-                set todoData to {{}}
-                repeat with t in matches
-                    set todoRecord to "{{" & ¬
-                        "\\"id\\": \\"" & (id of t) & "\\"," & ¬
-                        "\\"name\\": \\"" & my escapeString(name of t) & "\\"," & ¬
-                        "\\"status\\": \\"" & (status of t as string) & "\\","
-                    
-                    -- Add due date if present
-                    try
-                        set d to due date of t
-                        if d is not missing value then
-                            set todoRecord to todoRecord & "\\"due_date\\": \\"" & (d as string) & "\\","
-                        end if
-                    end try
-                    
-                    -- Add activation date if present
-                    try
-                        set a to activation date of t
-                        if a is not missing value then
-                            set todoRecord to todoRecord & "\\"activation_date\\": \\"" & (a as string) & "\\","
-                        end if
-                    end try
-                    
-                    -- Add notes if present
-                    try
-                        set n to notes of t
-                        if n is not missing value then
-                            set todoRecord to todoRecord & "\\"notes\\": \\"" & my escapeString(n) & "\\","
-                        end if
-                    end try
-                    
-                    -- Add tags if present
-                    try
-                        set tagNames to tag names of t
-                        if tagNames is not missing value and (count of tagNames) > 0 then
-                            set tagList to ""
-                            repeat with tagName in tagNames
-                                set tagList to tagList & "\\"" & my escapeString(tagName as string) & "\\","
-                            end repeat
-                            if tagList ends with "," then
-                                set tagList to text 1 thru -2 of tagList
-                            end if
-                            set todoRecord to todoRecord & "\\"tag_names\\": [" & tagList & "],"
-                        end if
-                    end try
-                    
-                    -- Close the record (remove trailing comma)
-                    if (todoRecord ends with ",") then
-                        set todoRecord to (text 1 thru -2 of todoRecord)
-                    end if
-                    set todoRecord to todoRecord & "}}"
-                    
-                    set end of todoData to todoRecord
-                end repeat
-            end tell
+            # Get todos with activation dates
+            activating_todos = await self.get_todos_activating_in_days(days)
             
-            -- Convert to JSON array
-            set AppleScript's text item delimiters to ","
-            set jsonArray to "[" & (todoData as text) & "]"
-            return jsonArray
+            # Combine and de-duplicate by ID
+            seen_ids = set()
+            combined_todos = []
             
-            on escapeString(str)
-                set str to my replaceText(str, "\\\\", "\\\\\\\\")
-                set str to my replaceText(str, "\\"", "\\\\\\"")
-                set str to my replaceText(str, return, "\\\\n")
-                set str to my replaceText(str, linefeed, "\\\\n")
-                return str
-            end escapeString
+            # Add all due todos
+            for todo in due_todos:
+                todo_id = todo.get('id')
+                if todo_id:
+                    seen_ids.add(todo_id)
+                    combined_todos.append(todo)
             
-            on replaceText(str, findStr, replaceStr)
-                set AppleScript's text item delimiters to findStr
-                set textItems to text items of str
-                set AppleScript's text item delimiters to replaceStr
-                set str to textItems as text
-                set AppleScript's text item delimiters to ""
-                return str
-            end replaceText
-            '''
+            # Add activating todos that aren't already in the list
+            for todo in activating_todos:
+                todo_id = todo.get('id')
+                if todo_id and todo_id not in seen_ids:
+                    combined_todos.append(todo)
             
-            result = await self._execute_script(script)
-            
-            if result.get("success"):
-                output = result.get("output", "[]").strip()
-                try:
-                    # Parse the JSON array
-                    todos = json.loads(output) if output != "[]" else []
-                    # Enhance each todo with reminder info
-                    for todo in todos:
-                        self._enhance_record_with_reminder_info(todo)
-                    return todos
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse todos JSON: {output[:200]}")
-                    return []
-            else:
-                logger.error(f"AppleScript error getting upcoming todos in {days} days: {result.get('error')}")
-                return []
+            return combined_todos
                 
         except Exception as e:
             logger.error(f"Error getting upcoming todos in {days} days: {e}")
