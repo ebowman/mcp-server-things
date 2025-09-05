@@ -85,15 +85,15 @@ class NaturalLanguageQueryEngine:
                 "query": query
             }
         
-        # Get all todos with standard mode to get all fields
-        from .tools import ThingsTools
-        if isinstance(self.tools, ThingsTools):
-            todos_response = await self.tools.get_todos(mode='standard')
-            todos = todos_response.get('data', []) if isinstance(todos_response, dict) else todos_response
-        else:
-            todos = await self.tools.get_todos()
-            if isinstance(todos, dict) and 'data' in todos:
-                todos = todos['data']
+        # Get all todos - ThingsTools doesn't have mode parameter
+        todos = await self.tools.get_todos()
+        
+        # Handle both list and dict responses
+        if isinstance(todos, dict):
+            # If it's from the MCP layer with data structure
+            todos = todos.get('data', todos.get('todos', []))
+        elif not isinstance(todos, list):
+            todos = []
         
         # Filter by due date, deadline, or scheduled date
         due_todos = []
@@ -224,15 +224,15 @@ class NaturalLanguageQueryEngine:
         """Query overdue tasks."""
         today = datetime.now().replace(hour=0, minute=0, second=0)
         
-        # Get all todos with standard mode to get all fields
-        from .tools import ThingsTools
-        if isinstance(self.tools, ThingsTools):
-            todos_response = await self.tools.get_todos(mode='standard')
-            todos = todos_response.get('data', []) if isinstance(todos_response, dict) else todos_response
-        else:
-            todos = await self.tools.get_todos()
-            if isinstance(todos, dict) and 'data' in todos:
-                todos = todos['data']
+        # Get all todos - ThingsTools doesn't have mode parameter
+        todos = await self.tools.get_todos()
+        
+        # Handle both list and dict responses
+        if isinstance(todos, dict):
+            # If it's from the MCP layer with data structure
+            todos = todos.get('data', todos.get('todos', []))
+        elif not isinstance(todos, list):
+            todos = []
         
         # Filter overdue
         overdue_todos = []
