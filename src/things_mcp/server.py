@@ -24,7 +24,7 @@ from .tools import ThingsTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
-from .query_engine import NaturalLanguageQueryEngine
+# from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
 
 # Configure logging
 logging.basicConfig(
@@ -59,7 +59,7 @@ class ThingsMCPServer:
         self.applescript_manager = AppleScriptManager()
         self.tools = ThingsTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()
-        self.query_engine = NaturalLanguageQueryEngine(self.tools)
+        # self.query_engine = NaturalLanguageQueryEngine(self.tools)  # Removed - too complex
         self._register_tools()
         self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized with context-aware response management and tag validation support")
@@ -1110,140 +1110,10 @@ class ThingsMCPServer:
                     }
                 }
         
-        # Smart query tools for natural language queries
-        @self.mcp.tool()
-        async def smart_query(
-            query: str = Field(..., description="Natural language query like 'what's due next week' or 'what did I complete last month'")
-        ) -> Dict[str, Any]:
-            """🔮 Process natural language queries about your tasks.
-            
-            📅 TIME-BASED QUERIES:
-            - "What's due next week/month/3 days"
-            - "What did I complete last month/week/30 days"
-            - "Show me overdue tasks"
-            - "What's active this week"
-            
-            🎯 SUPPORTED TIME PHRASES:
-            - Relative: today, tomorrow, yesterday
-            - Periods: this week/month, last week/month, next week/month
-            - Specific: next 7 days, last 30 days
-            
-            📊 FEATURES:
-            - Automatic date range parsing
-            - Smart period detection
-            - Completion statistics
-            - Grouped summaries
-            
-            EXAMPLES:
-            - "what's due next week"
-            - "tasks completed last month"
-            - "show overdue items"
-            - "what's scheduled for tomorrow"
-            """
-            try:
-                result = await self.query_engine.query(query)
-                
-                # Apply context optimization if we have todos in the result
-                if result.get("success") and "todos" in result:
-                    # Use minimal mode for query results
-                    optimized_todos = self.context_manager.optimize_response(
-                        result["todos"], 
-                        "smart_query",
-                        ResponseMode.MINIMAL,
-                        {"limit": 50}  # Reasonable default for queries
-                    )
-                    
-                    # Update the result with optimized todos
-                    if isinstance(optimized_todos, dict) and "todos" in optimized_todos:
-                        result["todos"] = optimized_todos["todos"]
-                    
-                return result
-            except Exception as e:
-                logger.error(f"Error in smart query: {e}")
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "suggestion": "Try queries like: 'what's due next week', 'completed last month'"
-                }
-        
-        @self.mcp.tool()
-        async def query_due_soon(
-            days_ahead: int = Field(7, description="Number of days to look ahead (default: 7)")
-        ) -> Dict[str, Any]:
-            """📅 Get tasks due in the next N days.
-            
-            Quick access to upcoming deadlines with smart grouping.
-            
-            Returns:
-            - Tasks grouped by due date
-            - Priority indicators
-            - Project context
-            - Overdue warnings
-            """
-            try:
-                query = f"due in next {days_ahead} days"
-                result = await self.query_engine.query(query)
-                
-                # Add extra formatting for due soon items
-                if result.get("success") and result.get("todos"):
-                    # Group by date
-                    by_date = {}
-                    for todo in result["todos"]:
-                        due_date = todo.get("due_date", "").split("T")[0] if todo.get("due_date") else "No date"
-                        if due_date not in by_date:
-                            by_date[due_date] = []
-                        by_date[due_date].append({
-                            "title": todo.get("title"),
-                            "project": todo.get("project"),
-                            "tags": todo.get("tags", [])
-                        })
-                    
-                    result["grouped_by_date"] = by_date
-                    result["dates_with_tasks"] = list(by_date.keys())
-                
-                return result
-            except Exception as e:
-                logger.error(f"Error in query_due_soon: {e}")
-                return {"success": False, "error": str(e)}
-        
-        @self.mcp.tool()
-        async def query_completed_recently(
-            days_back: int = Field(30, description="Number of days to look back (default: 30)")
-        ) -> Dict[str, Any]:
-            """✅ Get tasks completed in the last N days with statistics.
-            
-            Perfect for reviews and productivity tracking.
-            
-            Returns:
-            - Completed tasks list
-            - Completion statistics
-            - Daily/weekly averages
-            - Project breakdown
-            - Most productive days
-            """
-            try:
-                query = f"completed in last {days_back} days"
-                result = await self.query_engine.query(query)
-                
-                # Enhance with additional insights
-                if result.get("success") and result.get("statistics"):
-                    stats = result["statistics"]
-                    
-                    # Add insights
-                    result["insights"] = {
-                        "daily_average": stats.get("average_per_day", 0),
-                        "most_productive_day": stats.get("most_productive_day"),
-                        "top_projects": sorted(
-                            stats.get("by_project", {}).items(), 
-                            key=lambda x: x[1], 
-                            reverse=True
-                        )[:3] if stats.get("by_project") else []
-                    }
-                
-                return result
-            except Exception as e:
-                logger.error(f"Error in query_completed_recently: {e}")
-                return {"success": False, "error": str(e)}
+        # NOTE: Natural language query tools removed - too complex to implement reliably
+        # The Things API doesn't provide proper date fields for most todos,
+        # making date-based queries unreliable. Consider using get_today(), 
+        # get_upcoming(), get_logbook() instead for specific time-based queries.
 
         logger.info("All MCP tools registered successfully")
     
