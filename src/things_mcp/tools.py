@@ -3130,3 +3130,44 @@ class ThingsTools:
         except Exception as e:
             logger.error(f"Error building URL scheme for reminder: {e}")
             raise
+    
+    async def get_todos_due_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
+        """Get todos due within specified number of days using efficient AppleScript filtering.
+        
+        Uses AppleScript's 'whose' clause for fast filtering directly in Things 3,
+        avoiding expensive O(n) loops in Python.
+        
+        Args:
+            days: Number of days ahead to check for due todos (default: 30)
+            
+        Returns:
+            List of todo dictionaries with due dates within the specified range
+        """
+        return await self.applescript.get_todos_due_in_days(days)
+    
+    async def get_todos_activating_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
+        """Get todos with activation dates within specified number of days using efficient filtering.
+        
+        Uses AppleScript's 'whose' clause for fast filtering directly in Things 3.
+        
+        Args:
+            days: Number of days ahead to check for activating todos (default: 30)
+            
+        Returns:
+            List of todo dictionaries with activation dates within the specified range
+        """
+        return await self.applescript.get_todos_activating_in_days(days)
+    
+    async def get_todos_upcoming_in_days(self, days: int = 30) -> List[Dict[str, Any]]:
+        """Get todos due or activating within specified number of days (union).
+        
+        Combines results from due dates and activation dates, removing duplicates.
+        Uses efficient AppleScript filtering.
+        
+        Args:
+            days: Number of days ahead to check (default: 30)
+            
+        Returns:
+            List of unique todo dictionaries due or activating within the range
+        """
+        return await self.applescript.get_todos_upcoming_in_days(days)

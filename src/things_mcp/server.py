@@ -605,6 +605,71 @@ class ThingsMCPServer:
                 logger.error(f"Error getting trash: {e}")
                 raise
         
+        # Efficient date-range query tools using AppleScript 'whose' clause
+        @self.mcp.tool()
+        async def get_due_in_days(
+            days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
+        ) -> List[Dict[str, Any]]:
+            """Get todos due within specified number of days.
+            
+            Uses efficient AppleScript filtering with 'whose' clause for fast performance.
+            Directly filters in Things 3 rather than fetching all todos and filtering in Python.
+            
+            Args:
+                days: Number of days ahead to check (1-365, default: 30)
+                
+            Returns:
+                List of todos with due dates within the specified range
+            """
+            try:
+                return await self.tools.get_todos_due_in_days(days)
+            except Exception as e:
+                logger.error(f"Error getting todos due in {days} days: {e}")
+                return {"error": str(e), "todos": []}
+        
+        @self.mcp.tool()
+        async def get_activating_in_days(
+            days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
+        ) -> List[Dict[str, Any]]:
+            """Get todos with activation dates within specified number of days.
+            
+            Uses efficient AppleScript filtering with 'whose' clause for fast performance.
+            Includes todos scheduled to become active (including those with reminders).
+            
+            Args:
+                days: Number of days ahead to check (1-365, default: 30)
+                
+            Returns:
+                List of todos with activation dates within the specified range
+            """
+            try:
+                return await self.tools.get_todos_activating_in_days(days)
+            except Exception as e:
+                logger.error(f"Error getting todos activating in {days} days: {e}")
+                return {"error": str(e), "todos": []}
+        
+        @self.mcp.tool()
+        async def get_upcoming_in_days(
+            days: int = Field(30, description="Number of days ahead to check for upcoming todos", ge=1, le=365)
+        ) -> List[Dict[str, Any]]:
+            """Get todos due OR activating within specified number of days.
+            
+            Combines results from due dates and activation dates, removing duplicates.
+            Uses efficient AppleScript filtering for optimal performance.
+            Perfect for "what's coming up in the next X days" queries.
+            
+            Args:
+                days: Number of days ahead to check (1-365, default: 30)
+                
+            Returns:
+                List of unique todos that are either due or activating within the range
+            """
+            try:
+                return await self.tools.get_todos_upcoming_in_days(days)
+            except Exception as e:
+                logger.error(f"Error getting upcoming todos in {days} days: {e}")
+                return {"error": str(e), "todos": []}
+        
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
