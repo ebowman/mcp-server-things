@@ -85,19 +85,44 @@ class NaturalLanguageQueryEngine:
                 "query": query
             }
         
-        # Get all todos
-        todos = await self.tools.get_todos()
+        # Get all todos with standard mode to get all fields
+        from .tools import ThingsTools
+        if isinstance(self.tools, ThingsTools):
+            todos_response = await self.tools.get_todos(mode='standard')
+            todos = todos_response.get('data', []) if isinstance(todos_response, dict) else todos_response
+        else:
+            todos = await self.tools.get_todos()
+            if isinstance(todos, dict) and 'data' in todos:
+                todos = todos['data']
         
-        # Filter by due date
+        # Filter by due date, deadline, or scheduled date
         due_todos = []
         for todo in todos:
-            if todo.get("due_date"):
-                due_date = self._parse_date(todo["due_date"])
-                if due_date and start_date <= due_date <= end_date:
-                    due_todos.append(todo)
+            # Check multiple date fields that might indicate when something is due
+            date_to_check = None
+            date_field = None
+            
+            # Priority order: deadline > due_date > start_date > activation_date
+            if todo.get("deadline"):
+                date_to_check = self._parse_date(todo["deadline"])
+                date_field = "deadline"
+            elif todo.get("due_date"):
+                date_to_check = self._parse_date(todo["due_date"])
+                date_field = "due_date"
+            elif todo.get("start_date"):
+                date_to_check = self._parse_date(todo["start_date"])
+                date_field = "start_date"
+            elif todo.get("activation_date"):
+                date_to_check = self._parse_date(todo["activation_date"])
+                date_field = "activation_date"
+            
+            if date_to_check and start_date <= date_to_check <= end_date:
+                todo["_date_field_used"] = date_field
+                todo["_parsed_date"] = date_to_check.isoformat()
+                due_todos.append(todo)
         
-        # Sort by due date
-        due_todos.sort(key=lambda x: x.get("due_date", ""))
+        # Sort by the date we found
+        due_todos.sort(key=lambda x: x.get("_parsed_date", ""))
         
         return {
             "success": True,
@@ -199,18 +224,37 @@ class NaturalLanguageQueryEngine:
         """Query overdue tasks."""
         today = datetime.now().replace(hour=0, minute=0, second=0)
         
-        # Get all todos
-        todos = await self.tools.get_todos()
+        # Get all todos with standard mode to get all fields
+        from .tools import ThingsTools
+        if isinstance(self.tools, ThingsTools):
+            todos_response = await self.tools.get_todos(mode='standard')
+            todos = todos_response.get('data', []) if isinstance(todos_response, dict) else todos_response
+        else:
+            todos = await self.tools.get_todos()
+            if isinstance(todos, dict) and 'data' in todos:
+                todos = todos['data']
         
         # Filter overdue
         overdue_todos = []
         for todo in todos:
-            if todo.get("due_date") and todo.get("status") == "open":
-                due_date = self._parse_date(todo["due_date"])
-                if due_date and due_date < today:
+            if todo.get("status") == "open":
+                # Check for any date field that might indicate overdue
+                date_to_check = None
+                date_field = None
+                
+                # Priority: deadline > due_date
+                if todo.get("deadline"):
+                    date_to_check = self._parse_date(todo["deadline"])
+                    date_field = "deadline"
+                elif todo.get("due_date"):
+                    date_to_check = self._parse_date(todo["due_date"])
+                    date_field = "due_date"
+                
+                if date_to_check and date_to_check < today:
                     # Calculate days overdue
-                    days_overdue = (today - due_date).days
+                    days_overdue = (today - date_to_check).days
                     todo["days_overdue"] = days_overdue
+                    todo["_date_field_used"] = date_field
                     overdue_todos.append(todo)
         
         # Sort by how overdue they are
