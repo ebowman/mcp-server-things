@@ -11,7 +11,6 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
 import json
-import yaml
 try:
     from pydantic_settings import BaseSettings
 except ImportError:
@@ -367,10 +366,10 @@ class ThingsMCPConfig(BaseSettings):
     @classmethod
     def from_file(cls, config_path: Path) -> 'ThingsMCPConfig':
         """
-        Load configuration from file.
+        Load configuration from JSON file.
         
         Args:
-            config_path: Path to configuration file (JSON or YAML)
+            config_path: Path to configuration file (JSON)
             
         Returns:
             ThingsMCPConfig instance
@@ -384,25 +383,22 @@ class ThingsMCPConfig(BaseSettings):
         
         try:
             with open(config_path, 'r') as f:
-                if config_path.suffix.lower() in ['.yaml', '.yml']:
-                    config_data = yaml.safe_load(f)
-                elif config_path.suffix.lower() == '.json':
+                if config_path.suffix.lower() == '.json':
                     config_data = json.load(f)
                 else:
-                    raise ValueError(f"Unsupported config file format: {config_path.suffix}")
+                    raise ValueError(f"Unsupported config file format: {config_path.suffix}. Only JSON is supported.")
             
             return cls(**config_data)
             
         except Exception as e:
             raise ValueError(f"Error loading configuration from {config_path}: {e}")
     
-    def to_file(self, config_path: Path, format: str = "yaml"):
+    def to_file(self, config_path: Path):
         """
-        Save configuration to file.
+        Save configuration to JSON file.
         
         Args:
             config_path: Path to save configuration file
-            format: File format ('yaml' or 'json')
         """
         config_data = self.dict()
         
@@ -412,12 +408,7 @@ class ThingsMCPConfig(BaseSettings):
                 config_data[key] = str(value)
         
         with open(config_path, 'w') as f:
-            if format.lower() == 'yaml':
-                yaml.dump(config_data, f, default_flow_style=False)
-            elif format.lower() == 'json':
-                json.dump(config_data, f, indent=2)
-            else:
-                raise ValueError(f"Unsupported format: {format}")
+            json.dump(config_data, f, indent=2)
     
     def get_applescript_config(self) -> Dict[str, Any]:
         """Get AppleScript-specific configuration"""
@@ -577,7 +568,7 @@ def create_default_config_file(config_path: Path, environment: str = "developmen
         environment: Environment type for defaults
     """
     config = get_config(environment)
-    config.to_file(config_path, format="yaml")
+    config.to_file(config_path)
 
 
 # Configuration validation
