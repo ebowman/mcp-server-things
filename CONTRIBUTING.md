@@ -105,7 +105,7 @@ pip install -e ".[dev,test,docs]"
 pre-commit install
 
 # 5. Copy configuration files
-cp config/example.yaml config/development.yaml
+cp .env.example .env
 
 # 6. Run tests to verify setup
 pytest

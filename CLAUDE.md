@@ -39,7 +39,6 @@ src/things_mcp/     # Source code
 tests/              # Test files  
 docs/               # Documentation
 examples/           # Usage examples
-config/             # Configuration files
 ```
 
 ### AppleScript Integration

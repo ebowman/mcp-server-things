@@ -103,7 +103,7 @@ export THINGS_MCP_MAX_CONCURRENT=5    # Max concurrent operations
 
 ### Configuration File
 
-Create `config/settings.yaml`:
+Create a configuration file (optional - environment variables are preferred):
 
 ```yaml
 server:

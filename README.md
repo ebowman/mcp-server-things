@@ -113,25 +113,10 @@ export THINGS_MCP_LOG_LEVEL=INFO      # Logging level
 export THINGS_MCP_RETRY_COUNT=3       # Retry attempts
 ```
 
-### Configuration File
+### Configuration File (Optional)
 
-Create a `config.yaml` file:
-
-```yaml
-server:
-  timeout: 30
-  cache_ttl: 300
-  log_level: INFO
-  retry_count: 3
-
-things:
-  app_name: "Things3"
-  url_scheme: "things"
-  
-logging:
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: "things_mcp.log"
-```
+Configuration is primarily done through environment variables (see `.env.example`). 
+Alternatively, you can use a YAML or JSON configuration file by setting the `THINGS_MCP_CONFIG_PATH` environment variable to point to your config file.
 
 ## Available MCP Tools
 
