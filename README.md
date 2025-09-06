@@ -86,6 +86,8 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 ### Advanced Features
 - **Reminder Support**: Create todos with specific reminder times (e.g., "today@14:30")
+  - Uses hybrid approach: AppleScript for regular todos, URL scheme for reminders
+  - This works around AppleScript API limitation (cannot set reminder times)
 - **Tag Management**: Full tag support with AI creation control
 - **Date-Range Queries**: Get todos due/activating within specific timeframes
 - **URL Schemes**: Native Things 3 URL scheme integration

@@ -63,6 +63,13 @@ result = self.applescript_manager.execute_script(script)
 
 The MCP server now supports creating todos with specific time reminders using the `@HH:MM` format in the `when` parameter.
 
+**IMPORTANT ARCHITECTURAL NOTE**: 
+The reminder functionality uses a hybrid approach because the Things 3 AppleScript API cannot set reminder times:
+- Regular todos (no time) → Uses AppleScript (returns real todo ID)
+- Todos with reminders (@HH:MM) → Uses URL scheme (returns placeholder ID "created_via_url_scheme")
+
+This is a deliberate design decision to work around an AppleScript API limitation. See `docs/ARCHITECTURE.md` for full details.
+
 #### Usage Examples:
 
 **Basic Reminder Creation:**

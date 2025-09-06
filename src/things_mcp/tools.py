@@ -721,19 +721,51 @@ class ThingsTools:
                  heading: Optional[str] = None, checklist_items: Optional[List[str]] = None) -> Dict[str, Any]:
         """Create a new todo in Things.
         
+        IMPORTANT - Hybrid Implementation Approach:
+        This method uses TWO different approaches depending on whether you need a reminder:
+        
+        1. Regular todos (date only) → Uses AppleScript
+           - Returns actual todo ID from Things
+           - Full control over all properties
+           - Examples: when="today", when="tomorrow", when="2024-12-25"
+        
+        2. Todos with time-based reminders → Uses URL scheme
+           - Returns placeholder ID "created_via_url_scheme" 
+           - This is because AppleScript API cannot set reminder times, only dates
+           - Things URL scheme supports Quick Entry syntax including reminders
+           - Examples: when="today@14:30", when="tomorrow@09:00", when="2024-12-25@18:00"
+        
+        Why this approach?
+        - AppleScript limitation: The Things 3 AppleScript API lacks the ability to set
+          reminder times. It can only set the date when a todo appears in Today/Upcoming.
+        - URL scheme advantage: Supports the full Quick Entry natural language parser,
+          including the ability to set specific reminder times using the @ syntax.
+        - Trade-off: URL scheme doesn't return the created todo's ID, but this is
+          acceptable since the primary goal is to create todos with working reminders.
+        
         Args:
             title: Todo title
             notes: Optional notes
             tags: Optional list of tags (will be created if they don't exist)
-            when: When to schedule (today, tomorrow, evening, anytime, someday, or YYYY-MM-DD)
-            deadline: Deadline date (YYYY-MM-DD)
+            when: When to schedule. Formats supported:
+                  - Date only (uses AppleScript): "today", "tomorrow", "evening", 
+                    "anytime", "someday", "YYYY-MM-DD"
+                  - With reminder time (uses URL scheme): "today@14:30", "tomorrow@09:00",
+                    "YYYY-MM-DD@HH:MM" (24-hour format, converted to 12-hour for Things)
+            deadline: Deadline date (YYYY-MM-DD format)
             list_id: Project or area ID
-            list_title: Project or area title
+            list_title: Project or area title  
             heading: Heading to add under
             checklist_items: Checklist items to add
             
         Returns:
-            Dict with created todo information including the ID of created todo
+            Dict with created todo information including:
+            - success: Boolean indicating if creation succeeded
+            - todo_id: ID of created todo (actual ID for AppleScript, 
+                      "created_via_url_scheme" for URL scheme method)
+            - method: "applescript" or "url_scheme" to indicate which was used
+            - reminder_time: Time portion if a reminder was set (e.g., "14:30")
+            - message: Human-readable success/error message
         """
         # Use operation queue to ensure write consistency
         queue = await get_operation_queue()
@@ -834,25 +866,48 @@ class ThingsTools:
                     notes = checklist_text
             
             # PHASE 2: Check if this is a datetime reminder and use URL scheme if needed
+            # 
+            # ARCHITECTURAL DECISION: Why use URL scheme for reminders?
+            # =========================================================
+            # The Things 3 AppleScript API has a critical limitation: it cannot set reminder times.
+            # While AppleScript can set when a todo appears (its date), it cannot set a notification
+            # time (e.g., "remind me at 2:30 PM"). This is a fundamental gap in the AppleScript API.
+            #
+            # The Things URL scheme (things:///add) supports the full Quick Entry syntax, including
+            # the ability to set reminders using the @ notation (e.g., "today@14:30"). This makes
+            # it the ONLY programmatic way to create todos with time-based reminders.
+            #
+            # Trade-offs of this approach:
+            # - PRO: Enables reminder functionality that would otherwise be impossible
+            # - PRO: Leverages Things' natural language parser for better date/time handling  
+            # - CON: URL scheme doesn't return the created todo's ID (returns placeholder)
+            # - CON: Less control over error handling compared to AppleScript
+            #
+            # We accept these trade-offs because having working reminders is more valuable
+            # than having immediate access to the todo ID.
+            
             if when and self._has_datetime_reminder(when):
                 logger.info(f"Detected datetime reminder in '{when}', using URL scheme instead of AppleScript")
                 try:
-                    # Parse datetime format
+                    # Parse datetime format (e.g., "today@14:30" or "2024-12-25@09:00")
                     parsed_when = self._parse_datetime_input(when)
                     
                     # Build URL scheme for reminder creation
+                    # This constructs: things:///add?title=...&when=today@2:30pm&...
                     url_scheme = self._build_url_scheme_with_reminder(title, parsed_when, notes, tags)
                     logger.info(f"Built reminder URL scheme: {url_scheme}")
                     
                     # Execute URL scheme through AppleScript manager
+                    # This opens the URL in Things, which creates the todo with reminder
                     url_result = await self.applescript.execute_url_scheme(
                         action="add",
                         parameters={"url_override": url_scheme}
                     )
                     
                     if url_result.get('success'):
-                        # URL scheme doesn't return the todo ID directly, so we need to find it
-                        # This is a limitation - for now return success without specific ID
+                        # LIMITATION: URL scheme doesn't return the actual todo ID
+                        # This is a Things URL scheme limitation, not a bug in our code
+                        # We return a placeholder ID to indicate the method used
                         logger.info(f"Successfully created todo with reminder using URL scheme")
                         return {
                             "success": True,
