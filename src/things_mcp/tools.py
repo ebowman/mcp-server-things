@@ -1699,7 +1699,8 @@ class ThingsTools:
                     
                     for todo_title in todos:
                         try:
-                            todo_result = await self.add_todo(
+                            # Call the implementation directly to avoid queue deadlock
+                            todo_result = await self._add_todo_impl(
                                 title=todo_title,
                                 list_id=project_id
                             )

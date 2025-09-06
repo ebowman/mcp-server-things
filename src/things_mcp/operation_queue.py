@@ -374,7 +374,13 @@ class OperationQueue:
                 await self._handle_operation_failure(operation, e)
             
             finally:
-                self._move_to_completed(operation)
+                # Only move to completed if the operation is actually done (not re-queued for retry)
+                if operation.status != OperationStatus.PENDING:
+                    self._move_to_completed(operation)
+                else:
+                    # Remove from active operations since it's been re-queued
+                    if operation.id in self._active_operations:
+                        del self._active_operations[operation.id]
 
     async def _handle_operation_failure(self, operation: Operation, error: Exception):
         """Handle operation failure with retry logic"""
@@ -431,6 +437,10 @@ async def get_operation_queue() -> OperationQueue:
     
     if _global_queue is None:
         _global_queue = OperationQueue()
+        await _global_queue.start()
+    elif _global_queue._worker_task is None or _global_queue._worker_task.done():
+        # Worker is not running, restart it
+        logger.warning("Queue worker was not running, restarting...")
         await _global_queue.start()
     
     return _global_queue
