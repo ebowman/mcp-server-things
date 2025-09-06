@@ -53,12 +53,24 @@ class ServerManager:
             # Check if Things 3 is available
             applescript_manager = AppleScriptManager(timeout=timeout, retry_count=retry_count)
             
-            if not applescript_manager.is_things_running():
-                logger.warning("Things 3 is not running or not accessible")
-                logger.info("Please ensure Things 3 is installed and running")
-                # Continue anyway - it might start later
-            else:
-                logger.info("Things 3 detected and accessible")
+            # Note: is_things_running() is async, but we're in a sync context
+            # For startup checks, we'll create a simple sync version
+            import subprocess
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", 'tell application "Things3" to return true'],
+                    capture_output=True,
+                    timeout=5,
+                    text=True
+                )
+                if result.returncode == 0:
+                    logger.info("Things 3 detected and accessible")
+                else:
+                    logger.warning("Things 3 is not running or not accessible")
+                    logger.info("Please ensure Things 3 is installed and running")
+            except (subprocess.TimeoutExpired, Exception) as e:
+                logger.warning(f"Could not check Things 3 status: {e}")
+                logger.info("Continuing anyway - Things 3 might start later")
             
             # Mark as running
             self.running = True
