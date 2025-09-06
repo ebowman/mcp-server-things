@@ -2,34 +2,37 @@
 
 ## Overview
 
-This document tracks the development roadmap for the Things 3 MCP Server. Based on comprehensive analysis of the Things 3 AppleScript Dictionary, **43 missing features** have been identified that would significantly enhance the server's capabilities.
+This document tracks the development roadmap for the Things 3 MCP Server. Based on comprehensive analysis of the Things 3 AppleScript Dictionary, **8 missing commands** and **several property access methods** have been identified that would complete the server's AppleScript capabilities.
 
 ## Current Status
 
-- **IMPLEMENTED**: 25 operations (37% of total AppleScript capability)
-- **MISSING**: 43 operations (63% of total AppleScript capability)
-- **TARGET COVERAGE**: 70%+ with Critical and High priority features
+- **IMPLEMENTED**: 34 MCP tools covering ~80% of daily workflow needs
+- **MISSING COMMANDS**: 8 AppleScript commands from dictionary
+- **MISSING PROPERTIES**: Direct property access for dates, contacts, status
+- **TARGET COVERAGE**: 95%+ with Critical priority features
 
 ## Recently Completed [DONE]
 
-- **move_record()** - Move todos/projects between lists, projects, areas (CRITICAL #1)
-- **Configurable limits** - Control result counts in search_advanced and get_logbook
-- **Performance optimizations** - Fixed timeout issues with large datasets (5,392 logbook items)
-- **Circular reference fixes** - JSON serialization improvements in search_advanced
+- ✅ **move_record()** - Move todos/projects between lists, projects, areas
+- ✅ **Scheduling with reminders** - Support for `when="today@14:30"` datetime format
+- ✅ **Reliable scheduling** - Multiple fallback methods via PureAppleScriptScheduler
+- ✅ **Configurable limits** - Control result counts in search_advanced and get_logbook
+- ✅ **Performance optimizations** - Fixed timeout issues with large datasets
+- ✅ **Circular reference fixes** - JSON serialization improvements
 
 ---
 
 # DEVELOPMENT ROADMAP
 
-## CRITICAL Priority (6 remaining)
-*Essential workflow features that significantly impact daily productivity*
+## CRITICAL Priority - Missing AppleScript Commands (8 commands)
+*Commands explicitly defined in Things 3 AppleScript Dictionary that are not yet implemented*
 
-### 2. **schedule_todo()** - Schedule Command
-- **Status**: NOT STARTED
+### 1. **schedule** - Direct Schedule Command  
+- **Status**: PARTIALLY IMPLEMENTED (via when parameter, not as standalone command)
 - **Priority**: Critical
 - **Effort**: 2-3 hours
 - **AppleScript**: `schedule <reference> for <date>`
-- **Purpose**: Schedule todos for specific dates using native Things scheduling
+- **Purpose**: Direct scheduling command separate from create/update operations
 - **Implementation**:
   ```python
   @self.mcp.tool()
@@ -38,10 +41,10 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
       schedule_date: str  # YYYY-MM-DD or natural language
   ) -> Dict[str, Any]
   ```
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: Date parsing, invalid dates, already scheduled todos
+- **Notes**: We have scheduling via when parameter, but not as a standalone command
+- **Files to modify**: `server.py`, `tools.py`
 
-### 3. **edit_todo()** - Edit Command
+### 2. **edit** - Edit Command
 - **Status**: NOT STARTED  
 - **Priority**: Critical
 - **Effort**: 1-2 hours
@@ -52,11 +55,11 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
   @self.mcp.tool()
   async def edit_todo(todo_id: str) -> Dict[str, Any]
   ```
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: Invalid todo IDs, UI integration, Things focus
+- **Notes**: UI-focused command, may not be suitable for headless operation
+- **Files to modify**: `server.py`, `tools.py`
 
-### 4. **show_item()** - Show Command  
-- **Status**: NOT STARTED
+### 3. **show** - Show Command  
+- **Status**: NOT STARTED (removed previously as UI-triggering)
 - **Priority**: Critical
 - **Effort**: 1-2 hours
 - **AppleScript**: `show <reference>`
@@ -66,18 +69,18 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
   @self.mcp.tool()
   async def show_item(
       item_id: str, 
-      item_type: str = "todo"  # todo, project, area
+      item_type: str = "todo"  # todo, project, area, contact, list
   ) -> Dict[str, Any]
   ```
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: All item types, invalid IDs, UI focus
+- **Notes**: Comment in code says "Removed show_item as it triggers UI changes"
+- **Files to modify**: `server.py`, `tools.py`
 
-### 5. **parse_natural_language()** - Quicksilver Input
+### 4. **parse quicksilver input** - Natural Language Input
 - **Status**: NOT STARTED
 - **Priority**: Critical
 - **Effort**: 3-4 hours
 - **AppleScript**: `parse quicksilver input <text>`
-- **Purpose**: Natural language todo creation (Things' smart parsing)
+- **Purpose**: Natural language todo creation using Things' smart parsing
 - **Implementation**:
   ```python
   @self.mcp.tool()
@@ -85,511 +88,130 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
       input_text: str
   ) -> Dict[str, Any]  # Returns created todo details
   ```
-- **Example**: `"Call John tomorrow about project #work"` → Todo with due date, contact, tags
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: Complex parsing, tags, dates, contacts, projects
+- **Example**: `"Call John tomorrow about project #work"` → Todo with due date, tags
+- **Files to modify**: `server.py`, `tools.py`
 
-### 6. **enhanced_todo_properties()** - Direct Property Access
-- **Status**: NOT STARTED
-- **Priority**: Critical  
-- **Effort**: 2-3 hours
-- **Missing Properties**: `activation date`, `due date` direct access, `contact` assignment
-- **Purpose**: Efficient individual property get/set operations
-- **Implementation**:
-  ```python
-  @self.mcp.tool()
-  async def set_todo_properties(
-      todo_id: str,
-      activation_date: Optional[str] = None,
-      due_date: Optional[str] = None,
-      contact_name: Optional[str] = None
-  ) -> Dict[str, Any]
-  
-  @self.mcp.tool() 
-  async def get_todo_properties(
-      todo_id: str,
-      properties: List[str]  # ["activation_date", "due_date", "contact"]
-  ) -> Dict[str, Any]
-  ```
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: All property types, invalid values, property combinations
-
-### 7. **enhanced_project_properties()** - Project Property Access
-- **Status**: NOT STARTED
-- **Priority**: Critical
-- **Effort**: 2-3 hours  
-- **Missing Properties**: `status` manipulation, `area` assignment via property
-- **Purpose**: Direct project property modification
-- **Implementation**:
-  ```python
-  @self.mcp.tool()
-  async def set_project_status(
-      project_id: str,
-      status: str  # "active", "someday", "completed", "cancelled"
-  ) -> Dict[str, Any]
-  
-  @self.mcp.tool()
-  async def assign_project_to_area(
-      project_id: str,
-      area_id: str
-  ) -> Dict[str, Any]
-  ```
-- **Files to modify**: `tools.py`, `simple_server.py`
-- **Testing**: All status types, area assignments, invalid IDs
-
----
-
-## HIGH Priority (12 features)
-*Major functionality gaps that enable advanced workflows*
-
-### Contact Management (4 operations)
-
-### 8. **add_contact()** - Contact Creation
+### 5. **add contact named** - Contact Creation
 - **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 2-3 hours
 - **AppleScript**: `add contact named <text>`
-- **Implementation**: Contact creation and management system
+- **Purpose**: Create new contacts in Things
+- **Implementation**:
+  ```python
+  @self.mcp.tool()
+  async def add_contact(contact_name: str) -> Dict[str, Any]
+  ```
+- **Files to modify**: `server.py`, `tools.py`
 
-### 9. **get_contacts()** - Contact Listing  
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 1-2 hours
-- **Purpose**: List all contacts with properties
-
-### 10. **assign_contact_to_todo()** - Contact Assignment
-- **Status**: NOT STARTED  
-- **Priority**: High
-- **Effort**: 2-3 hours
-- **Purpose**: Assign people to todos for collaboration
-
-### 11. **get_todos_by_contact()** - Contact-based Search
-- **Status**: NOT STARTED
-- **Priority**: High  
-- **Effort**: 1-2 hours
-- **Purpose**: Find todos assigned to specific people
-
-### Advanced Tag Operations (3 operations)
-
-### 12. **create_tag_with_properties()** - Rich Tag Creation
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 2-3 hours
-- **Purpose**: Create tags with shortcuts and hierarchy
-
-### 13. **manage_tag_hierarchy()** - Tag Relationships
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 3-4 hours
-- **Purpose**: Create nested tag structures
-
-### 14. **manage_tag_shortcuts()** - Keyboard Shortcuts  
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 1-2 hours
-- **Purpose**: Manage quick-access tag shortcuts
-
-### Date and Schedule Management (5 operations)
-
-### 15. **set_activation_date()** - Activation Date Control
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 1-2 hours
-- **Purpose**: Control when todos become active
-
-### 16. **set_due_date_direct()** - Direct Due Date Access
-- **Status**: NOT STARTED
-- **Priority**: High  
-- **Effort**: 1-2 hours
-- **Purpose**: Direct date property modification
-
-### 17. **set_start_date()** - Start Date Scheduling
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 1-2 hours  
-- **Purpose**: Control todo start dates independently
-
-### 18. **search_by_date_range()** - Date Range Filtering
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 2-3 hours
-- **Purpose**: Find todos by date ranges and date properties
-
-### 19. **get_schedule_status()** - Schedule Status Management
-- **Status**: NOT STARTED
-- **Priority**: High
-- **Effort**: 1-2 hours
-- **Purpose**: Understand and control todo scheduling status
-
----
-
-## MEDIUM Priority (14 features)
-*Workflow enhancements and organizational improvements*
-
-### Area Management Extensions (4 operations)
-
-### 20. **create_area()** - Area Creation
+### 6. **empty trash** - Trash Management
 - **Status**: NOT STARTED
 - **Priority**: Medium
-- **Effort**: 1-2 hours
-- **Purpose**: Create new area containers
+- **Effort**: 1 hour
+- **AppleScript**: `empty trash`
+- **Purpose**: Permanently delete trashed items
+- **Implementation**:
+  ```python
+  @self.mcp.tool()
+  async def empty_trash() -> Dict[str, Any]
+  ```
+- **Files to modify**: `server.py`, `tools.py`
 
-### 21. **set_area_properties()** - Area Configuration
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 1-2 hours
-- **Purpose**: Configure area display and organization
-
-### 22. **assign_todo_to_area()** - Area-Todo Relationships
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 2-3 hours
-- **Purpose**: Organize todos within areas
-
-### 23. **manage_area_hierarchy()** - Area Organization
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 3-4 hours
-- **Purpose**: Multi-level area organization
-
-### Project Extensions (3 operations)
-
-### 24. **manage_project_status()** - Project Lifecycle
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 2-3 hours
-- **Purpose**: Project lifecycle state management
-
-### 25. **assign_project_to_area()** - Project Organization
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 1-2 hours
-- **Purpose**: Organize projects within areas
-
-### 26. **complete_project_workflow()** - Project Finalization
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 3-4 hours
-- **Purpose**: Complete project finalization workflows
-
-### Advanced Search and Filtering (4 operations)
-
-### 27. **complex_search_filtering()** - Multi-Property Search
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 4-5 hours
-- **Purpose**: Complex search queries with multiple conditions
-
-### 28. **comprehensive_property_search()** - Multi-Property Search
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 3-4 hours
-- **Purpose**: Search across all object properties simultaneously
-
-### 29. **date_range_queries()** - Temporal Filtering
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 2-3 hours
-- **Purpose**: Find items within date ranges
-
-### 30. **status_based_collections()** - Status-Based Queries
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 2-3 hours
-- **Purpose**: Efficient status-based queries
-
-### List Management (3 operations)
-
-### 31. **get_list_properties()** - List Introspection
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 1-2 hours
-- **Purpose**: Detailed list information and manipulation
-
-### 32. **discover_all_lists()** - List Discovery
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 1-2 hours
-- **Purpose**: Discover and work with all Things lists
-
-### 33. **list_specific_operations()** - List Customization
-- **Status**: NOT STARTED
-- **Priority**: Medium
-- **Effort**: 2-3 hours
-- **Purpose**: List-tailored operations
-
----
-
-## LOW Priority (10 features)
-*Nice-to-have features for completeness*
-
-### System Operations (3 operations)
-
-### 34. **empty_trash()** - Trash Management
+### 7. **log completed now** - Force Logging
 - **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 1 hour
-- **Purpose**: Clear deleted items permanently
-
-### 35. **log_completed_now()** - Manual Logging
-- **Status**: NOT STARTED  
-- **Priority**: Low
-- **Effort**: 1 hour
+- **AppleScript**: `log completed now`
 - **Purpose**: Force immediate logging of completed items
+- **Implementation**:
+  ```python
+  @self.mcp.tool()
+  async def log_completed_now() -> Dict[str, Any]
+  ```
+- **Files to modify**: `server.py`, `tools.py`
 
-### 36. **print_operations()** - Report Generation
+### 8. **show quick entry panel** - Quick Entry UI
 - **Status**: NOT STARTED
-- **Priority**: Low
+- **Priority**: Low (UI-focused)
 - **Effort**: 2-3 hours
-- **Purpose**: Generate printed reports
-
-### UI Integration (4 operations)
-
-### 37. **show_quick_entry_panel()** - UI Automation
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 2-3 hours
+- **AppleScript**: `show quick entry panel with autofill <boolean> with properties <item details>`
 - **Purpose**: Display Things quick entry UI with pre-filled data
-
-### 38. **window_management()** - UI Control
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 3-4 hours
-- **Purpose**: Control Things UI display
-
-### 39. **application_state_queries()** - Application Introspection
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 2-3 hours
-- **Purpose**: Query Things application state, preferences
-
-### 40. **frontmost_application_detection()** - Context Awareness
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 1-2 hours
-- **Purpose**: Context-aware operations
-
-### Advanced Parsing (3 operations)
-
-### 41. **item_details_records()** - Batch Property Updates
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 3-4 hours
-- **Purpose**: Batch property updates via records
-
-### 42. **complex_property_records()** - Bulk Operations
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 4-5 hours
-- **Purpose**: Efficient bulk property manipulation
-
-### 43. **applescript_type_coercion()** - Type System
-- **Status**: NOT STARTED
-- **Priority**: Low
-- **Effort**: 4-5 hours
-- **Purpose**: Advanced type conversion and coercion
+- **Implementation**:
+  ```python
+  @self.mcp.tool()
+  async def show_quick_entry_panel(
+      autofill: bool = False,
+      properties: Optional[Dict[str, Any]] = None
+  ) -> Dict[str, Any]
+  ```
+- **Notes**: UI-focused command, may not be suitable for headless operation
+- **Files to modify**: `server.py`, `tools.py`
 
 ---
 
-# IMPLEMENTATION STRATEGY
+## HIGH Priority - Property-Based Operations
+*Direct property manipulation capabilities that would enhance the API*
 
-## Phase 1: Core Workflow Features (Immediate Priority)
-**Target: 70%+ API coverage**
-- [DONE] move_record() (COMPLETED)
-- [TODO] schedule_todo() (2-3 hours)
-- [TODO] edit_todo() (1-2 hours)  
-- [TODO] show_item() (1-2 hours)
-- [TODO] parse_natural_language() (3-4 hours)
-- [TODO] enhanced_todo_properties() (2-3 hours)
-- [TODO] enhanced_project_properties() (2-3 hours)
-
-**Estimated Total**: 11-17 hours
-
-## Phase 2: Advanced Features (Secondary Priority)
-**Target: 85%+ API coverage**
-- Contact management (4 operations, 6-10 hours)
-- Advanced tag operations (3 operations, 6-9 hours)
-- Date/schedule management (5 operations, 7-12 hours)
-
-**Estimated Total**: 19-31 hours
-
-## Phase 3: Workflow Enhancements (Future Development)
-**Target: 95%+ API coverage**
-- Area management extensions (4 operations, 7-11 hours)
-- Project extensions (3 operations, 6-9 hours) 
-- Advanced search capabilities (4 operations, 11-15 hours)
-- List management (3 operations, 4-7 hours)
-
-**Estimated Total**: 28-42 hours
-
-## Phase 4: Polish & Completeness (Optional)
-**Target: 100% API coverage**
-- System operations (3 operations, 4-6 hours)
-- UI integration (4 operations, 8-12 hours)
-- Advanced parsing (3 operations, 11-14 hours)
-
-**Estimated Total**: 23-32 hours
+### Direct Property Access
+- **activation date** - Direct get/set for todo activation dates
+- **due date** - Direct manipulation separate from scheduling
+- **contact** - Assign contacts to todos (property, not command)
+- **status** - Direct status manipulation for projects
+- **area** - Direct area assignment for projects/todos
+- **parent tag** - Tag hierarchy management
+- **keyboard shortcut** - Tag keyboard shortcuts
 
 ---
 
-# TECHNICAL NOTES
+## MEDIUM Priority - Enhanced Capabilities
+*Features that would improve workflows but aren't critical*
 
-## Implementation Patterns
+### Tag Enhancements
+- Tag hierarchy (parent/child relationships)
+- Keyboard shortcuts for tags
+- Batch tag operations
 
-### Standard MCP Tool Pattern
-```python
-# simple_server.py
-@self.mcp.tool()
-async def new_operation(
-    param1: str = Field(..., description="Required parameter"),
-    param2: Optional[str] = Field(None, description="Optional parameter")
-) -> Dict[str, Any]:
-    """Tool description."""
-    try:
-        return await self.tools.new_operation(param1=param1, param2=param2)
-    except Exception as e:
-        logger.error(f"Error in new_operation: {e}")
-        raise
+### Area Management
+- Create new areas
+- Set area properties (collapsed state, etc.)
+- Move items between areas
+- Area hierarchy support
 
-# tools.py  
-async def new_operation(self, param1: str, param2: Optional[str] = None) -> Dict[str, Any]:
-    """Business logic implementation."""
-    try:
-        # Input validation
-        if not param1:
-            raise ValueError("param1 is required")
-            
-        # AppleScript execution
-        script = f'''
-        tell application "Things3"
-            -- AppleScript logic here
-            return "success"
-        end tell
-        '''
-        
-        result = await self.applescript.execute_applescript(script)
-        
-        if result.get("success"):
-            return {
-                "success": True,
-                "message": "Operation completed successfully",
-                "data": parsed_result
-            }
-        else:
-            return {
-                "success": False,
-                "error": result.get("error", "Unknown error")
-            }
-            
-    except Exception as e:
-        logger.error(f"Error in new_operation: {e}")
-        raise
-```
-
-## Testing Strategy
-
-### Unit Tests Required
-- Input validation and edge cases
-- AppleScript command generation
-- Error handling and recovery
-- JSON serialization of results
-
-### Integration Tests Required  
-- End-to-end MCP tool functionality
-- Real Things 3 integration (when available)
-- Performance with large datasets
-- Concurrent operation handling
-
-### Test Data Requirements
-- Sample todos, projects, areas, contacts
-- Various date formats and edge cases
-- Large dataset simulation (1000+ items)
-- Error condition simulation
-
-## Performance Considerations
-
-### Optimization Strategies
-- **Caching**: Read-only operations cached for 30 seconds
-- **Batching**: Group similar operations when possible
-- **Limiting**: Default limits on large result sets (50-500 items)
-- **Validation**: Pre-flight checks to avoid expensive failures
-
-### Resource Management
-- AppleScript timeout handling (45 seconds max)
-- Connection pooling for AppleScript execution
-- Memory-efficient result processing
-- Error recovery and retry logic
-
-## Security Considerations
-
-### Input Sanitization
-- AppleScript injection prevention
-- ID validation and whitelisting
-- String escaping for AppleScript strings
-- Parameter validation at multiple layers
-
-### Operation Safety
-- Atomic operations where possible
-- Rollback strategies for failed operations
-- Audit logging for destructive operations
-- Permission validation where applicable
+### Project Status Management
+- Set project status (active, someday, completed, canceled)
+- Bulk status updates
+- Status-based filtering improvements
 
 ---
 
-# CURRENT METRICS
+## Implementation Summary
 
-## Implementation Status
-- **Total AppleScript Operations Available**: 68
-- **Currently Implemented**: 25 (37%)
-- **Missing (This TODO)**: 43 (63%)
-- **Critical Priority Remaining**: 6 operations  
-- **High Priority**: 12 operations
-- **Medium Priority**: 14 operations
-- **Low Priority**: 10 operations
+### Total AppleScript Dictionary Coverage
+- **Dictionary Commands**: 10 total (close, count, delete, duplicate, exists, make, print, quit + 8 Things-specific)
+- **Implemented Commands**: Most via MCP tools (create, read, update, delete operations)
+- **Missing Commands**: 8 Things-specific commands listed above
+- **Property Access**: Most properties readable, some not directly settable
 
-## Complexity Breakdown
-- **Easy to Implement**: 15 features (1-2 hours each)
-- **Medium Complexity**: 18 features (2-4 hours each)  
-- **High Complexity**: 10 features (4-6 hours each)
-- **Total Estimated Effort**: 81-122 hours
+### Current Implementation Strengths
+- ✅ Full CRUD operations for todos, projects, areas, tags
+- ✅ Advanced search and filtering capabilities
+- ✅ Date-based queries and scheduling with reminders
+- ✅ Bulk operations and performance optimizations
+- ✅ Context management and usage statistics
+- ✅ Reliable scheduling with multiple fallback methods
 
-## Impact Analysis
-- **Critical Features**: Essential daily workflows (scheduling, navigation, smart parsing)
-- **High Priority Features**: Advanced automation (contacts, tag hierarchy, date management)
-- **Medium Priority Features**: Organizational improvements (areas, projects, search)
-- **Low Priority Features**: Completeness and polish (system ops, UI integration)
+### Key Gaps
+- ❌ UI-triggering commands (edit, show, quick entry panel)
+- ❌ Natural language parsing (parse quicksilver input)
+- ❌ Contact management (add contact named)
+- ❌ System commands (empty trash, log completed now)
+- ❌ Direct property setters for some fields
 
----
-
-# CONTRIBUTION GUIDELINES
-
-## Before Starting a Feature
-1. **Review AppleScript Dictionary** - Understand native Things 3 capabilities
-2. **Check existing patterns** - Follow established code conventions
-3. **Write tests first** - TDD approach for reliability
-4. **Update documentation** - Keep tutorial and API docs current
-
-## Implementation Checklist
-- [TODO] AppleScript command research and testing
-- [TODO] Input validation and error handling
-- [TODO] MCP tool registration in simple_server.py
-- [TODO] Business logic implementation in tools.py
-- [TODO] Unit tests for all code paths
-- [TODO] Integration tests with real Things 3
-- [TODO] Documentation updates (tutorial, API reference)
-- [TODO] Performance testing with large datasets
-- [TODO] Security review for input sanitization
-
-## Pull Request Requirements
-- [REQUIRED] All tests passing
-- [REQUIRED] Code follows existing patterns
-- [REQUIRED] Documentation updated
-- [REQUIRED] Performance benchmarks included
-- [REQUIRED] Security considerations addressed
-- [REQUIRED] Backward compatibility maintained
+### Recommendation
+Focus on non-UI commands first (schedule, parse quicksilver input, add contact named) as they provide the most value for automation workflows. UI-triggering commands may be less useful in headless MCP server context.
 
 ---
 
-*Last Updated: Current Development Cycle*
-*Current Version: 1.1.0 (move_record implemented)*
-*Next Target: 1.5.0 (Critical features complete)*
+*Last Updated: September 2025*
+*Current Version: 2.0.0 (with reminder support)*
+*Next Target: 2.1.0 (add natural language parsing)*
