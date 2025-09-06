@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 try:
     from pydantic_settings import BaseSettings
 except ImportError:
@@ -273,7 +272,7 @@ class ThingsMCPConfig(BaseSettings):
         if v is None:
             return ["localhost", "127.0.0.1"]
         if isinstance(v, str):
-            # Try to parse as JSON array first (for pydantic-settings v2)
+            # Try to parse as JSON array first
             if v.startswith('['):
                 try:
                     import json
@@ -344,60 +343,40 @@ class ThingsMCPConfig(BaseSettings):
         env_prefix = "THINGS_MCP_"
         case_sensitive = False
         
-        # Example environment variables:
+        # Example environment variables (in .env file or system):
         # THINGS_MCP_APPLESCRIPT_TIMEOUT=60.0
         # THINGS_MCP_CACHE_MAX_SIZE=2000
-        # THINGS_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1"]  # JSON array format
-        # THINGS_MCP_TAG_CREATION_POLICY=allow_all
-        # THINGS_MCP_TAG_POLICY_STRICT_MODE=false
+        # THINGS_MCP_LOG_LEVEL=DEBUG
+        # THINGS_MCP_LOG_FILE_PATH=/var/log/things-mcp.log
+        # THINGS_MCP_AI_CAN_CREATE_TAGS=true
         # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
     
     @classmethod
-    def from_file(cls, config_path: Path) -> 'ThingsMCPConfig':
+    def from_env_file(cls, env_path: Optional[Path] = None) -> 'ThingsMCPConfig':
         """
-        Load configuration from JSON file.
+        Load configuration from environment variables and optional .env file.
         
         Args:
-            config_path: Path to configuration file (JSON)
+            env_path: Optional path to .env file. If not provided, looks for .env in current directory.
             
         Returns:
             ThingsMCPConfig instance
-            
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-            ValueError: If config file format is invalid
         """
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+        # Load from .env file if specified or if default .env exists
+        if env_path:
+            if not env_path.exists():
+                raise FileNotFoundError(f".env file not found: {env_path}")
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(env_path, override=True)
+            except ImportError:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "python-dotenv not installed. Install it to use .env files: pip install python-dotenv"
+                )
         
-        try:
-            with open(config_path, 'r') as f:
-                if config_path.suffix.lower() == '.json':
-                    config_data = json.load(f)
-                else:
-                    raise ValueError(f"Unsupported config file format: {config_path.suffix}. Only JSON is supported.")
-            
-            return cls(**config_data)
-            
-        except Exception as e:
-            raise ValueError(f"Error loading configuration from {config_path}: {e}")
-    
-    def to_file(self, config_path: Path):
-        """
-        Save configuration to JSON file.
-        
-        Args:
-            config_path: Path to save configuration file
-        """
-        config_data = self.dict()
-        
-        # Convert Path objects to strings for serialization
-        for key, value in config_data.items():
-            if isinstance(value, Path):
-                config_data[key] = str(value)
-        
-        with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=2)
+        # Create config from environment variables
+        return cls()
     
     def get_applescript_config(self) -> Dict[str, Any]:
         """Get AppleScript-specific configuration"""
@@ -538,21 +517,17 @@ def get_config(environment: str = "development") -> ThingsMCPConfig:
 
 
 # Configuration utilities
-def load_config_from_env() -> ThingsMCPConfig:
-    """Load configuration from environment variables"""
-    return ThingsMCPConfig()
-
-
-def create_default_config_file(config_path: Path, environment: str = "development"):
+def load_config_from_env(env_file: Optional[Path] = None) -> ThingsMCPConfig:
     """
-    Create a default configuration file.
+    Load configuration from environment variables and optional .env file.
     
     Args:
-        config_path: Path where to create the config file
-        environment: Environment type for defaults
+        env_file: Optional path to .env file
+        
+    Returns:
+        ThingsMCPConfig instance
     """
-    config = get_config(environment)
-    config.to_file(config_path)
+    return ThingsMCPConfig.from_env_file(env_file)
 
 
 # Configuration validation

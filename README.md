@@ -108,53 +108,55 @@ Once installed, Claude (or other MCP clients) can automatically discover and use
 
 ## Configuration
 
-The server can be configured using environment variables. A complete example configuration is provided in `.env.example`.
+The server uses environment variables for configuration. You can set these variables in three ways:
+1. System environment variables
+2. A `.env` file (automatically loaded from the current directory)
+3. A custom `.env` file specified with `--env-file`
 
-### Using .env.example
+### Using the .env File
 
 1. **Review the example configuration:**
    ```bash
    cat .env.example
    ```
 
-2. **Create your own .env file (optional):**
+2. **Create your own .env file:**
    ```bash
    cp .env.example .env
    # Edit .env to customize settings
    ```
 
-3. **Key Configuration Options:**
-
+3. **Or use a custom location:**
    ```bash
-   # Server identification
-   THINGS_MCP_SERVER_NAME=things3-mcp-server
-   THINGS_MCP_SERVER_VERSION=1.0.0
-   
-   # AppleScript execution
-   THINGS_MCP_APPLESCRIPT_TIMEOUT=30.0       # Timeout in seconds (1-300)
-   THINGS_MCP_APPLESCRIPT_RETRY_COUNT=3      # Retry attempts (0-10)
-   
-   # Tag management - Control AI tag creation
-   THINGS_MCP_AI_CAN_CREATE_TAGS=false       # false = AI can only use existing tags
-   THINGS_MCP_TAG_VALIDATION_CASE_SENSITIVE=false
-   
-   # Logging
-   THINGS_MCP_LOG_LEVEL=INFO                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
-   THINGS_MCP_LOG_FILE_PATH=/path/to/file.log # Optional: log to file instead of console
-   
-   # Validation limits
-   THINGS_MCP_MAX_TITLE_LENGTH=500
-   THINGS_MCP_MAX_NOTES_LENGTH=10000
-   THINGS_MCP_MAX_TAGS_PER_ITEM=20
-   THINGS_MCP_SEARCH_RESULTS_LIMIT=100
+   cp .env.example ~/my-things-config.env
+   python -m things_mcp --env-file ~/my-things-config.env
    ```
 
-### Environment Variable Loading
+### Key Configuration Options
 
-The server automatically loads environment variables in this order:
-1. System environment variables
-2. `.env` file in the project root (if using python-dotenv)
-3. Variables specified in Claude Desktop config
+```bash
+# Server identification
+THINGS_MCP_SERVER_NAME=things3-mcp-server
+THINGS_MCP_SERVER_VERSION=1.0.0
+
+# AppleScript execution
+THINGS_MCP_APPLESCRIPT_TIMEOUT=30.0       # Timeout in seconds (1-300)
+THINGS_MCP_APPLESCRIPT_RETRY_COUNT=3      # Retry attempts (0-10)
+
+# Tag management - Control AI tag creation
+THINGS_MCP_AI_CAN_CREATE_TAGS=false       # false = AI can only use existing tags
+THINGS_MCP_TAG_VALIDATION_CASE_SENSITIVE=false
+
+# Logging
+THINGS_MCP_LOG_LEVEL=INFO                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
+THINGS_MCP_LOG_FILE_PATH=/path/to/file.log # Optional: log to file instead of console
+
+# Validation limits
+THINGS_MCP_MAX_TITLE_LENGTH=500
+THINGS_MCP_MAX_NOTES_LENGTH=10000
+THINGS_MCP_MAX_TAGS_PER_ITEM=20
+THINGS_MCP_SEARCH_RESULTS_LIMIT=100
+```
 
 ### Command Line Options
 
@@ -164,8 +166,8 @@ The server supports several command-line options:
 # Start with debug logging
 python -m things_mcp --debug
 
-# Use a configuration file (JSON format)
-python -m things_mcp --config /path/to/config.json
+# Use a custom .env file
+python -m things_mcp --env-file ~/my-config.env
 
 # Check system health
 python -m things_mcp --health-check

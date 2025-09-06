@@ -32,18 +32,18 @@ class ServerManager:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
-    def start(self, debug: bool = False, timeout: int = 30, retry_count: int = 3, config_path: Optional[str] = None):
+    def start(self, debug: bool = False, timeout: int = 30, retry_count: int = 3, env_file: Optional[str] = None):
         """Start the MCP server.
         
         Args:
             debug: Enable debug logging
             timeout: AppleScript timeout in seconds
             retry_count: Number of retries for failed operations
-            config_path: Optional path to configuration file
+            env_file: Optional path to .env file
         """
         try:
             # Create server first (it will configure logging)
-            self.server = ThingsMCPServer(config_path=config_path)
+            self.server = ThingsMCPServer(env_file=env_file)
             
             # Override with debug if specified
             if debug:
@@ -129,9 +129,9 @@ Environment:
     )
     
     parser.add_argument(
-        "--config",
+        "--env-file",
         type=str,
-        help="Path to configuration file (JSON format)"
+        help="Path to .env configuration file"
     )
     
     # Utility commands
@@ -304,7 +304,7 @@ def main():
             debug=args.debug,
             timeout=args.timeout,
             retry_count=args.retry_count,
-            config_path=args.config
+            env_file=args.env_file
         )
         return 0
     

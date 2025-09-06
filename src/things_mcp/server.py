@@ -32,21 +32,24 @@ logger = logging.getLogger(__name__)
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, env_file: Optional[str] = None):
         """Initialize the Things MCP server.
         
         Args:
-            config_path: Optional path to configuration file
+            env_file: Optional path to .env file
         """
         self.mcp = FastMCP("things-mcp")
         
-        # Load configuration
-        if config_path and Path(config_path).exists():
+        # Load configuration from environment and optional .env file
+        if env_file:
             try:
-                self.config = ThingsMCPConfig.from_file(Path(config_path))
-                logger.info(f"Loaded configuration from {config_path}")
+                self.config = load_config_from_env(Path(env_file))
+                logger.info(f"Loaded configuration from {env_file}")
+            except FileNotFoundError as e:
+                logger.error(f"Configuration file not found: {env_file}")
+                raise
             except Exception as e:
-                logger.warning(f"Failed to load config from {config_path}: {e}. Using environment/defaults.")
+                logger.warning(f"Failed to load config from {env_file}: {e}. Using environment/defaults.")
                 self.config = load_config_from_env()
         else:
             self.config = load_config_from_env()
