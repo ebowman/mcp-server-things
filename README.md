@@ -295,19 +295,17 @@ python -m things_mcp.main --test-applescript
 
 ## Contributing
 
-Contributions are welcome. Please see the [Developer Guide](docs/DEVELOPER_GUIDE.md) for details on:
+Contributions are welcome! Please follow these guidelines:
 
-- Setting up development environment
-- Code style and standards
-- Testing procedures
-- Submitting pull requests
+- Set up a virtual environment and install dependencies
+- Follow existing code style and patterns
+- Add tests for new features
+- Submit pull requests with clear descriptions
 
 ## Documentation
 
-- [User Guide](docs/USER_GUIDE.md) - Detailed usage instructions
-- [Developer Guide](docs/DEVELOPER_GUIDE.md) - Development and contribution guide
-- [API Reference](docs/API_REFERENCE.md) - Complete MCP tool documentation
-- [Concurrency Guide](docs/CONCURRENCY_GUIDE.md) - Multi-client concurrency and performance
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [Development Roadmap](docs/ROADMAP.md) - Implementation status and missing features
 
 ## License
 
