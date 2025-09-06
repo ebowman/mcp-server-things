@@ -38,7 +38,6 @@ pytest --cov=src/things_mcp     # With coverage
 src/things_mcp/     # Source code
 tests/              # Test files  
 docs/               # Documentation
-examples/           # Usage examples
 ```
 
 ### AppleScript Integration

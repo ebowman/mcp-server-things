@@ -43,14 +43,20 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "command": "/path/to/mcp-server-things/venv/bin/python",
       "args": ["-m", "things_mcp"],
       "env": {
-        "PYTHONPATH": "/path/to/mcp-server-things/src"
+        "PYTHONPATH": "/path/to/mcp-server-things/src",
+        "THINGS_MCP_LOG_LEVEL": "INFO",
+        "THINGS_MCP_TIMEOUT": "30",
+        "THINGS_MCP_CACHE_TTL": "300"
       }
     }
   }
 }
 ```
 
-**Note:** When installing from source, use the full path to the Python executable in your virtual environment.
+**Note:** 
+- Replace `/path/to/mcp-server-things` with your actual installation path
+- Use the full path to the Python executable in your virtual environment
+- Adjust environment variables as needed (see `.env.example` for all options)
 
 ![Demo showing Claude creating tasks in Things 3](demo.gif)
 *Creating tasks with natural language through Claude*
@@ -242,7 +248,6 @@ Contributions are welcome. Please see the [Developer Guide](docs/DEVELOPER_GUIDE
 - [Developer Guide](docs/DEVELOPER_GUIDE.md) - Development and contribution guide
 - [API Reference](docs/API_REFERENCE.md) - Complete MCP tool documentation
 - [Concurrency Guide](docs/CONCURRENCY_GUIDE.md) - Multi-client concurrency and performance
-- [Examples](examples/) - Usage examples and templates
 
 ## License
 
