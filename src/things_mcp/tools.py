@@ -166,7 +166,7 @@ class ThingsTools:
                 
                 create_result = await self.applescript.execute_applescript(create_script, cache_key=None)
                 if create_result.get("success"):
-                    output = create_result.get("output", "")
+                    output = create_result.get("output") or ""
                     if output and output.strip():
                         # Parse the list of successfully created tags
                         try:
@@ -184,7 +184,7 @@ class ThingsTools:
                         # No output, likely all creations failed
                         logger.warning("Tag creation returned no results")
                 else:
-                    logger.warning(f"Batch tag creation failed: {create_result.get('error', 'Unknown error')}")
+                    logger.warning(f"Batch tag creation failed: {create_result.get('error') or 'Unknown error'}")
             
             result = {
                 'created': created_tags,
@@ -221,19 +221,19 @@ class ThingsTools:
                 'existing': [tag for tag in result.valid_tags if tag not in result.created_tags],
                 'filtered': result.filtered_tags,
                 'warnings': result.warnings,
-                'errors': result.errors
+                'errors': result.get('errors', [])
             }
             
             # Log warnings and errors
             for warning in result.warnings:
                 logger.warning(f"Tag validation: {warning}")
             
-            for error in result.errors:
+            for error in result.get('errors', []):
                 logger.error(f"Tag validation: {error}")
             
             # If there are errors (from FAIL_ON_UNKNOWN policy), raise exception
-            if result.errors:
-                raise ValueError(f"Tag validation failed: {'; '.join(result.errors)}")
+            if result.get('errors'):
+                raise ValueError(f"Tag validation failed: {'; '.join(result.get('errors', []))}")
             
             return legacy_result
             
@@ -375,12 +375,12 @@ class ThingsTools:
             '''
             
             result = await self.applescript.execute_applescript(script)
-            if result.get("success") and "deadline_set" in result.get("output", ""):
+            if result.get("success") and "deadline_set" in (result.get("output") or ""):
                 logger.info(f"Successfully set deadline {deadline_date} for todo {todo_id}")
                 return {"success": True, "deadline": deadline_date}
             else:
-                logger.warning(f"Failed to set deadline: {result.get('output', 'Unknown error')}")
-                return {"success": False, "error": result.get("output", "Unknown error")}
+                logger.warning(f"Failed to set deadline: {result.get('output') or 'Unknown error'}")
+                return {"success": False, "error": result.get('output') or "Unknown error"}
                 
         except Exception as e:
             logger.error(f"Error setting deadline: {e}")
@@ -607,7 +607,7 @@ class ThingsTools:
                 }
                 
                 result = await self.applescript.execute_url_scheme('update', parameters)
-                if result.get('success'):
+                if result.get("success"):
                     logger.info(f"Successfully scheduled todo {todo_id} using URL scheme")
                     return {
                         "success": True,
@@ -666,7 +666,7 @@ class ThingsTools:
             '''
             
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            if result.get("success") and "scheduled" in result.get("output", ""):
+            if result.get("success") and "scheduled" in (result.get("output") or ""):
                 logger.info(f"Successfully scheduled todo {todo_id} using AppleScript objects")
                 return {
                     "success": True,
@@ -695,7 +695,7 @@ class ThingsTools:
             '''
             
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            if result.get("success") and "moved" in result.get("output", ""):
+            if result.get('success') and "moved" in (result.get('output') or ""):
                 logger.info(f"Fallback: moved todo {todo_id} to {target_list} list")
                 return {
                     "success": True,
@@ -850,17 +850,16 @@ class ThingsTools:
                         parameters={"url_override": url_scheme}
                     )
                     
-                    if url_result.get("success"):
+                    if url_result.get('success'):
                         # URL scheme doesn't return the todo ID directly, so we need to find it
                         # This is a limitation - for now return success without specific ID
-                        logger.info(f"Successfully created todo with reminder using URL scheme: {url_result.get('url')}")
+                        logger.info(f"Successfully created todo with reminder using URL scheme")
                         return {
                             "success": True,
                             "message": f"Todo '{title}' created with reminder at {parsed_when.split('@')[1] if '@' in parsed_when else 'unknown time'}",
                             "reminder_time": parsed_when.split('@')[1] if '@' in parsed_when else None,
                             "method": "url_scheme",
                             "todo_id": "created_via_url_scheme",  # URL scheme limitation
-                            "url_used": url_result.get('url'),  # For debugging
                             "created_tags": created_tags,
                             "existing_tags": existing_tags,
                             "filtered_tags": filtered_tags,
@@ -973,8 +972,8 @@ class ThingsTools:
             
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
-            if result.get("success"):
-                output = result.get("output", "").strip()
+            if result.get('success'):
+                output = (result.get('output') or "").strip()
                 
                 if output.startswith("error:"):
                     logger.error(f"Failed to create todo: {output}")
@@ -1082,7 +1081,7 @@ class ThingsTools:
                 logger.error(f"Failed to create todo: {result.get('error')}")
                 return {
                     "success": False,
-                    "error": result.get("error", "Unknown error")
+                    "error": result.get('error') or "Unknown error"
                 }
         
         except Exception as e:
@@ -1292,16 +1291,16 @@ class ThingsTools:
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
             # Invalidate caches after successful update
-            if result.get("success"):
+            if result.get('success'):
                 _invalidate_caches_after_update()
             
             # Handle scheduling separately using reliable method
             scheduling_result = None
-            if result.get("success") and when is not None:
+            if result.get('success') and when is not None:
                 scheduling_result = await self._schedule_todo_reliable(todo_id, when)
             
-            if result.get("success"):
-                output = result.get("output", "")
+            if result.get('success'):
+                output = result.get('output') or ""
                 if "updated" in output:
                     # Build informative message
                     message_parts = ["Todo updated successfully"]
@@ -1351,7 +1350,7 @@ class ThingsTools:
                 logger.error(f"Failed to execute AppleScript for todo update: {result.get('error')}")
                 return {
                     "success": False,
-                    "error": result.get("error", "AppleScript execution failed")
+                    "error": result.get('error') or "AppleScript execution failed"
                 }
         
         except Exception as e:
@@ -1379,9 +1378,9 @@ class ThingsTools:
             # Don't cache individual todo fetches as they can change frequently
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
-            if result.get("success"):
+            if result.get('success'):
                 # Parse the result using our AppleScript parser
-                raw_records = self.applescript._parse_applescript_list(result.get("output", ""))
+                raw_records = self.applescript._parse_applescript_list(result.get('output') or "")
                 
                 if raw_records:
                     record = raw_records[0]  # Should be just one record
@@ -1459,7 +1458,7 @@ class ThingsTools:
             
             result = await self.applescript.execute_applescript(script)
             
-            if result.get("success"):
+            if result.get('success'):
                 logger.info(f"Successfully deleted todo: {todo_id}")
                 return {
                     "success": True,
@@ -1471,7 +1470,7 @@ class ThingsTools:
                 logger.error(f"Failed to delete todo: {result.get('error')}")
                 return {
                     "success": False,
-                    "error": result.get("error", "Unknown error")
+                    "error": result.get('error') or "Unknown error"
                 }
         
         except Exception as e:
@@ -1678,9 +1677,9 @@ class ThingsTools:
             # Execute the project creation script
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
-            if result.get("success") and not result.get("output", "").startswith("error:"):
+            if result.get('success') and not (result.get('output') or "").startswith("error:"):
                 # Parse the project info
-                output = result.get("output", "")
+                output = result.get('output') or ""
                 project_id = None
                 
                 # Extract project ID from the response
@@ -1745,7 +1744,7 @@ class ThingsTools:
                     "tags_existing": existing_tags
                 }
             else:
-                error_msg = result.get("output", "Unknown error")
+                error_msg = result.get('output') or "Unknown error"
                 if error_msg.startswith("error:"):
                     error_msg = error_msg[6:].strip()
                 logger.error(f"Failed to create project: {error_msg}")
@@ -1807,7 +1806,7 @@ class ThingsTools:
                 canceled=canceled
             )
             
-            if result.get("success"):
+            if result.get('success'):
                 logger.info(f"Successfully updated project: {project_id}")
                 return {
                     "success": True,
@@ -1816,7 +1815,7 @@ class ThingsTools:
                     "updated_at": datetime.now().isoformat()
                 }
             else:
-                error_msg = result.get("error", "Unknown error")
+                error_msg = result.get('error') or "Unknown error"
                 logger.error(f"Failed to update project: {error_msg}")
                 return {
                     "success": False,
@@ -1954,9 +1953,9 @@ class ThingsTools:
             cache_key = f"logbook_period_{period}_limit_{limit}"
             result = await self.applescript.execute_applescript(script, cache_key)
             
-            if result.get("success"):
+            if result.get('success'):
                 # Parse using existing parser
-                todos = self._parse_applescript_todos(result.get("output", ""))
+                todos = self._parse_applescript_todos((result.get('output') or ""))
                 
                 # Add period context
                 for todo in todos:
@@ -2011,7 +2010,7 @@ class ThingsTools:
             result = await self.applescript.execute_applescript(script, "tags_all")
             
             if result.get("success"):
-                output = result.get("output", "")
+                output = (result.get("output") or "")
                 tags = []
                 
                 if output and output.strip():
@@ -2116,8 +2115,8 @@ class ThingsTools:
             
             result = await self.applescript.execute_applescript(script, f"tagged_items_{tag}")
             
-            if result.get("success"):
-                output = result.get("output", "")
+            if result.get('success'):
+                output = (result.get('output') or "")
                 items = []
                 
                 if output and output.strip():
@@ -2230,7 +2229,7 @@ class ThingsTools:
             
             if result.get("success"):
                 # Parse using existing parser
-                todos = self._parse_applescript_todos(result.get("output", ""))
+                todos = self._parse_applescript_todos((result.get("output") or ""))
                 
                 # Add search context
                 for todo in todos:
@@ -2382,9 +2381,9 @@ class ThingsTools:
             # No cache for advanced search to ensure fresh results
             result = await self.applescript.execute_applescript(script, None)
             
-            if result.get("success"):
+            if result.get('success'):
                 # Parse using existing parser
-                todos = self._parse_applescript_todos(result.get("output", ""))
+                todos = self._parse_applescript_todos((result.get('output') or ""))
                 
                 # Add filter context - be explicit about which parameters to include
                 filters = {}
@@ -2558,9 +2557,9 @@ class ThingsTools:
             # Don't cache this query as results change frequently
             result = await self.applescript.execute_applescript(script, cache_key=None)
             
-            if result.get("success"):
+            if result.get('success'):
                 # Parse the AppleScript output
-                raw_records = self.applescript._parse_applescript_list(result.get("output", ""))
+                raw_records = self.applescript._parse_applescript_list((result.get('output') or ""))
                 
                 # Convert to standardized format
                 items = []
@@ -2689,7 +2688,7 @@ class ThingsTools:
             )
             
             # Normalize the response format to maintain backward compatibility
-            if result.get("success"):
+            if result.get('success'):
                 return {
                     "success": True,
                     "message": result.get("message", f"Todo moved to {destination_list} successfully"),
@@ -2701,7 +2700,7 @@ class ThingsTools:
             else:
                 return {
                     "success": False,
-                    "error": result.get("error", "MOVE_FAILED"),
+                    "error": result.get('error'),
                     "message": result.get("message", "Failed to move todo"),
                     "todo_id": todo_id,
                     "destination_list": destination_list
@@ -2793,9 +2792,9 @@ class ThingsTools:
             cache_key = f"list_{list_name}_limit_{limit}" if limit else f"list_{list_name}_all"
             result = await self.applescript.execute_applescript(script, cache_key)
             
-            if result.get("success"):
+            if result.get('success'):
                 # Parse the AppleScript output
-                todos = self._parse_applescript_todos(result.get("output", ""))
+                todos = self._parse_applescript_todos((result.get('output') or ""))
                 
                 # Native AppleScript limiting applied - no post-processing needed
                 logger.info(f"Retrieved {len(todos)} todos from {list_name} (native limit: {limit or 'none'})")
@@ -2971,6 +2970,10 @@ class ThingsTools:
         """
         if not time_str:
             return False
+        
+        # Reject strings with leading/trailing whitespace
+        if time_str != time_str.strip():
+            return False
             
         try:
             # Expected format: HH:MM or H:MM
@@ -2982,6 +2985,11 @@ class ThingsTools:
                 return False
                 
             hour, minute = parts
+            
+            # Check that hour and minute don't have spaces
+            if hour != hour.strip() or minute != minute.strip():
+                return False
+                
             hour_int = int(hour)
             minute_int = int(minute)
             

@@ -63,6 +63,7 @@ class Tag(BaseThingsModel):
     id: Optional[str] = Field(None, description="Unique tag identifier")
     name: str = Field(..., description="Tag name", min_length=1, max_length=100)
     parent_tag: Optional['Tag'] = Field(None, description="Parent tag for hierarchical tags")
+    parent_tag_name: Optional[str] = Field(None, description="Parent tag name (alternative to parent_tag object)")
     keyboard_shortcut: Optional[str] = Field(None, description="Keyboard shortcut for the tag")
     
     @validator('name')
@@ -351,6 +352,7 @@ class TodoResult(BaseThingsModel):
     success: bool = Field(..., description="Whether operation succeeded")
     message: str = Field(..., description="Human-readable message")
     todo: Optional[Todo] = Field(None, description="Todo object if applicable")
+    todos: Optional[List[Todo]] = Field(None, description="List of todos if applicable")
     todo_id: Optional[str] = Field(None, description="Todo ID if applicable")
     error: Optional[str] = Field(None, description="Error code if failed")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional details")

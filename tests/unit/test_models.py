@@ -6,11 +6,11 @@ for Todo, Project, Area, and other model classes.
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, Any
 from pydantic import ValidationError
 
-from src.things_mcp.models import (
+from things_mcp.models import (
     Todo, Project, Area, Tag, Contact, TodoResult, ServerStats
 )
 
@@ -129,7 +129,7 @@ class TestProjectModel:
     
     def test_project_inherits_from_base(self):
         """Test Project model inherits from BaseThingsModel."""
-        from src.things_mcp.models.things_models import BaseThingsModel
+        from things_mcp.models.things_models import BaseThingsModel
         assert issubclass(Project, BaseThingsModel)
     
     def test_project_creation(self, sample_project_data):
@@ -160,7 +160,7 @@ class TestAreaModel:
         assert area.name == "Test Area"
         assert area.collapsed is False  # Default value
         assert area.id is None
-        assert area.tag_names is None
+        assert area.tag_names == []  # Default is empty list, not None
     
     def test_area_creation_full(self, sample_area_data):
         """Test creating area with full data."""
@@ -413,28 +413,35 @@ class TestModelJSONHandling:
     def test_datetime_json_encoding(self):
         """Test datetime fields are properly JSON encoded."""
         now = datetime.now()
+        tomorrow = (now + timedelta(days=1)).date()  # Convert to date
         todo = Todo(
             name="Test",
             creation_date=now,
-            due_date=now + timedelta(days=1)
+            due_date=tomorrow
         )
         
         json_data = todo.model_dump()
         
         # Datetime fields should be serialized to ISO format strings
         assert isinstance(json_data["creation_date"], datetime)
-        assert isinstance(json_data["due_date"], datetime)
+        assert isinstance(json_data["due_date"], date)
     
     def test_optional_fields_serialization(self):
         """Test that optional fields serialize correctly when None."""
         todo = Todo(name="Test")
         json_data = todo.model_dump()
         
-        # Optional fields should be included even if None
-        optional_fields = ["notes", "due_date", "tag_names", "area_name"]
-        for field in optional_fields:
+        # Optional fields should be included even if None/empty
+        none_fields = ["notes", "due_date", "area_name"]
+        list_fields = ["tag_names", "checklist_items"]
+        
+        for field in none_fields:
             assert field in json_data
             assert json_data[field] is None
+        
+        for field in list_fields:
+            assert field in json_data
+            assert json_data[field] == []
 
 
 class TestModelValidationEdgeCases:
@@ -491,6 +498,7 @@ class TestModelValidationEdgeCases:
         old_date = datetime(1900, 1, 1)
         # Very future date
         future_date = datetime(2100, 12, 31)
+        future_date_as_date = future_date.date()  # Convert to date for due_date field
         
         todo = Todo(
             name="Test",
@@ -499,10 +507,10 @@ class TestModelValidationEdgeCases:
         )
         
         assert todo.creation_date == old_date
-        assert todo.due_date == future_date
+        assert todo.due_date == future_date_as_date
         
         # Should serialize correctly
         json_data = todo.model_dump()
         restored = Todo(**json_data)
         assert restored.creation_date == old_date
-        assert restored.due_date == future_date
+        assert restored.due_date == future_date_as_date
