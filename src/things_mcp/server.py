@@ -26,11 +26,6 @@ from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +51,9 @@ class ThingsMCPServer:
         else:
             self.config = load_config_from_env()
         
+        # Configure logging based on config
+        self._configure_logging()
+        
         self.applescript_manager = AppleScriptManager()
         self.tools = ThingsTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()
@@ -63,6 +61,44 @@ class ThingsMCPServer:
         self._register_tools()
         self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized with context-aware response management and tag validation support")
+    
+    def _configure_logging(self):
+        """Configure logging based on configuration settings."""
+        # Get root logger
+        root_logger = logging.getLogger()
+        
+        # Set log level from config
+        root_logger.setLevel(self.config.log_level.value)
+        
+        # Clear any existing handlers to avoid duplicates
+        root_logger.handlers.clear()
+        
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        # Add file handler if configured
+        if self.config.log_file_path:
+            try:
+                # Ensure log directory exists
+                self.config.log_file_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                file_handler = logging.FileHandler(self.config.log_file_path)
+                file_handler.setFormatter(formatter)
+                root_logger.addHandler(file_handler)
+                logger.info(f"Logging to file: {self.config.log_file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to setup file logging: {e}")
+                # Fall back to console logging
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(formatter)
+                root_logger.addHandler(console_handler)
+        else:
+            # Console handler for stdout
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            root_logger.addHandler(console_handler)
 
     def _register_shutdown_handlers(self):
         """Register shutdown handlers for graceful cleanup."""

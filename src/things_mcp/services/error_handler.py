@@ -58,9 +58,8 @@ class ErrorHandler:
     - Error statistics and reporting
     """
     
-    def __init__(self, enable_detailed_logging: bool = True):
+    def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.enable_detailed_logging = enable_detailed_logging
         
         # Error statistics
         self.error_stats = {
@@ -346,7 +345,7 @@ class ErrorHandler:
             operation=context.operation,
             parameters=context.parameters,
             retry_count=context.retry_count,
-            stack_trace=traceback.format_exc() if self.enable_detailed_logging else None
+            stack_trace=traceback.format_exc() if self.logger.isEnabledFor(logging.DEBUG) else None
         )
     
     async def _log_error(

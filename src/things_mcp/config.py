@@ -118,22 +118,12 @@ class ThingsMCPConfig(BaseSettings):
     # Logging configuration
     log_level: LogLevel = Field(
         default=LogLevel.INFO,
-        description="Logging level"
-    )
-    
-    enable_detailed_logging: bool = Field(
-        default=False,
-        description="Enable detailed logging including stack traces"
-    )
-    
-    enable_debug_logging: bool = Field(
-        default=False,
-        description="Enable debug logging"
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
     
     log_file_path: Optional[Path] = Field(
         default=None,
-        description="Path to log file (if None, logs to stdout)"
+        description="Path to log file (if None, logs to console only)"
     )
     
     # Validation configuration
@@ -357,7 +347,6 @@ class ThingsMCPConfig(BaseSettings):
         # Example environment variables:
         # THINGS_MCP_APPLESCRIPT_TIMEOUT=60.0
         # THINGS_MCP_CACHE_MAX_SIZE=2000
-        # THINGS_MCP_ENABLE_DEBUG_LOGGING=true
         # THINGS_MCP_ALLOWED_HOSTS=["localhost","127.0.0.1"]  # JSON array format
         # THINGS_MCP_TAG_CREATION_POLICY=allow_all
         # THINGS_MCP_TAG_POLICY_STRICT_MODE=false
@@ -449,7 +438,6 @@ class ThingsMCPConfig(BaseSettings):
     def is_development_mode(self) -> bool:
         """Check if running in development mode"""
         return (
-            self.enable_debug_logging or 
             self.enable_mock_mode or 
             self.enable_experimental_features
         )
@@ -505,8 +493,6 @@ class ThingsMCPConfig(BaseSettings):
 class DevelopmentConfig(ThingsMCPConfig):
     """Development environment configuration"""
     
-    enable_debug_logging: bool = True
-    enable_detailed_logging: bool = True
     cache_default_ttl: int = 60  # Shorter TTL for development
     enable_experimental_features: bool = True
     log_level: LogLevel = LogLevel.DEBUG
@@ -515,8 +501,6 @@ class DevelopmentConfig(ThingsMCPConfig):
 class ProductionConfig(ThingsMCPConfig):
     """Production environment configuration"""
     
-    enable_debug_logging: bool = False
-    enable_detailed_logging: bool = False
     applescript_timeout: float = 60.0  # Longer timeout for production
     cache_max_size: int = 2000  # Larger cache for production
     log_level: LogLevel = LogLevel.INFO

@@ -140,7 +140,7 @@ The server can be configured using environment variables. A complete example con
    
    # Logging
    THINGS_MCP_LOG_LEVEL=INFO                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
-   THINGS_MCP_ENABLE_DEBUG_LOGGING=false
+   THINGS_MCP_LOG_FILE_PATH=/path/to/file.log # Optional: log to file instead of console
    
    # Validation limits
    THINGS_MCP_MAX_TITLE_LENGTH=500
@@ -155,6 +155,30 @@ The server automatically loads environment variables in this order:
 1. System environment variables
 2. `.env` file in the project root (if using python-dotenv)
 3. Variables specified in Claude Desktop config
+
+### Command Line Options
+
+The server supports several command-line options:
+
+```bash
+# Start with debug logging
+python -m things_mcp --debug
+
+# Use a configuration file (JSON format)
+python -m things_mcp --config /path/to/config.json
+
+# Check system health
+python -m things_mcp --health-check
+
+# Test AppleScript connectivity
+python -m things_mcp --test-applescript
+
+# Show version
+python -m things_mcp --version
+
+# Customize timeout and retry settings
+python -m things_mcp --timeout 60 --retry-count 5
+```
 
 ### Claude Desktop Environment Variables
 

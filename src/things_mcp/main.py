@@ -11,11 +11,6 @@ from typing import Optional
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
@@ -37,16 +32,20 @@ class ServerManager:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
-    def start(self, debug: bool = False, timeout: int = 30, retry_count: int = 3):
+    def start(self, debug: bool = False, timeout: int = 30, retry_count: int = 3, config_path: Optional[str] = None):
         """Start the MCP server.
         
         Args:
             debug: Enable debug logging
             timeout: AppleScript timeout in seconds
             retry_count: Number of retries for failed operations
+            config_path: Optional path to configuration file
         """
         try:
-            # Configure logging level
+            # Create server first (it will configure logging)
+            self.server = ThingsMCPServer(config_path=config_path)
+            
+            # Override with debug if specified
             if debug:
                 logging.getLogger().setLevel(logging.DEBUG)
                 logger.debug("Debug logging enabled")
@@ -61,8 +60,7 @@ class ServerManager:
             else:
                 logger.info("Things 3 detected and accessible")
             
-            # Create and start server
-            self.server = ThingsMCPServer()
+            # Mark as running
             self.running = True
             
             logger.info("Starting Things 3 MCP Server...")
@@ -128,6 +126,12 @@ Environment:
         type=int,
         default=3,
         help="Number of retries for failed operations (default: 3)"
+    )
+    
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to configuration file (JSON format)"
     )
     
     # Utility commands
@@ -285,6 +289,13 @@ def main():
     if args.test_applescript:
         return test_applescript_connectivity(args.timeout, args.retry_count)
     
+    # Configure basic logging if no server will do it
+    if args.version or args.health_check or args.test_applescript:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    
     # Start the server
     server_manager = ServerManager()
     
@@ -292,7 +303,8 @@ def main():
         server_manager.start(
             debug=args.debug,
             timeout=args.timeout,
-            retry_count=args.retry_count
+            retry_count=args.retry_count,
+            config_path=args.config
         )
         return 0
     
