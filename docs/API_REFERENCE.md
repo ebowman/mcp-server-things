@@ -2,7 +2,7 @@
 
 Complete reference documentation for all MCP tools provided by the Things 3 MCP server.
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Overview](#overview)
 2. [Data Models](#data-models)
@@ -15,7 +15,7 @@ Complete reference documentation for all MCP tools provided by the Things 3 MCP 
 9. [System Tools](#system-tools)
 10. [Error Handling](#error-handling)
 
-## 🔍 Overview
+## Overview
 
 The Things 3 MCP server provides 20+ tools for comprehensive task management integration. All tools follow consistent patterns for parameters, responses, and error handling.
 
@@ -50,7 +50,7 @@ Error responses follow this structure:
 }
 ```
 
-## 📊 Data Models
+## Data Models
 
 ### Todo Object
 
@@ -131,7 +131,7 @@ interface ChecklistItem {
 }
 ```
 
-## 📝 Todo Management Tools
+## Todo Management Tools
 
 ### get_todos
 
@@ -315,7 +315,7 @@ Delete a todo from Things.
 }
 ```
 
-## 📂 Project Management Tools
+## Project Management Tools
 
 ### get_projects
 
@@ -379,7 +379,7 @@ Update an existing project in Things.
 
 **Returns:** Project update result
 
-## 🏢 Area Management Tools
+## Area Management Tools
 
 ### get_areas
 
@@ -419,7 +419,7 @@ Get all areas from Things.
 }
 ```
 
-## 📋 List Access Tools
+## List Access Tools
 
 ### get_inbox
 
@@ -498,7 +498,7 @@ Get trashed todos.
 
 **Returns:** `Todo[]`
 
-## 🔍 Search & Tag Tools
+## Search & Tag Tools
 
 ### search_todos
 
@@ -603,7 +603,7 @@ Get recently created items.
 }
 ```
 
-## 🧭 Navigation Tools
+## Navigation Tools
 
 ### show_item
 
@@ -655,7 +655,7 @@ Search for items in Things.
 }
 ```
 
-## 🔧 System Tools
+## System Tools
 
 ### health_check
 
@@ -689,7 +689,7 @@ Check server health and Things 3 connectivity.
 }
 ```
 
-## ⚠️ Error Handling
+## Error Handling
 
 ### Error Codes
 

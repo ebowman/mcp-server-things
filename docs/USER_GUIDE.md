@@ -2,7 +2,7 @@
 
 A comprehensive guide to using the Things 3 MCP server for task management integration.
 
-## 📖 Table of Contents
+## Table of Contents
 
 1. [Installation & Setup](#installation--setup)
 2. [Configuration](#configuration)
@@ -12,7 +12,7 @@ A comprehensive guide to using the Things 3 MCP server for task management integ
 6. [Best Practices](#best-practices)
 7. [Troubleshooting](#troubleshooting)
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 
@@ -57,10 +57,10 @@ pip install things-mcp-server
 python -m things_mcp.main --health-check
 
 # Expected output:
-# ✓ AppleScript available
-# ✓ Things 3 is running and accessible
-# ✓ AppleScript execution working
-# ✓ Health check completed successfully
+# AppleScript available
+# Things 3 is running and accessible
+# AppleScript execution working
+# Health check completed successfully
 ```
 
 ### Step 4: Claude Desktop Integration
@@ -82,7 +82,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -132,7 +132,7 @@ logging:
   backup_count: 5
 ```
 
-## 🔧 Available MCP Tools
+## Available MCP Tools
 
 ### Todo Management Tools
 
@@ -418,7 +418,7 @@ health = await client.call_tool("health_check")
 # Returns: server_status, things_running, applescript_available, timestamp
 ```
 
-## 💡 Usage Examples
+## Usage Examples
 
 ### Daily Task Management
 
@@ -525,7 +525,7 @@ async def batch_todo_creation():
         )
 ```
 
-## 🔗 Integration Patterns
+## Integration Patterns
 
 ### Claude Desktop Integration
 
@@ -589,7 +589,7 @@ async def get_today_todos():
     return await things_server.tools.get_today()
 ```
 
-## 📋 Best Practices
+## Best Practices
 
 ### Performance Optimization
 
@@ -693,7 +693,7 @@ async def consistent_tagging():
     )
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -819,7 +819,7 @@ async def monitor_performance():
     print(f"Cache stats: {health.get('cache_stats', {})}")
 ```
 
-## 📞 Support
+## Support
 
 If you encounter issues not covered in this guide:
 

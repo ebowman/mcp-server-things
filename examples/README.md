@@ -2,7 +2,7 @@
 
 This directory contains practical examples, configuration templates, and integration scripts for the Things 3 MCP server.
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```
 examples/
@@ -24,7 +24,7 @@ examples/
     └── mcp_client_example.py
 ```
 
-## 🚀 Quick Start Examples
+## Quick Start Examples
 
 ### Basic Todo Creation
 
@@ -59,7 +59,7 @@ async def daily_review():
         overdue = await session.call_tool(
             "search_advanced",
             status="incomplete",
-            deadline="2024-01-01"  # Items with past deadlines
+            deadline="yesterday"  # Items with past deadlines
         )
         
         # Check inbox items
@@ -81,7 +81,7 @@ async def create_project_with_tasks():
             title="Website Redesign",
             notes="Complete overhaul of company website",
             area_title="Marketing",
-            deadline="2024-03-01",
+            deadline="next-month",
             todos=[
                 "Research competitor websites",
                 "Create wireframes",
@@ -96,7 +96,7 @@ async def create_project_with_tasks():
 asyncio.run(create_project_with_tasks())
 ```
 
-## ⚙️ Configuration Examples
+## Configuration Examples
 
 ### Claude Desktop Basic Configuration
 
@@ -172,7 +172,7 @@ performance:
   url_scheme_timeout: 10
 ```
 
-## 🔧 Utility Scripts
+## Utility Scripts
 
 ### Daily Review Script
 
@@ -188,12 +188,12 @@ from mcp import ClientSession
 async def daily_review():
     """Perform daily todo review."""
     async with ClientSession() as session:
-        print("🌅 Daily Things Review")
+        print("Daily Things Review")
         print("=" * 40)
         
         # Today's tasks
         today = await session.call_tool("get_today")
-        print(f"📅 Today's tasks: {len(today)}")
+        print(f"Today's tasks: {len(today)}")
         
         if today:
             for todo in today[:5]:  # Show first 5
@@ -210,23 +210,23 @@ async def daily_review():
         )
         
         if overdue:
-            print(f"⚠️  Overdue tasks: {len(overdue)}")
+            print(f"Overdue tasks: {len(overdue)}")
             for todo in overdue[:3]:
                 print(f"  • {todo['title']} (due: {todo.get('deadline', 'unknown')})")
         
         # Inbox items
         inbox = await session.call_tool("get_inbox")
         if inbox:
-            print(f"📥 Inbox items to process: {len(inbox)}")
+            print(f"Inbox items to process: {len(inbox)}")
         
         # Recent completions
         completed = await session.call_tool("get_logbook", period="1d", limit=5)
         if completed:
-            print(f"✅ Completed yesterday: {len(completed)}")
+            print(f"Completed yesterday: {len(completed)}")
             for todo in completed[:3]:
                 print(f"  • {todo['title']}")
         
-        print("\n🎯 Have a productive day!")
+        print("\nHave a productive day!")
 
 if __name__ == "__main__":
     asyncio.run(daily_review())
@@ -275,16 +275,16 @@ async def bulk_import_from_csv(csv_file: str):
                     
                     if result.get("success"):
                         imported += 1
-                        print(f"✓ Imported: {todo_params['title']}")
+                        print(f"Imported: {todo_params['title']}")
                     else:
                         failed += 1
-                        print(f"✗ Failed: {todo_params['title']} - {result.get('error')}")
+                        print(f"Failed: {todo_params['title']} - {result.get('error')}")
                 
                 except Exception as e:
                     failed += 1
-                    print(f"✗ Error processing row {reader.line_num}: {e}")
+                    print(f"Error processing row {reader.line_num}: {e}")
         
-        print(f"\n📊 Import Summary:")
+        print(f"\nImport Summary:")
         print(f"  Imported: {imported}")
         print(f"  Failed: {failed}")
         print(f"  Total: {imported + failed}")
@@ -369,7 +369,7 @@ async def create_project_from_template(template_name: str, project_title: str = 
     title = project_title or template["title"]
     
     async with ClientSession() as session:
-        print(f"📋 Creating project: {title}")
+        print(f"Creating project: {title}")
         
         result = await session.call_tool(
             "add_project",
@@ -380,12 +380,12 @@ async def create_project_from_template(template_name: str, project_title: str = 
         )
         
         if result.get("success"):
-            print(f"✅ Project created successfully!")
+            print(f"Project created successfully!")
             print(f"   Title: {title}")
             print(f"   Tasks: {len(template['tasks'])}")
             print(f"   Tags: {', '.join(template['tags'])}")
         else:
-            print(f"❌ Failed to create project: {result.get('error')}")
+            print(f"Failed to create project: {result.get('error')}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -401,7 +401,7 @@ if __name__ == "__main__":
     asyncio.run(create_project_from_template(template_name, project_title))
 ```
 
-## 🔗 Integration Examples
+## Integration Examples
 
 ### Web API Server
 
@@ -519,11 +519,11 @@ async def run_things_client():
             # Initialize session
             await session.initialize()
             
-            print("🔗 Connected to Things MCP Server")
+            print("Connected to Things MCP Server")
             
             # Health check
             health = await session.call_tool("health_check")
-            print(f"📊 Health: {health}")
+            print(f"Health: {health}")
             
             # Create a todo
             todo_result = await session.call_tool(
@@ -533,18 +533,18 @@ async def run_things_client():
                 tags=["test", "mcp"],
                 when="today"
             )
-            print(f"✅ Created todo: {todo_result}")
+            print(f"Created todo: {todo_result}")
             
             # Get today's todos
             today_todos = await session.call_tool("get_today")
-            print(f"📅 Today's todos: {len(today_todos)}")
+            print(f"Today's todos: {len(today_todos)}")
             
             # Search for our todo
             search_results = await session.call_tool(
                 "search_todos",
                 query="MCP Client Test"
             )
-            print(f"🔍 Search results: {len(search_results)}")
+            print(f"Search results: {len(search_results)}")
             
             # Create a project
             project_result = await session.call_tool(
@@ -559,28 +559,28 @@ async def run_things_client():
                     "Document usage"
                 ]
             )
-            print(f"📁 Created project: {project_result}")
+            print(f"Created project: {project_result}")
             
             # Get all projects
             projects = await session.call_tool("get_projects", include_items=True)
-            print(f"📂 Total projects: {len(projects)}")
+            print(f"Total projects: {len(projects)}")
             
-            print("✨ MCP client example completed successfully!")
+            print("MCP client example completed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(run_things_client())
 ```
 
-## 📝 Sample Data Files
+## Sample Data Files
 
 ### CSV Import Template
 
 ```csv
 title,notes,tags,when,deadline,project
-"Review quarterly reports","Check Q4 financial data","work,finance","today","2024-01-20","Finance Review"
+"Review quarterly reports","Check Q4 financial data","work,finance","today","next-friday","Finance Review"
 "Team standup meeting","Daily sync with development team","work,meeting","today","","Development"
 "Buy groceries","Milk, bread, eggs","personal,shopping","","","Personal"
-"Prepare presentation","Include latest metrics and projections","work,presentation","tomorrow","2024-01-25","Marketing Campaign"
+"Prepare presentation","Include latest metrics and projections","work,presentation","tomorrow","next-week","Marketing Campaign"
 "Schedule dentist appointment","6-month checkup","personal,health","someday","","Personal"
 ```
 
@@ -638,7 +638,7 @@ title,notes,tags,when,deadline,project
 }
 ```
 
-## 🎯 Usage Tips
+## Usage Tips
 
 ### Best Practices
 

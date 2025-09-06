@@ -43,7 +43,7 @@ class ThingsMCPClient:
         await self.session.__aenter__()
         await self.session.initialize()
         
-        print("🔗 Connected to Things MCP Server")
+        print("Connected to Things MCP Server")
     
     async def disconnect(self):
         """Disconnect from the server."""
@@ -51,34 +51,34 @@ class ThingsMCPClient:
             await self.session.__aexit__(None, None, None)
         if hasattr(self, 'client_manager'):
             await self.client_manager.__aexit__(None, None, None)
-        print("🔌 Disconnected from server")
+        print("Disconnected from server")
     
     async def health_check(self) -> Dict[str, Any]:
         """Perform comprehensive health check."""
-        print("🏥 Running health check...")
+        print("Running health check...")
         
         try:
             health = await self.session.call_tool("health_check")
             
             if health.get("things_running"):
-                print("✅ Things 3 is running and accessible")
-                print(f"📊 Server status: {health.get('server_status')}")
+                print("Things 3 is running and accessible")
+                print(f"Server status: {health.get('server_status')}")
                 if "cache_stats" in health:
                     cache_stats = health["cache_stats"]
-                    print(f"💾 Cache hit rate: {cache_stats.get('hit_rate', 0):.1%}")
+                print(f"Cache hit rate: {cache_stats.get('hit_rate', 0):.1%}")
             else:
-                print("❌ Things 3 is not accessible")
+                print("Things 3 is not accessible")
                 return health
             
             return health
             
         except Exception as e:
-            print(f"❌ Health check failed: {e}")
+            print(f"Health check failed: {e}")
             return {"error": str(e)}
     
     async def demo_basic_operations(self):
         """Demonstrate basic CRUD operations."""
-        print("\n📝 Demo: Basic Todo Operations")
+        print("\nDemo: Basic Todo Operations")
         print("-" * 40)
         
         # Create a simple todo
@@ -91,11 +91,11 @@ class ThingsMCPClient:
         )
         
         if todo_result.get("success"):
-            print("✅ Simple todo created successfully")
+            print("Simple todo created successfully")
             if self.demo_mode:
                 self.created_items.append(("todo", "MCP Demo - Simple Todo"))
         else:
-            print(f"❌ Failed to create todo: {todo_result.get('error')}")
+            print(f"Failed to create todo: {todo_result.get('error')}")
             return
         
         # Create a todo with scheduling
@@ -110,7 +110,7 @@ class ThingsMCPClient:
         )
         
         if scheduled_result.get("success"):
-            print("✅ Scheduled todo created successfully")
+            print("Scheduled todo created successfully")
             if self.demo_mode:
                 self.created_items.append(("todo", "MCP Demo - Scheduled Task"))
         
@@ -118,16 +118,16 @@ class ThingsMCPClient:
         print("Retrieving today's todos...")
         today_todos = await self.session.call_tool("get_today")
         demo_todos = [t for t in today_todos if "MCP Demo" in t.get("title", "")]
-        print(f"📅 Found {len(demo_todos)} demo todos in today's list")
+        print(f"Found {len(demo_todos)} demo todos in today's list")
         
         # Search for our todos
         print("Searching for demo todos...")
         search_results = await self.session.call_tool("search_todos", query="MCP Demo")
-        print(f"🔍 Search found {len(search_results)} matching todos")
+        print(f"Search found {len(search_results)} matching todos")
     
     async def demo_project_management(self):
         """Demonstrate project creation and management."""
-        print("\n📁 Demo: Project Management")
+        print("\nDemo: Project Management")
         print("-" * 40)
         
         # Create a project with initial tasks
@@ -148,11 +148,11 @@ class ThingsMCPClient:
         )
         
         if project_result.get("success"):
-            print("✅ Project created with 5 initial tasks")
+            print("Project created with 5 initial tasks")
             if self.demo_mode:
                 self.created_items.append(("project", "MCP Demo Project"))
         else:
-            print(f"❌ Failed to create project: {project_result.get('error')}")
+            print(f"Failed to create project: {project_result.get('error')}")
             return
         
         # Add an additional task to the project
@@ -166,7 +166,7 @@ class ThingsMCPClient:
         )
         
         if additional_task.get("success"):
-            print("✅ Additional task added to project")
+            print("Additional task added to project")
             if self.demo_mode:
                 self.created_items.append(("todo", "Celebrate successful implementation"))
         
@@ -178,11 +178,11 @@ class ThingsMCPClient:
         if demo_projects:
             project = demo_projects[0]
             task_count = len(project.get("todos", []))
-            print(f"📊 Project verification: Found project with {task_count} tasks")
+            print(f"Project verification: Found project with {task_count} tasks")
     
     async def demo_advanced_search(self):
         """Demonstrate advanced search capabilities."""
-        print("\n🔍 Demo: Advanced Search")
+        print("\nDemo: Advanced Search")
         print("-" * 40)
         
         # Search by status
@@ -192,7 +192,7 @@ class ThingsMCPClient:
             status="incomplete",
             tag="demo"
         )
-        print(f"📋 Found {len(incomplete_tasks)} incomplete demo tasks")
+        print(f"Found {len(incomplete_tasks)} incomplete demo tasks")
         
         # Search by date range
         print("Searching for recently created items...")
@@ -201,7 +201,7 @@ class ThingsMCPClient:
             period="1d"
         )
         demo_recent = [item for item in recent_items if "MCP Demo" in item.get("title", "")]
-        print(f"🕐 Found {len(demo_recent)} demo items created in last 24 hours")
+        print(f"Found {len(demo_recent)} demo items created in last 24 hours")
         
         # Search by tag
         print("Searching for items with 'demo' tag...")
@@ -209,11 +209,11 @@ class ThingsMCPClient:
             "get_tagged_items",
             tag="demo"
         )
-        print(f"🏷️ Found {len(tagged_items)} items tagged with 'demo'")
+        print(f"Found {len(tagged_items)} items tagged with 'demo'")
     
     async def demo_list_access(self):
         """Demonstrate access to various Things lists."""
-        print("\n📋 Demo: List Access")
+        print("\nDemo: List Access")
         print("-" * 40)
         
         lists_to_check = [
@@ -227,20 +227,20 @@ class ThingsMCPClient:
         for list_name, tool_name in lists_to_check:
             try:
                 items = await self.session.call_tool(tool_name)
-                print(f"📂 {list_name.capitalize()}: {len(items)} items")
+                print(f"{list_name.capitalize()}: {len(items)} items")
             except Exception as e:
-                print(f"❌ Error accessing {list_name}: {e}")
+                print(f"Error accessing {list_name}: {e}")
         
         # Check logbook (completed items)
         try:
             completed = await self.session.call_tool("get_logbook", period="7d", limit=10)
-            print(f"✅ Logbook: {len(completed)} items completed in last 7 days")
+            print(f"Logbook: {len(completed)} items completed in last 7 days")
         except Exception as e:
-            print(f"❌ Error accessing logbook: {e}")
+            print(f"Error accessing logbook: {e}")
     
     async def demo_navigation(self):
         """Demonstrate navigation features."""
-        print("\n🧭 Demo: Navigation")
+        print("\nDemo: Navigation")
         print("-" * 40)
         
         # Show today's list in Things
@@ -251,9 +251,9 @@ class ThingsMCPClient:
         )
         
         if show_result.get("success"):
-            print("✅ Today's list opened in Things 3")
+            print("Today's list opened in Things 3")
         else:
-            print(f"❌ Failed to show today's list: {show_result.get('error')}")
+            print(f"Failed to show today's list: {show_result.get('error')}")
         
         # Search and show results
         print("Performing search in Things...")
@@ -263,13 +263,13 @@ class ThingsMCPClient:
         )
         
         if search_result.get("success"):
-            print("✅ Search results shown in Things 3")
+            print("Search results shown in Things 3")
         else:
-            print(f"❌ Search failed: {search_result.get('error')}")
+            print(f"Search failed: {search_result.get('error')}")
     
     async def demo_batch_operations(self):
         """Demonstrate efficient batch operations."""
-        print("\n⚡ Demo: Batch Operations")
+        print("\nDemo: Batch Operations")
         print("-" * 40)
         
         # Create multiple related todos efficiently
@@ -293,7 +293,7 @@ class ThingsMCPClient:
         )
         
         if batch_project.get("success"):
-            print(f"✅ Efficiently created project with {len(meeting_tasks)} tasks")
+            print(f"Efficiently created project with {len(meeting_tasks)} tasks")
             if self.demo_mode:
                 self.created_items.append(("project", "MCP Demo - Team Meeting"))
         
@@ -301,11 +301,11 @@ class ThingsMCPClient:
         print("Retrieving all tags...")
         tags = await self.session.call_tool("get_tags")
         demo_tags = [tag for tag in tags if tag.get("name") in ["demo", "mcp", "batch"]]
-        print(f"🏷️ Found {len(demo_tags)} demo-related tags")
+        print(f"Found {len(demo_tags)} demo-related tags")
     
     async def demo_error_handling(self):
         """Demonstrate error handling patterns."""
-        print("\n⚠️ Demo: Error Handling")
+        print("\nDemo: Error Handling")
         print("-" * 40)
         
         # Try to get a non-existent todo
@@ -315,9 +315,9 @@ class ThingsMCPClient:
                 "get_todo_by_id",
                 todo_id="non-existent-id"
             )
-            print("❌ Expected error but got success")
+            print("Expected error but got success")
         except Exception as e:
-            print(f"✅ Properly caught error: {type(e).__name__}")
+            print(f"Properly caught error: {type(e).__name__}")
         
         # Try to create todo with invalid date
         print("Testing validation with invalid date...")
@@ -328,16 +328,16 @@ class ThingsMCPClient:
         )
         
         if not invalid_date_result.get("success"):
-            print("✅ Date validation working properly")
+            print("Date validation working properly")
         else:
-            print("⚠️ Date validation may need improvement")
+            print("Date validation may need improvement")
     
     async def cleanup_demo_items(self):
         """Clean up items created during demo."""
         if not self.demo_mode or not self.created_items:
             return
         
-        print("\n🧹 Cleaning up demo items...")
+        print("\nCleaning up demo items...")
         print("-" * 40)
         
         # Search for demo items to get their IDs
@@ -352,21 +352,21 @@ class ThingsMCPClient:
                 )
                 if delete_result.get("success"):
                     cleaned_count += 1
-                    print(f"🗑️ Deleted: {todo['title']}")
+                    print(f"Deleted: {todo['title']}")
             except Exception as e:
-                print(f"❌ Failed to delete {todo['title']}: {e}")
+                print(f"Failed to delete {todo['title']}: {e}")
         
-        print(f"✅ Cleaned up {cleaned_count} demo items")
+        print(f"Cleaned up {cleaned_count} demo items")
     
     async def run_comprehensive_demo(self):
         """Run all demo sections."""
-        print("🚀 Starting comprehensive Things 3 MCP demo")
+        print("Starting comprehensive Things 3 MCP demo")
         print("=" * 50)
         
         # Health check first
         health = await self.health_check()
         if not health.get("things_running"):
-            print("❌ Cannot continue - Things 3 is not accessible")
+            print("Cannot continue - Things 3 is not accessible")
             return
         
         # Run all demo sections
@@ -378,11 +378,11 @@ class ThingsMCPClient:
         await self.demo_batch_operations()
         await self.demo_error_handling()
         
-        print("\n🎉 Demo completed successfully!")
+        print("\nDemo completed successfully!")
         print("=" * 50)
         
         if self.demo_mode:
-            cleanup = input("\n🧹 Clean up demo items? (y/N): ")
+            cleanup = input("\nClean up demo items? (y/N): ")
             if cleanup.lower().startswith('y'):
                 await self.cleanup_demo_items()
 
@@ -404,7 +404,7 @@ async def main():
         
         if args.cleanup:
             # Clean up mode
-            print("🧹 Cleanup mode - removing demo items...")
+            print("Cleanup mode - removing demo items...")
             demo_todos = await client.session.call_tool("search_todos", query="MCP Demo")
             
             cleaned = 0
@@ -413,20 +413,20 @@ async def main():
                     result = await client.session.call_tool("delete_todo", todo_id=todo["id"])
                     if result.get("success"):
                         cleaned += 1
-                        print(f"🗑️ Deleted: {todo['title']}")
+                        print(f"Deleted: {todo['title']}")
                 except Exception as e:
-                    print(f"❌ Failed to delete {todo['title']}: {e}")
+                    print(f"Failed to delete {todo['title']}: {e}")
             
-            print(f"✅ Cleaned up {cleaned} items")
+            print(f"Cleaned up {cleaned} items")
         else:
             # Normal demo mode
             await client.run_comprehensive_demo()
     
     except KeyboardInterrupt:
-        print("\n❌ Demo cancelled by user")
+        print("\nDemo cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Demo failed: {e}")
+        print(f"\nDemo failed: {e}")
         sys.exit(1)
     finally:
         await client.disconnect()

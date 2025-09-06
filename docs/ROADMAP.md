@@ -6,11 +6,11 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 
 ## Current Status
 
-- **✅ Implemented Features**: 25 operations (37% of total AppleScript capability)
-- **🚧 Missing Features**: 43 operations (63% of total AppleScript capability)
-- **📈 Target Coverage**: 70%+ with Critical and High priority features
+- **IMPLEMENTED**: 25 operations (37% of total AppleScript capability)
+- **MISSING**: 43 operations (63% of total AppleScript capability)
+- **TARGET COVERAGE**: 70%+ with Critical and High priority features
 
-## Recently Completed ✅
+## Recently Completed [DONE]
 
 - **move_record()** - Move todos/projects between lists, projects, areas (CRITICAL #1)
 - **Configurable limits** - Control result counts in search_advanced and get_logbook
@@ -21,11 +21,11 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 
 # DEVELOPMENT ROADMAP
 
-## 🚨 CRITICAL Priority (6 remaining)
+## CRITICAL Priority (6 remaining)
 *Essential workflow features that significantly impact daily productivity*
 
 ### 2. **schedule_todo()** - Schedule Command
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Critical
 - **Effort**: 2-3 hours
 - **AppleScript**: `schedule <reference> for <date>`
@@ -42,7 +42,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 - **Testing**: Date parsing, invalid dates, already scheduled todos
 
 ### 3. **edit_todo()** - Edit Command
-- **Status**: 🔴 Not Started  
+- **Status**: NOT STARTED  
 - **Priority**: Critical
 - **Effort**: 1-2 hours
 - **AppleScript**: `edit <to do>`
@@ -56,7 +56,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 - **Testing**: Invalid todo IDs, UI integration, Things focus
 
 ### 4. **show_item()** - Show Command  
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Critical
 - **Effort**: 1-2 hours
 - **AppleScript**: `show <reference>`
@@ -73,7 +73,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 - **Testing**: All item types, invalid IDs, UI focus
 
 ### 5. **parse_natural_language()** - Quicksilver Input
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Critical
 - **Effort**: 3-4 hours
 - **AppleScript**: `parse quicksilver input <text>`
@@ -90,7 +90,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 - **Testing**: Complex parsing, tags, dates, contacts, projects
 
 ### 6. **enhanced_todo_properties()** - Direct Property Access
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Critical  
 - **Effort**: 2-3 hours
 - **Missing Properties**: `activation date`, `due date` direct access, `contact` assignment
@@ -115,7 +115,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 - **Testing**: All property types, invalid values, property combinations
 
 ### 7. **enhanced_project_properties()** - Project Property Access
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Critical
 - **Effort**: 2-3 hours  
 - **Missing Properties**: `status` manipulation, `area` assignment via property
@@ -139,32 +139,32 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 
 ---
 
-## 🔥 HIGH Priority (12 features)
+## HIGH Priority (12 features)
 *Major functionality gaps that enable advanced workflows*
 
 ### Contact Management (4 operations)
 
 ### 8. **add_contact()** - Contact Creation
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 2-3 hours
 - **AppleScript**: `add contact named <text>`
 - **Implementation**: Contact creation and management system
 
 ### 9. **get_contacts()** - Contact Listing  
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 1-2 hours
 - **Purpose**: List all contacts with properties
 
 ### 10. **assign_contact_to_todo()** - Contact Assignment
-- **Status**: 🔴 Not Started  
+- **Status**: NOT STARTED  
 - **Priority**: High
 - **Effort**: 2-3 hours
 - **Purpose**: Assign people to todos for collaboration
 
 ### 11. **get_todos_by_contact()** - Contact-based Search
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High  
 - **Effort**: 1-2 hours
 - **Purpose**: Find todos assigned to specific people
@@ -172,19 +172,19 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### Advanced Tag Operations (3 operations)
 
 ### 12. **create_tag_with_properties()** - Rich Tag Creation
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 2-3 hours
 - **Purpose**: Create tags with shortcuts and hierarchy
 
 ### 13. **manage_tag_hierarchy()** - Tag Relationships
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 3-4 hours
 - **Purpose**: Create nested tag structures
 
 ### 14. **manage_tag_shortcuts()** - Keyboard Shortcuts  
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 1-2 hours
 - **Purpose**: Manage quick-access tag shortcuts
@@ -192,62 +192,62 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### Date and Schedule Management (5 operations)
 
 ### 15. **set_activation_date()** - Activation Date Control
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 1-2 hours
 - **Purpose**: Control when todos become active
 
 ### 16. **set_due_date_direct()** - Direct Due Date Access
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High  
 - **Effort**: 1-2 hours
 - **Purpose**: Direct date property modification
 
 ### 17. **set_start_date()** - Start Date Scheduling
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 1-2 hours  
 - **Purpose**: Control todo start dates independently
 
 ### 18. **search_by_date_range()** - Date Range Filtering
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 2-3 hours
 - **Purpose**: Find todos by date ranges and date properties
 
 ### 19. **get_schedule_status()** - Schedule Status Management
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: High
 - **Effort**: 1-2 hours
 - **Purpose**: Understand and control todo scheduling status
 
 ---
 
-## 🎯 MEDIUM Priority (14 features)
+## MEDIUM Priority (14 features)
 *Workflow enhancements and organizational improvements*
 
 ### Area Management Extensions (4 operations)
 
 ### 20. **create_area()** - Area Creation
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 1-2 hours
 - **Purpose**: Create new area containers
 
 ### 21. **set_area_properties()** - Area Configuration
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 1-2 hours
 - **Purpose**: Configure area display and organization
 
 ### 22. **assign_todo_to_area()** - Area-Todo Relationships
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 2-3 hours
 - **Purpose**: Organize todos within areas
 
 ### 23. **manage_area_hierarchy()** - Area Organization
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 3-4 hours
 - **Purpose**: Multi-level area organization
@@ -255,19 +255,19 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### Project Extensions (3 operations)
 
 ### 24. **manage_project_status()** - Project Lifecycle
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 2-3 hours
 - **Purpose**: Project lifecycle state management
 
 ### 25. **assign_project_to_area()** - Project Organization
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 1-2 hours
 - **Purpose**: Organize projects within areas
 
 ### 26. **complete_project_workflow()** - Project Finalization
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 3-4 hours
 - **Purpose**: Complete project finalization workflows
@@ -275,25 +275,25 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### Advanced Search and Filtering (4 operations)
 
 ### 27. **complex_search_filtering()** - Multi-Property Search
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 4-5 hours
 - **Purpose**: Complex search queries with multiple conditions
 
 ### 28. **comprehensive_property_search()** - Multi-Property Search
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 3-4 hours
 - **Purpose**: Search across all object properties simultaneously
 
 ### 29. **date_range_queries()** - Temporal Filtering
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 2-3 hours
 - **Purpose**: Find items within date ranges
 
 ### 30. **status_based_collections()** - Status-Based Queries
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 2-3 hours
 - **Purpose**: Efficient status-based queries
@@ -301,44 +301,44 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### List Management (3 operations)
 
 ### 31. **get_list_properties()** - List Introspection
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 1-2 hours
 - **Purpose**: Detailed list information and manipulation
 
 ### 32. **discover_all_lists()** - List Discovery
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 1-2 hours
 - **Purpose**: Discover and work with all Things lists
 
 ### 33. **list_specific_operations()** - List Customization
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Medium
 - **Effort**: 2-3 hours
 - **Purpose**: List-tailored operations
 
 ---
 
-## 🔧 LOW Priority (10 features)
+## LOW Priority (10 features)
 *Nice-to-have features for completeness*
 
 ### System Operations (3 operations)
 
 ### 34. **empty_trash()** - Trash Management
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 1 hour
 - **Purpose**: Clear deleted items permanently
 
 ### 35. **log_completed_now()** - Manual Logging
-- **Status**: 🔴 Not Started  
+- **Status**: NOT STARTED  
 - **Priority**: Low
 - **Effort**: 1 hour
 - **Purpose**: Force immediate logging of completed items
 
 ### 36. **print_operations()** - Report Generation
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 2-3 hours
 - **Purpose**: Generate printed reports
@@ -346,25 +346,25 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### UI Integration (4 operations)
 
 ### 37. **show_quick_entry_panel()** - UI Automation
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 2-3 hours
 - **Purpose**: Display Things quick entry UI with pre-filled data
 
 ### 38. **window_management()** - UI Control
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 3-4 hours
 - **Purpose**: Control Things UI display
 
 ### 39. **application_state_queries()** - Application Introspection
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 2-3 hours
 - **Purpose**: Query Things application state, preferences
 
 ### 40. **frontmost_application_detection()** - Context Awareness
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 1-2 hours
 - **Purpose**: Context-aware operations
@@ -372,19 +372,19 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 ### Advanced Parsing (3 operations)
 
 ### 41. **item_details_records()** - Batch Property Updates
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 3-4 hours
 - **Purpose**: Batch property updates via records
 
 ### 42. **complex_property_records()** - Bulk Operations
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 4-5 hours
 - **Purpose**: Efficient bulk property manipulation
 
 ### 43. **applescript_type_coercion()** - Type System
-- **Status**: 🔴 Not Started
+- **Status**: NOT STARTED
 - **Priority**: Low
 - **Effort**: 4-5 hours
 - **Purpose**: Advanced type conversion and coercion
@@ -393,19 +393,19 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 
 # IMPLEMENTATION STRATEGY
 
-## Phase 1: Core Workflow Features (Weeks 1-2)
+## Phase 1: Core Workflow Features (Immediate Priority)
 **Target: 70%+ API coverage**
-- ✅ move_record() (COMPLETED)
-- 🔲 schedule_todo() (2-3 hours)
-- 🔲 edit_todo() (1-2 hours)  
-- 🔲 show_item() (1-2 hours)
-- 🔲 parse_natural_language() (3-4 hours)
-- 🔲 enhanced_todo_properties() (2-3 hours)
-- 🔲 enhanced_project_properties() (2-3 hours)
+- [DONE] move_record() (COMPLETED)
+- [TODO] schedule_todo() (2-3 hours)
+- [TODO] edit_todo() (1-2 hours)  
+- [TODO] show_item() (1-2 hours)
+- [TODO] parse_natural_language() (3-4 hours)
+- [TODO] enhanced_todo_properties() (2-3 hours)
+- [TODO] enhanced_project_properties() (2-3 hours)
 
 **Estimated Total**: 11-17 hours
 
-## Phase 2: Advanced Features (Weeks 3-4)
+## Phase 2: Advanced Features (Secondary Priority)
 **Target: 85%+ API coverage**
 - Contact management (4 operations, 6-10 hours)
 - Advanced tag operations (3 operations, 6-9 hours)
@@ -413,7 +413,7 @@ This document tracks the development roadmap for the Things 3 MCP Server. Based 
 
 **Estimated Total**: 19-31 hours
 
-## Phase 3: Workflow Enhancements (Month 2)
+## Phase 3: Workflow Enhancements (Future Development)
 **Target: 95%+ API coverage**
 - Area management extensions (4 operations, 7-11 hours)
 - Project extensions (3 operations, 6-9 hours) 
@@ -570,26 +570,26 @@ async def new_operation(self, param1: str, param2: Optional[str] = None) -> Dict
 4. **Update documentation** - Keep tutorial and API docs current
 
 ## Implementation Checklist
-- [ ] AppleScript command research and testing
-- [ ] Input validation and error handling
-- [ ] MCP tool registration in simple_server.py
-- [ ] Business logic implementation in tools.py
-- [ ] Unit tests for all code paths
-- [ ] Integration tests with real Things 3
-- [ ] Documentation updates (tutorial, API reference)
-- [ ] Performance testing with large datasets
-- [ ] Security review for input sanitization
+- [TODO] AppleScript command research and testing
+- [TODO] Input validation and error handling
+- [TODO] MCP tool registration in simple_server.py
+- [TODO] Business logic implementation in tools.py
+- [TODO] Unit tests for all code paths
+- [TODO] Integration tests with real Things 3
+- [TODO] Documentation updates (tutorial, API reference)
+- [TODO] Performance testing with large datasets
+- [TODO] Security review for input sanitization
 
 ## Pull Request Requirements
-- [ ] All tests passing
-- [ ] Code follows existing patterns
-- [ ] Documentation updated
-- [ ] Performance benchmarks included
-- [ ] Security considerations addressed
-- [ ] Backward compatibility maintained
+- [REQUIRED] All tests passing
+- [REQUIRED] Code follows existing patterns
+- [REQUIRED] Documentation updated
+- [REQUIRED] Performance benchmarks included
+- [REQUIRED] Security considerations addressed
+- [REQUIRED] Backward compatibility maintained
 
 ---
 
-*Last Updated: August 2025*
+*Last Updated: Current Development Cycle*
 *Current Version: 1.1.0 (move_record implemented)*
 *Next Target: 1.5.0 (Critical features complete)*

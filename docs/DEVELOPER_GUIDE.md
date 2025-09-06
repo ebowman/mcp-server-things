@@ -2,7 +2,7 @@
 
 A comprehensive guide for developers who want to contribute to, extend, or understand the Things 3 MCP server codebase.
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
 2. [Development Setup](#development-setup)
@@ -12,7 +12,7 @@ A comprehensive guide for developers who want to contribute to, extend, or under
 6. [Contributing Instructions](#contributing-instructions)
 7. [Release Process](#release-process)
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ### System Architecture
 
@@ -69,7 +69,7 @@ A comprehensive guide for developers who want to contribute to, extend, or under
 - **Maintainability**: Clean code, type hints, and documentation
 - **Testability**: Dependency injection and mocking support
 
-## 🛠️ Development Setup
+## Development Setup
 
 ### Prerequisites
 
@@ -142,7 +142,7 @@ Create `.vscode/settings.json`:
 3. Configure isort with Black profile
 4. Enable mypy inspections
 
-## 📁 Code Structure
+## Code Structure
 
 ### Project Layout
 
@@ -222,7 +222,7 @@ class ThingsTools:
 6. **Caching**: Results cached if appropriate
 7. **Response**: Data transformed and returned
 
-## 🔧 Adding New Features
+## Adding New Features
 
 ### Adding a New MCP Tool
 
@@ -413,7 +413,7 @@ class AppleScriptManager:
         return self._execute_raw_applescript(script)
 ```
 
-## 🧪 Testing Guidelines
+## Testing Guidelines
 
 ### Test Structure
 
@@ -650,7 +650,7 @@ def sample_todo_data():
     }
 ```
 
-## 🤝 Contributing Instructions
+## Contributing Instructions
 
 ### Getting Started
 
@@ -864,7 +864,7 @@ Other approaches that were considered.
 Any other relevant information.
 ```
 
-## 🚀 Release Process
+## Release Process
 
 ### Version Management
 

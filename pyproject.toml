@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "things-applescript-mcp"
+name = "mcp-server-things"
 version = "1.0.0"
 description = "Model Context Protocol server for Things 3 task management integration"
 readme = "README.md"
@@ -66,9 +66,9 @@ docs = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/user/things-applescript-mcp"
-"Bug Reports" = "https://github.com/user/things-applescript-mcp/issues"  
-"Source" = "https://github.com/user/things-applescript-mcp"
+"Homepage" = "https://github.com/ebowman/mcp-server-things"
+"Bug Reports" = "https://github.com/ebowman/mcp-server-things/issues"  
+"Source" = "https://github.com/ebowman/mcp-server-things"
 
 [project.scripts]
 things-mcp = "src.things_mcp.__main__:main"

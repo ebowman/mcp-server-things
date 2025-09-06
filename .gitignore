@@ -1,7 +1,7 @@
 
 # Claude Flow generated files
 .claude-flow/
-.claude/settings.local.json
+.claude/
 .mcp.json
 claude-flow.config.json
 .swarm/

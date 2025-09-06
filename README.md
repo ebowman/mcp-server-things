@@ -1,26 +1,19 @@
 # Things 3 MCP Server
 
-[![PyPI version](https://badge.fury.io/py/things-applescript-mcp.svg)](https://pypi.org/project/things-applescript-mcp/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-12+-green.svg)](https://www.apple.com/macos/)
 
-> **Turn AI conversations into real commitments.** Connect Claude and other AI assistants to Things 3 for natural language task management.
+A Model Context Protocol (MCP) server that connects Claude and other AI assistants to Things 3 for natural language task management.
 
 ## Installation
-
-### From PyPI (Recommended)
-
-```bash
-pip install things-applescript-mcp
-```
 
 ### From Source
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/things-applescript-mcp.git
-cd things-applescript-mcp
+git clone https://github.com/ebowman/mcp-server-things.git
+cd mcp-server-things
 ```
 
 2. Create and activate a virtual environment:
@@ -47,10 +40,10 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 {
   "mcpServers": {
     "things": {
-      "command": "/path/to/things-applescript-mcp/venv/bin/python",
+      "command": "/path/to/mcp-server-things/venv/bin/python",
       "args": ["-m", "things_mcp"],
       "env": {
-        "PYTHONPATH": "/path/to/things-applescript-mcp/src"
+        "PYTHONPATH": "/path/to/mcp-server-things/src"
       }
     }
   }
@@ -62,7 +55,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 ![Demo showing Claude creating tasks in Things 3](demo.gif)
 *Creating tasks with natural language through Claude*
 
-## 🚀 Features
+## Features
 
 ### Core Todo Operations
 - **Create**: Add todos with full metadata (tags, deadlines, projects, notes)
@@ -97,18 +90,18 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Operation Queuing**: Serialized write operations to prevent conflicts
 - **Shared Caching**: Cross-process result sharing for optimal performance
 
-## 📋 Requirements
+## Requirements
 
 - **macOS**: This server requires macOS (tested on macOS 12+)
 - **Things 3**: Things 3 must be installed and accessible
 - **Python**: Python 3.8 or higher
 - **Permissions**: AppleScript permissions for Things 3 access
 
-## 🚀 Quick Start
+## Quick Start
 
-Once installed, Claude (or other MCP clients) can automatically discover and use all available tools. No additional setup required!
+Once installed, Claude (or other MCP clients) can automatically discover and use all available tools. No additional setup required.
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -140,7 +133,7 @@ logging:
   file: "things_mcp.log"
 ```
 
-## 🔧 Available MCP Tools
+## Available MCP Tools
 
 ### Todo Management
 - `get_todos(project_uuid?, include_items?)` - List todos
@@ -182,7 +175,7 @@ logging:
 - `queue_status()` - Check operation queue status and statistics
 
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -231,17 +224,17 @@ python -m things_mcp.main --health-check
 python -m things_mcp.main --test-applescript
 ```
 
-## 📊 Performance
+## Performance
 
-- **Startup Time**: < 2 seconds
-- **Response Time**: < 500ms for most operations (< 10ms with cache hits)
-- **Cache Hit Rate**: ~85-95% for repeated queries
-- **Memory Usage**: ~15MB baseline, ~50MB under high concurrent load
+- **Startup Time**: Less than 2 seconds
+- **Response Time**: Less than 500ms for most operations (less than 10ms with cache hits)
+- **Cache Hit Rate**: 85-95% for repeated queries
+- **Memory Usage**: 15MB baseline, 50MB under high concurrent load
 - **Concurrent Requests**: Up to 10+ simultaneous operations with three-layer protection
 - **Throughput**: 8-12 ops/sec for reads, 1-2 ops/sec for writes (serialized)
-- **Queue Processing**: < 50ms latency for operation enqueuing
+- **Queue Processing**: Less than 50ms latency for operation enqueuing
 
-## 🔒 Security
+## Security
 
 - No network access required (local AppleScript only)
 - No data stored outside of Things 3
@@ -249,16 +242,16 @@ python -m things_mcp.main --test-applescript
 - Secure AppleScript execution with timeouts
 - Input validation on all parameters
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! Please see our [Developer Guide](docs/DEVELOPER_GUIDE.md) for details on:
+Contributions are welcome. Please see the [Developer Guide](docs/DEVELOPER_GUIDE.md) for details on:
 
 - Setting up development environment
 - Code style and standards
 - Testing procedures
 - Submitting pull requests
 
-## 📚 Documentation
+## Documentation
 
 - [User Guide](docs/USER_GUIDE.md) - Detailed usage instructions
 - [Developer Guide](docs/DEVELOPER_GUIDE.md) - Development and contribution guide
@@ -266,39 +259,39 @@ We welcome contributions! Please see our [Developer Guide](docs/DEVELOPER_GUIDE.
 - [Concurrency Guide](docs/CONCURRENCY_GUIDE.md) - Multi-client concurrency and performance
 - [Examples](examples/) - Usage examples and templates
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## Support
 
-- **Issues**: [GitHub Issues](https://github.com/ebowman/things-applescript-mcp/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ebowman/things-applescript-mcp/discussions)
+- **Issues**: [GitHub Issues](https://github.com/ebowman/mcp-server-things/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ebowman/mcp-server-things/discussions)
 - **Email**: ebowman@boboco.ie
 
-## 🎯 Roadmap
+## Roadmap
 
 ### Phase 1: Core Stability (Current)
-- ✅ Complete MCP tool implementation
-- ✅ Robust error handling and logging
-- ✅ Comprehensive testing suite
-- ✅ Documentation and examples
+- Complete MCP tool implementation (Completed)
+- Robust error handling and logging (Completed)
+- Comprehensive testing suite (Completed)
+- Documentation and examples (Completed)
 
 ### Phase 2: Enhanced Features
-- [x] Multi-client concurrency support with three-layer protection
-- [x] Shared caching system for cross-process result sharing
-- [x] Operation queue with priority and retry logic
-- [ ] Real-time sync with Things 3 changes
-- [ ] Batch operations for performance
-- [ ] Advanced natural language processing
-- [ ] Integration with calendar and email
+- Multi-client concurrency support with three-layer protection (Completed)
+- Shared caching system for cross-process result sharing (Completed)
+- Operation queue with priority and retry logic (Completed)
+- Real-time sync with Things 3 changes (Planned)
+- Batch operations for performance (Planned)
+- Advanced natural language processing (Planned)
+- Integration with calendar and email (Planned)
 
 ### Phase 3: Advanced Integration
-- [ ] Multi-user support
-- [ ] API rate limiting
-- [ ] Webhook support
-- [ ] Analytics and reporting
+- Multi-user support (Planned)
+- API rate limiting (Planned)
+- Webhook support (Planned)
+- Analytics and reporting (Planned)
 
 ---
 
-**Built with ❤️ for the Things 3 and MCP community**
+Built for the Things 3 and MCP community.

@@ -2,7 +2,7 @@
 
 Common issues and solutions for the Things 3 MCP Server.
 
-## 🚨 Common Issues
+## Common Issues
 
 ### Things 3 Integration
 
@@ -114,7 +114,7 @@ export THINGS_MCP_TIMEOUT=60
 | "Invalid date format" | Wrong date format | Use YYYY-MM-DD format |
 | "Operation failed after 3 retries" | AppleScript failures | Restart Things 3 |
 
-## 🔧 Advanced Diagnostics
+## Advanced Diagnostics
 
 ### Enable Debug Logging
 ```bash
@@ -127,10 +127,10 @@ python -m things_mcp.main
 osascript -e 'tell application "Things3" to get name of every to do of list "Today"'
 ```
 
-## 🆘 Getting Help
+## Getting Help
 
 ### Before Asking for Help
-1. Check [GitHub Issues](https://github.com/ebowman/things-applescript-mcp/issues)
+1. Check [GitHub Issues](https://github.com/ebowman/mcp-server-things/issues)
 2. Review this troubleshooting guide
 3. Verify Things 3 and Python are properly installed
 

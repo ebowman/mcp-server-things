@@ -1,160 +1,171 @@
-# Locale-Independent Date Implementation Tests
+# Things 3 MCP Server - Test Documentation
 
-This directory contains comprehensive tests for the locale-independent date implementation in the Things 3 MCP server.
+This directory contains comprehensive tests for the Things 3 MCP Server, covering core functionality, locale handling, move operations, and tag creation control.
 
-## Test Files
+## Test Structure
 
-### test_locale_independent_dates.py
-Comprehensive test suite that validates the `LocaleAwareDateHandler` class and its integration with the Things MCP system.
+### Core Test Categories
 
-**Key Features:**
-- **No pytest dependency** - runs with standard Python unittest-style assertions
-- **107 core tests** covering all aspects of date handling
-- **Performance tests** to ensure efficiency
-- **Integration tests** to verify proper integration with the broader system
-- **Edge case testing** for robustness
+1. **Locale-Independent Date Implementation**
+   - Comprehensive date handling tests with locale independence
+   - 107 core tests covering date parsing, AppleScript integration, and edge cases
+   - Performance and integration testing
 
-**Test Categories:**
-1. **Core Functionality Tests:**
-   - `normalize_date_input()` method testing
-   - `build_applescript_date_property()` method testing
-   - `parse_applescript_date_output()` method testing
-   - `convert_iso_to_applescript()` method testing
+2. **Move Record Functionality** 
+   - Tests for moving todos between lists, projects, and areas
+   - Backward compatibility with built-in lists (inbox, today, upcoming, anytime, someday)
+   - New functionality for projects (`project:ID`) and areas (`area:ID`)
+   - Comprehensive error handling and validation
 
-2. **Date Format Parsing Tests:**
-   - ISO format (YYYY-MM-DD)
-   - US format (M/D/YYYY)
-   - European format (D.M.YYYY)
-   - Natural language (today, tomorrow, yesterday)
-   - Relative dates (+3 days, -2 weeks, etc.)
-   - Month name parsing (January 15, 2024)
+3. **Tag Creation Control**
+   - Tests for tag validation and creation policies
+   - Configuration loading from environment variables and YAML files
+   - Four validation policies: AUTO_CREATE, STRICT_NO_CREATE, CREATE_WITH_WARNING, LIMITED_AUTO_CREATE
 
-3. **Edge Case Tests:**
-   - Leap year handling
-   - Invalid date handling
-   - Boundary date values
-   - Null and empty input handling
-
-4. **AppleScript Integration Tests:**
-   - AppleScript code generation
-   - AppleScript output parsing
-   - Property-based date construction
-
-5. **Locale Independence Tests:**
-   - Verify no locale-specific strings in generated AppleScript
-   - Consistent behavior across different input formats
-   - Backward compatibility verification
-
-6. **Performance Tests:**
-   - Parsing performance with large datasets
-   - AppleScript generation performance
-   - Memory usage validation
-
-**Usage:**
-```bash
-python3 tests/test_locale_independent_dates.py
-```
-
-### validate_locale_fix.py
-Interactive validation script that demonstrates the differences between the old locale-dependent approach and the new locale-independent implementation.
-
-**Key Features:**
-- **Visual demonstration** of the improvements
-- **Side-by-side comparison** of old vs new approaches  
-- **Locale independence verification**
-- **Edge case showcasing**
-- **Real-world example scenarios**
-
-**What it demonstrates:**
-1. **Old Problematic Approach:**
-   - Shows how string-based date parsing fails
-   - Illustrates locale-specific issues
-   - Explains why the old approach was fragile
-
-2. **New Locale-Independent Approach:**
-   - Demonstrates property-based AppleScript generation
-   - Shows support for multiple input formats
-   - Validates consistent behavior
-
-3. **Locale Independence:**
-   - Proves that only numeric values are used
-   - Shows consistent results across different input formats
-   - Demonstrates robustness in various scenarios
-
-4. **Edge Case Handling:**
-   - Leap year validation
-   - Invalid date rejection
-   - Boundary condition testing
-
-**Usage:**
-```bash
-python3 validate_locale_fix.py
-```
-
-## Test Results Summary
-
-When all tests pass, you should see:
-- **107/107 core functionality tests** passing
-- **4/4 integration tests** passing  
-- **4/4 performance tests** passing
-- **Total: 115/115 tests passing**
-
-## Key Improvements Validated
-
-1. **✅ Eliminates locale-dependent string parsing**
-   - No more reliance on system locale for date interpretation
-   - Consistent behavior across different operating system languages
-
-2. **✅ Uses property-based AppleScript date construction**
-   - Generates AppleScript that sets date properties directly
-   - Avoids string-based date parsing in AppleScript
-
-3. **✅ Supports multiple input date formats**
-   - ISO format (2024-03-15)
-   - US format (3/15/2024)
-   - European format (15.3.2024)
-   - Natural language (March 15, 2024)
-   - Relative dates (+5 days, tomorrow)
-
-4. **✅ Handles edge cases gracefully**
-   - Invalid dates return None instead of crashing
-   - Leap year calculations are correct
-   - Boundary conditions are properly validated
-
-5. **✅ Provides consistent behavior across locales**
-   - Same input produces same output regardless of system locale
-   - No locale-specific month names in generated AppleScript
-
-6. **✅ Maintains backward compatibility**
-   - Existing convenience functions continue to work
-   - Integration with ThingsTools is seamless
-   - No breaking changes to the public API
+4. **Backward Compatibility**
+   - Validation that all existing APIs continue to work
+   - Server initialization and component integration tests
+   - Method signature and behavior consistency checks
 
 ## Running Tests
 
-### Quick Test
-```bash
-# Run just the validation demo
-python3 validate_locale_fix.py
-```
+### Quick Test Options
 
-### Comprehensive Test
+**Simple standalone tests (no dependencies):**
 ```bash
-# Run the full test suite
 python3 tests/test_locale_independent_dates.py
+python3 tests/test_move_record_simple.py
+python3 tests/run_tag_tests.py
 ```
 
-### Test Only Core Functionality
+**Manual integration tests (requires Things 3):**
 ```bash
-# Run with minimal output
-python3 tests/test_locale_independent_dates.py 2>/dev/null | grep "Test Results"
+python3 tests/test_move_record_manual.py
+python3 tests/validate_locale_fix.py
 ```
 
-## Expected Output
+### Full Test Suites
 
-When everything is working correctly:
-```
-🎉 ALL TESTS PASSED! The locale-independent date implementation is working correctly.
+**With pytest (recommended for development):**
+```bash
+# Install dependencies
+pip install pytest pyyaml
+
+# Run specific test suites
+python -m pytest tests/test_tag_creation_control.py -v
+python -m pytest tests/test_move_record_enhanced.py -v
+
+# Run with coverage
+python -m pytest --cov=src/things_mcp
 ```
 
-This validates that the locale-independent date implementation successfully resolves the European locale issues that were present in the original string-based approach.
+**Environment verification:**
+```bash
+python3 tests/verify_test_environment.py
+```
+
+## Test Coverage Summary
+
+### Locale-Independent Date Handling
+- Core functionality: normalize_date_input(), build_applescript_date_property(), parse_applescript_date_output()
+- Date format parsing: ISO (YYYY-MM-DD), US (M/D/YYYY), European (D.M.YYYY)
+- Natural language: today, tomorrow, yesterday, relative dates
+- Edge cases: leap years, invalid dates, boundary values
+- AppleScript integration: code generation and output parsing
+- Performance: large dataset handling and memory usage
+
+### Move Record Operations
+- Built-in list destinations: inbox, today, upcoming, anytime, someday
+- Project destinations: project:PROJECT_ID format with validation
+- Area destinations: area:AREA_ID format with validation
+- Error handling: invalid formats, non-existent entities, execution failures
+- Concurrent operations and thread safety
+- Response format consistency and backward compatibility
+
+### Tag Creation Control
+- Configuration sources: environment variables, YAML files, defaults
+- Validation policies: automatic creation, strict rejection, warnings, limits
+- Case sensitivity options and tag deduplication
+- Unicode support and performance with large tag lists
+- AppleScript error recovery and integration
+
+### System Integration
+- Server initialization and component setup
+- AppleScript manager functionality
+- MCP tool registration and interface consistency
+- Error handling and graceful degradation
+
+## Test Architecture
+
+### Mock Strategy
+- AppleScript operations mocked for unit testing
+- File operations mocked for configuration tests
+- Environment variables patched for testing different configurations
+- Things 3 integration tested with real data where appropriate
+
+### Test Types
+1. **Unit Tests**: Isolated component testing with mocks
+2. **Integration Tests**: Component interaction testing
+3. **Manual Tests**: End-to-end testing with real Things 3 data
+4. **Performance Tests**: Efficiency and memory usage validation
+
+### Error Scenarios
+- Format validation failures
+- Entity not found conditions
+- AppleScript execution failures
+- Configuration loading errors
+- Invalid input handling
+
+## Key Improvements Validated
+
+### Locale Independence
+- Property-based AppleScript date construction eliminates locale dependencies
+- Consistent behavior across different operating system languages
+- No reliance on locale-specific month names or date formats
+
+### Enhanced Move Operations
+- Support for moving todos to projects and areas using ID-based targeting
+- Comprehensive validation before move execution
+- Maintained backward compatibility with existing list-based moves
+
+### Configurable Tag Management
+- Flexible tag creation policies to suit different workflows
+- Multiple configuration sources for enterprise deployment
+- Graceful handling of tag conflicts and creation limits
+
+### Backward Compatibility
+- All existing method signatures preserved
+- Same parameter types and return values maintained
+- Error handling behavior unchanged
+- MCP tool interface identical
+
+## Troubleshooting
+
+### Common Issues
+1. **Import Errors**: Ensure running from project root with src/ in Python path
+2. **Things 3 Requirements**: Manual tests require Things 3 installed and running
+3. **Permission Issues**: AppleScript automation access must be granted
+4. **Mock Configuration**: Verify mocks match actual implementation signatures
+
+### Debug Commands
+```bash
+# Check individual components
+python3 -c "from things_mcp.services.validation_service import ValidationService; print('ValidationService OK')"
+
+# Verify test environment
+python3 tests/verify_test_environment.py
+
+# Run minimal tests for quick verification
+python3 tests/test_move_record_simple.py
+```
+
+## Test Results
+
+When all tests pass successfully:
+- 107 core functionality tests for date handling
+- 25+ tag creation control tests
+- Complete move record functionality coverage
+- Full backward compatibility validation
+- Integration and performance test validation
+
+The test suite ensures reliable operation across different locales, robust error handling, and consistent behavior for all supported operations.

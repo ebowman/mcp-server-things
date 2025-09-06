@@ -1,10 +1,10 @@
-# 🔍 Context Optimization Guide
+# Context Optimization Guide
 
 ## Overview
 
 The Things MCP Server includes sophisticated **context-aware response management** designed to prevent AI context exhaustion while maintaining full API functionality. This guide explains how to effectively use these features.
 
-## 🎯 Key Features
+## Key Features
 
 ### 1. Progressive Disclosure Modes
 
@@ -37,7 +37,7 @@ Items are automatically prioritized by:
 4. **Recently modified items**
 5. **Open/incomplete status**
 
-## 📊 Usage Patterns
+## Usage Patterns
 
 ### Discovery Workflow (Recommended)
 
@@ -83,7 +83,7 @@ all_todos = await get_todos(mode="minimal")  # Get IDs and essential fields
 # Use bulk_move_records() with the minimal data
 ```
 
-## ⚡ Performance Tips
+## Performance Tips
 
 ### 1. Mode Selection Guidelines
 
@@ -118,7 +118,7 @@ print(f"Available context: {stats['available_for_response_kb']}KB")
 recommendations = await get_usage_recommendations()
 ```
 
-## 🔄 Advanced Workflows
+## Advanced Workflows
 
 ### Progressive Data Loading
 
@@ -167,7 +167,7 @@ async def optimize_bulk_move():
     return result
 ```
 
-## 🎛️ Configuration Options
+## Configuration Options
 
 ### Context Budget Tuning
 
@@ -189,7 +189,7 @@ The default context budget can be understood as:
 | `raw` | None | Unlimited | No |
 | `auto` | Dynamic | Dynamic | Yes |
 
-## 🚨 Troubleshooting
+## Troubleshooting
 
 ### Context Exhaustion Prevention
 
@@ -223,7 +223,7 @@ essential = await get_todos(mode="minimal", limit=50)
 # Then get detailed data only for specific items
 ```
 
-## 📈 Optimization Examples
+## Optimization Examples
 
 ### Before vs After
 
@@ -259,7 +259,7 @@ async def build_dashboard():
     return stats
 ```
 
-## 🎯 Best Practices Summary
+## Best Practices Summary
 
 1. **Start with `mode="auto"`** for unknown datasets
 2. **Use `mode="summary"`** to explore large collections  
@@ -269,7 +269,7 @@ async def build_dashboard():
 6. **Use progressive disclosure patterns** for large datasets
 7. **Test with real data** to understand your usage patterns
 
-## 🔗 Related Tools
+## Related Tools
 
 - **`get_server_capabilities()`**: Discover all optimization features
 - **`get_usage_recommendations()`**: Get personalized suggestions

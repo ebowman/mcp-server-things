@@ -167,7 +167,7 @@ Based on analysis of 5+ GitHub repositories with proven Things 3 automation:
 
 Run the comprehensive test suite:
 ```bash
-cd /Users/eric.bowman/Projects/src/things-organizer/things-applescript-mcp
+cd /path/to/mcp-server-things
 python test-reliable-scheduling.py
 ```
 

@@ -1,10 +1,10 @@
-# 🤖 AI Assistant Guidelines
+# AI Assistant Guidelines
 
 ## Overview
 
 This guide provides behavioral guidelines for AI assistants using the Things MCP Server. Following these patterns ensures optimal performance, prevents errors, and creates a better user experience.
 
-## 🎯 Core Principles
+## Core Principles
 
 ### 1. Context-First Approach
 - **Always** start with `get_server_capabilities()` to understand available features
@@ -24,18 +24,18 @@ This guide provides behavioral guidelines for AI assistants using the Things MCP
 - Use existing tags rather than creating new ones automatically
 - Provide recovery suggestions for failed operations
 
-## 🏷️ Tag Management Policies
+## Tag Management Policies
 
 ### Tag Creation Rules (CRITICAL)
 
-**❌ DO NOT**: Create tags automatically
-**✅ DO**: Ask users before creating tags
+**DO NOT**: Create tags automatically
+**DO**: Ask users before creating tags
 
 ```python
-# ❌ Wrong - Automatic tag creation
+# Wrong - Automatic tag creation
 await add_todo(title="Meeting", tags=["urgent", "new-project"])  # May create unwanted tags
 
-# ✅ Correct - Check existing tags first
+# Correct - Check existing tags first
 existing_tags = await get_tags()
 tag_names = [tag['name'] for tag in existing_tags]
 
@@ -81,7 +81,7 @@ async def smart_tag_workflow(todo_title: str, desired_tags: List[str]) -> Dict:
     return await add_todo(title=todo_title, tags=",".join(valid_tags))
 ```
 
-## 📊 Data Exploration Patterns
+## Data Exploration Patterns
 
 ### Discovery Workflow
 
@@ -137,7 +137,7 @@ async def handle_large_dataset(method_name: str, **params):
     return await globals()[method_name](mode="auto", **params)
 ```
 
-## 🔄 Bulk Operations Best Practices
+## Bulk Operations Best Practices
 
 ### Pre-Operation Validation
 
@@ -179,16 +179,16 @@ async def safe_bulk_move(todo_ids: List[str], destination: str):
     return result
 ```
 
-## ⚡ Performance Optimization
+## Performance Optimization
 
 ### Context-Aware Requests
 
 ```python
-# ❌ Context-unsafe pattern
+# Context-unsafe pattern
 todos = await get_todos()  # Unknown size, may exhaust context
 projects = await get_projects(include_items=True)  # Large response
 
-# ✅ Context-safe pattern  
+# Context-safe pattern  
 todos = await get_todos(mode="auto")  # Intelligent sizing
 project_overview = await get_projects(mode="summary")  # Quick insights
 
@@ -208,7 +208,7 @@ if user_wants_project_details:
 | Detailed analysis | `detailed` | Full data when specifically needed |
 | Debugging/development | `raw` | All original data |
 
-## 🚨 Error Handling Patterns
+## Error Handling Patterns
 
 ### Structured Error Recovery
 
@@ -271,7 +271,7 @@ async def ensure_healthy_operation():
     return {"ready": True}
 ```
 
-## 🎯 User Experience Guidelines
+## User Experience Guidelines
 
 ### Conversation Patterns
 
@@ -314,15 +314,15 @@ async def communicative_bulk_operation():
     print("Starting bulk operation...")
     
     # Step 1: Preparation
-    print("📋 Gathering todo information...")
+    print("Gathering todo information...")
     todos = await get_todos(mode="minimal")
     
     # Step 2: Validation  
-    print("✅ Validating operation...")
+    print("Validating operation...")
     # ... validation logic
     
     # Step 3: Execution with progress
-    print(f"🔄 Processing {len(todos)} items...")
+    print(f"Processing {len(todos)} items...")
     result = await bulk_move_records(
         todo_ids=extract_ids(todos),
         destination="today"
@@ -330,14 +330,14 @@ async def communicative_bulk_operation():
     
     # Step 4: Results
     if result["success"]:
-        print(f"✅ Successfully processed {result['successful']} items")
+        print(f"Successfully processed {result['successful']} items")
     else:
-        print(f"⚠️ Completed with {len(result['failed'])} issues")
+        print(f"Completed with {len(result['failed'])} issues")
     
     return result
 ```
 
-## 🔍 Debugging and Troubleshooting
+## Debugging and Troubleshooting
 
 ### Diagnostic Patterns
 
@@ -345,7 +345,7 @@ async def communicative_bulk_operation():
 async def diagnose_issue():
     """Comprehensive system diagnosis."""
     
-    print("🔍 Running system diagnostics...")
+    print("Running system diagnostics...")
     
     # Check basic connectivity
     health = await health_check()
@@ -365,12 +365,12 @@ async def diagnose_issue():
     
     # Provide recommendations
     recommendations = await get_usage_recommendations()
-    print("💡 Recommendations:")
+    print("Recommendations:")
     for tip in recommendations.get("general", {}).get("performance_tips", []):
         print(f"  • {tip}")
 ```
 
-## 📝 Code Examples
+## Code Examples
 
 ### Complete Workflow Example
 
@@ -379,22 +379,22 @@ async def smart_todo_management_session():
     """Example of a complete, intelligent todo management session."""
     
     # Step 1: System check
-    print("🚀 Starting Things session...")
+    print("Starting Things session...")
     health_check_result = await ensure_healthy_operation()
     if not health_check_result["ready"]:
-        print(f"⚠️ {health_check_result['message']}")
+        print(f"Warning: {health_check_result['message']}")
         return
     
     # Step 2: Discover capabilities
     capabilities = await get_server_capabilities()
-    print(f"✅ Connected to {capabilities['server_info']['name']}")
+    print(f"Connected to {capabilities['server_info']['name']}")
     
     # Step 3: Quick overview
     today = await get_today()
     projects = await get_projects(mode="summary") 
     
-    print(f"📅 Today: {len(today)} items")
-    print(f"📁 Projects: {projects['count']} active")
+    print(f"Today: {len(today)} items")
+    print(f"Projects: {projects['count']} active")
     
     # Step 4: Interactive workflow
     print("\nWhat would you like to focus on?")
@@ -403,10 +403,10 @@ async def smart_todo_management_session():
     # Step 5: Context-aware operations based on user choice
     # ... implement user's requested actions with error handling
     
-    print("✅ Session complete!")
+    print("Session complete!")
 ```
 
-## 🎯 Key Takeaways
+## Key Takeaways
 
 1. **Always check existing tags before creating new ones**
 2. **Use `mode="auto"` as your default starting point**

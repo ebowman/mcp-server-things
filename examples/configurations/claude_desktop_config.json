@@ -3,7 +3,7 @@
     "things": {
       "command": "python",
       "args": ["-m", "things_mcp.main"],
-      "cwd": "/path/to/things-applescript-mcp",
+      "cwd": "/path/to/mcp-server-things",
       "env": {
         "THINGS_MCP_LOG_LEVEL": "INFO",
         "THINGS_MCP_TIMEOUT": "30",
