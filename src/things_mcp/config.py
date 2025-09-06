@@ -14,7 +14,7 @@ try:
     from pydantic_settings import BaseSettings
 except ImportError:
     from pydantic import BaseSettings
-from pydantic import Field, validator
+from pydantic import Field, field_validator, ConfigDict
 
 
 class ExecutionMethod(str, Enum):
@@ -254,19 +254,22 @@ class ThingsMCPConfig(BaseSettings):
         description="Path to mock data file for testing"
     )
     
-    @validator('log_file_path', pre=True)
+    @field_validator('log_file_path', mode='before')
+    @classmethod
     def validate_log_file_path(cls, v):
         if v is not None:
             return Path(v)
         return v
     
-    @validator('mock_data_path', pre=True)
+    @field_validator('mock_data_path', mode='before')
+    @classmethod
     def validate_mock_data_path(cls, v):
         if v is not None:
             return Path(v)
         return v
     
-    @validator('allowed_hosts', pre=True)
+    @field_validator('allowed_hosts', mode='before')
+    @classmethod
     def validate_allowed_hosts(cls, v):
         """Parse allowed_hosts from various formats."""
         if v is None:
@@ -285,24 +288,27 @@ class ThingsMCPConfig(BaseSettings):
             return v
         return ["localhost", "127.0.0.1"]
     
-    @validator('preferred_execution_method', pre=True)
+    @field_validator('preferred_execution_method', mode='before')
+    @classmethod
     def validate_execution_method(cls, v):
         if isinstance(v, str):
             return ExecutionMethod(v.lower())
         return v
     
-    @validator('log_level', pre=True)
+    @field_validator('log_level', mode='before')
+    @classmethod
     def validate_log_level(cls, v):
         if isinstance(v, str):
             return LogLevel(v.upper())
         return v
     
-    @validator('tag_creation_policy', pre=True)
-    def validate_tag_creation_policy(cls, v, values):
+    @field_validator('tag_creation_policy', mode='before')
+    @classmethod
+    def validate_tag_creation_policy(cls, v, info):
         """Sync tag policy with ai_can_create_tags setting."""
         # If ai_can_create_tags is explicitly set, use it to determine policy
-        if 'ai_can_create_tags' in values:
-            if values['ai_can_create_tags']:
+        if info.data and 'ai_can_create_tags' in info.data:
+            if info.data['ai_can_create_tags']:
                 return TagCreationPolicy.ALLOW_ALL
             else:
                 # Use FILTER_WARN for better AI guidance
@@ -321,16 +327,17 @@ class ThingsMCPConfig(BaseSettings):
             return TagCreationPolicy(v_lower)
         return v
     
-    @validator('ai_can_create_tags', pre=True)
-    def set_ai_can_create_tags_from_policy(cls, v, values):
+    @field_validator('ai_can_create_tags', mode='before')
+    @classmethod
+    def set_ai_can_create_tags_from_policy(cls, v, info):
         """Set ai_can_create_tags based on policy if not explicitly set."""
         # If explicitly set, use that value
         if v is not None:
             return v
         
         # Otherwise derive from tag_creation_policy if present
-        if 'tag_creation_policy' in values:
-            policy = values['tag_creation_policy']
+        if info.data and 'tag_creation_policy' in info.data:
+            policy = info.data['tag_creation_policy']
             if isinstance(policy, str):
                 policy = policy.lower()
             # Only ALLOW_ALL means AI can create tags
@@ -339,14 +346,14 @@ class ThingsMCPConfig(BaseSettings):
         # Default to False (human-only)
         return False
     
-    class Config:
-        env_prefix = "THINGS_MCP_"
-        case_sensitive = False
-        
+    model_config = ConfigDict(
+        env_prefix="THINGS_MCP_",
+        case_sensitive=False,
         # Example environment variables (in .env file or system):
         # THINGS_MCP_APPLESCRIPT_TIMEOUT=60.0
         # THINGS_MCP_CACHE_MAX_SIZE=2000
         # THINGS_MCP_LOG_LEVEL=DEBUG
+    )
         # THINGS_MCP_LOG_FILE_PATH=/var/log/things-mcp.log
         # THINGS_MCP_AI_CAN_CREATE_TAGS=true
         # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10

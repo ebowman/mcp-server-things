@@ -8,7 +8,7 @@ serialization, and type safety.
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Union
 from enum import Enum
-from pydantic import BaseModel, Field, validator, root_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from uuid import UUID
 
 
@@ -46,15 +46,16 @@ class ScheduleOption(str, Enum):
 class BaseThingsModel(BaseModel):
     """Base model for all Things 3 objects"""
     
-    class Config:
+    model_config = ConfigDict(
         # Allow field population by name or alias
-        allow_population_by_field_name = True
+        populate_by_name=True,
         # Use enum values in serialization
-        use_enum_values = True
+        use_enum_values=True,
         # Enable JSON schema generation
-        schema_extra = {
+        json_schema_extra={
             "example": {}
         }
+    )
 
 
 class Tag(BaseThingsModel):
@@ -66,20 +67,22 @@ class Tag(BaseThingsModel):
     parent_tag_name: Optional[str] = Field(None, description="Parent tag name (alternative to parent_tag object)")
     keyboard_shortcut: Optional[str] = Field(None, description="Keyboard shortcut for the tag")
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_tag_name(cls, v):
         if not v or not v.strip():
             raise ValueError('Tag name cannot be empty')
         return v.strip()
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "tag-123",
                 "name": "work",
                 "keyboard_shortcut": "w"
             }
         }
+    )
 
 
 class Contact(BaseThingsModel):
@@ -88,13 +91,14 @@ class Contact(BaseThingsModel):
     id: Optional[str] = Field(None, description="Unique contact identifier")
     name: str = Field(..., description="Contact name", min_length=1)
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "contact-123",
                 "name": "John Doe"
             }
         }
+    )
 
 
 class Area(BaseThingsModel):
@@ -105,14 +109,15 @@ class Area(BaseThingsModel):
     collapsed: bool = Field(False, description="Whether the area is collapsed in UI")
     tag_names: List[str] = Field(default_factory=list, description="Associated tag names")
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_area_name(cls, v):
         if not v or not v.strip():
             raise ValueError('Area name cannot be empty')
         return v.strip()
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "area-123",
                 "name": "Personal",
@@ -120,6 +125,7 @@ class Area(BaseThingsModel):
                 "tag_names": ["life", "personal"]
             }
         }
+    )
 
 
 class Project(BaseThingsModel):
@@ -148,28 +154,29 @@ class Project(BaseThingsModel):
     has_reminder: bool = Field(False, description="True if project has a specific reminder time set")
     reminder_time: Optional[str] = Field(None, description="Time component of reminder in HH:MM format")
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_project_name(cls, v):
         if not v or not v.strip():
             raise ValueError('Project name cannot be empty')
         return v.strip()
     
-    @root_validator(skip_on_failure=True)
-    def validate_dates(cls, values):
-        completion_date = values.get('completion_date')
-        cancellation_date = values.get('cancellation_date')
-        status = values.get('status')
+    @model_validator(mode='after')
+    def validate_dates(self):
+        completion_date = self.completion_date
+        cancellation_date = self.cancellation_date
+        status = self.status
         
         # Validate status consistency with dates
         if status == ThingsStatus.COMPLETED and not completion_date:
-            values['completion_date'] = datetime.now()
+            self.completion_date = datetime.now()
         elif status == ThingsStatus.CANCELED and not cancellation_date:
-            values['cancellation_date'] = datetime.now()
+            self.cancellation_date = datetime.now()
         
-        return values
+        return self
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "project-123",
                 "name": "Website Redesign",
@@ -180,6 +187,7 @@ class Project(BaseThingsModel):
                 "tag_names": ["work", "urgent"]
             }
         }
+    )
 
 
 class Todo(BaseThingsModel):
@@ -218,13 +226,15 @@ class Todo(BaseThingsModel):
     has_reminder: bool = Field(False, description="True if todo has a specific reminder time set")
     reminder_time: Optional[str] = Field(None, description="Time component of reminder in HH:MM format")
     
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_todo_name(cls, v):
         if not v or not v.strip():
             raise ValueError('Todo name cannot be empty')
         return v.strip()
     
-    @validator('scheduled_date')
+    @field_validator('scheduled_date')
+    @classmethod
     def validate_scheduled_date(cls, v):
         if isinstance(v, str):
             # Validate schedule options
@@ -237,7 +247,8 @@ class Todo(BaseThingsModel):
                     raise ValueError(f'Invalid schedule option: {v}. Use one of {valid_options} or YYYY-MM-DD format')
         return v
     
-    @validator('reminder_time')
+    @field_validator('reminder_time')
+    @classmethod
     def validate_reminder_time(cls, v):
         """Validate reminder time format (HH:MM)."""
         if v is None:
@@ -271,45 +282,45 @@ class Todo(BaseThingsModel):
                 raise ValueError('Reminder time must contain only numeric values')
             raise
     
-    @root_validator(skip_on_failure=True)
-    def validate_relationships(cls, values):
-        project = values.get('project')
-        project_name = values.get('project_name')
-        area = values.get('area')
-        area_name = values.get('area_name')
+    @model_validator(mode='after')
+    def validate_relationships(self):
+        project = self.project
+        project_name = self.project_name
+        area = self.area
+        area_name = self.area_name
         
         # Ensure consistency between object and name fields
         if project and not project_name:
-            values['project_name'] = project.name
+            self.project_name = project.name
         if area and not area_name:
-            values['area_name'] = area.name
+            self.area_name = area.name
             
         # Can't be in both project and area
         if (project or project_name) and (area or area_name):
             raise ValueError('Todo cannot be in both a project and an area')
         
-        return values
+        return self
     
-    @root_validator(skip_on_failure=True)
-    def validate_status_dates(cls, values):
-        completion_date = values.get('completion_date')
-        cancellation_date = values.get('cancellation_date')
-        status = values.get('status')
+    @model_validator(mode='after')
+    def validate_status_dates(self):
+        completion_date = self.completion_date
+        cancellation_date = self.cancellation_date
+        status = self.status
         
         # Auto-set dates based on status
         if status == ThingsStatus.COMPLETED and not completion_date:
-            values['completion_date'] = datetime.now()
+            self.completion_date = datetime.now()
         elif status == ThingsStatus.CANCELED and not cancellation_date:
-            values['cancellation_date'] = datetime.now()
+            self.cancellation_date = datetime.now()
         elif status == ThingsStatus.OPEN:
             # Clear completion/cancellation dates for open todos
-            values['completion_date'] = None
-            values['cancellation_date'] = None
+            self.completion_date = None
+            self.cancellation_date = None
         
-        return values
+        return self
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "todo-123",
                 "name": "Review quarterly report",
@@ -324,6 +335,7 @@ class Todo(BaseThingsModel):
                 "reminder_time": "14:30"
             }
         }
+    )
 
 
 class ThingsList(BaseThingsModel):
@@ -334,8 +346,8 @@ class ThingsList(BaseThingsModel):
     list_type: ThingsListType = Field(..., description="Type of list")
     todo_count: int = Field(0, description="Number of todos in list")
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "list-today",
                 "name": "Today",
@@ -343,6 +355,7 @@ class ThingsList(BaseThingsModel):
                 "todo_count": 5
             }
         }
+    )
 
 
 # Response Models for API operations
@@ -357,14 +370,15 @@ class TodoResult(BaseThingsModel):
     error: Optional[str] = Field(None, description="Error code if failed")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional details")
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "success": True,
                 "message": "Todo created successfully",
                 "todo_id": "todo-123"
             }
         }
+    )
 
 
 class ProjectResult(BaseThingsModel):
@@ -390,6 +404,6 @@ class AreaResult(BaseThingsModel):
 
 
 # Update forward references
-Tag.update_forward_refs()
-Project.update_forward_refs()
-Todo.update_forward_refs()
+Tag.model_rebuild()
+Project.model_rebuild()
+Todo.model_rebuild()

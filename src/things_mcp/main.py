@@ -156,7 +156,7 @@ Environment:
     return parser
 
 
-def perform_health_check(timeout: int, retry_count: int) -> int:
+async def perform_health_check(timeout: int, retry_count: int) -> int:
     """Perform system health check.
     
     Args:
@@ -181,7 +181,7 @@ def perform_health_check(timeout: int, retry_count: int) -> int:
         # Check Things 3 connectivity
         applescript_manager = AppleScriptManager(timeout=timeout, retry_count=retry_count)
         
-        if applescript_manager.is_things_running():
+        if await applescript_manager.is_things_running():
             logger.info("✓ Things 3 is running and accessible")
         else:
             logger.warning("⚠ Things 3 is not running or not accessible")
@@ -189,7 +189,7 @@ def perform_health_check(timeout: int, retry_count: int) -> int:
         
         # Test basic AppleScript execution
         script = 'return "Hello from AppleScript"'
-        result = applescript_manager.execute_applescript(script)
+        result = await applescript_manager.execute_applescript(script)
         
         if result.get("success"):
             logger.info("✓ AppleScript execution working")
@@ -205,7 +205,7 @@ def perform_health_check(timeout: int, retry_count: int) -> int:
         return 1
 
 
-def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
+async def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
     """Test AppleScript connectivity to Things 3.
     
     Args:
@@ -222,7 +222,7 @@ def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
         
         # Test basic script execution
         logger.info("Testing basic AppleScript execution...")
-        result = applescript_manager.execute_applescript('return "test"')
+        result = await applescript_manager.execute_applescript('return "test"')
         
         if result.get("success"):
             logger.info("✓ Basic AppleScript execution successful")
@@ -233,7 +233,7 @@ def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
         # Test Things 3 specific script
         logger.info("Testing Things 3 connectivity...")
         script = 'tell application "Things3" to return "connected"'
-        result = applescript_manager.execute_applescript(script)
+        result = await applescript_manager.execute_applescript(script)
         
         if result.get("success"):
             logger.info("✓ Things 3 AppleScript connectivity successful")
@@ -244,7 +244,7 @@ def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
         
         # Test URL scheme
         logger.info("Testing Things 3 URL scheme...")
-        result = applescript_manager.execute_url_scheme("show", {"id": "today"})
+        result = await applescript_manager.execute_url_scheme("show", {"id": "today"})
         
         if result.get("success"):
             logger.info("✓ Things 3 URL scheme successful")
@@ -284,10 +284,10 @@ def main():
         return 0
     
     if args.health_check:
-        return perform_health_check(args.timeout, args.retry_count)
+        return asyncio.run(perform_health_check(args.timeout, args.retry_count))
     
     if args.test_applescript:
-        return test_applescript_connectivity(args.timeout, args.retry_count)
+        return asyncio.run(test_applescript_connectivity(args.timeout, args.retry_count))
     
     # Configure basic logging if no server will do it
     if args.version or args.health_check or args.test_applescript:
