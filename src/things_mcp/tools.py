@@ -2038,13 +2038,15 @@ class ThingsTools:
         """Get all tags using native AppleScript collection operations.
         
         Args:
-            include_items: Include items tagged with each tag
+            include_items: If True, include full items list for each tag.
+                         If False, include only the count of todos for each tag.
             
         Returns:
-            List of tag dictionaries
+            List of tag dictionaries with either items or item_count
         """
         try:
             # Use native AppleScript record handling for cleaner output
+            # When include_items is False, we'll get counts instead of full items
             script = '''
             tell application "Things3"
                 set allTags to every tag
@@ -2087,15 +2089,36 @@ class ThingsTools:
                                     "uuid": tag_id,
                                     "name": tag_name,
                                     "shortcut": "",  # Skip shortcut for performance
-                                    "items": []
                                 }
                                 
-                                # If include_items is requested, get items with this tag
-                                if include_items and tag_name:
-                                    try:
-                                        tag_dict["items"] = await self.get_tagged_items(tag_name)
-                                    except Exception as e:
-                                        logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                # If include_items is requested, get full items list
+                                if include_items:
+                                    tag_dict["items"] = []
+                                    if tag_name:
+                                        try:
+                                            tag_dict["items"] = await self.get_tagged_items(tag_name)
+                                        except Exception as e:
+                                            logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                else:
+                                    # When include_items is False, get the count of todos with this tag
+                                    tag_dict["item_count"] = 0
+                                    if tag_name:
+                                        try:
+                                            # Get count of todos with this tag
+                                            count_script = f'''
+                                            tell application "Things3"
+                                                set taggedTodos to every to do whose tag names contains "{self._escape_applescript_string(tag_name)}"
+                                                return count of taggedTodos
+                                            end tell
+                                            '''
+                                            count_result = await self.applescript.execute_applescript(count_script, f"tag_count_{tag_id}")
+                                            if count_result.get("success"):
+                                                try:
+                                                    tag_dict["item_count"] = int(count_result.get("output", "0").strip())
+                                                except (ValueError, AttributeError):
+                                                    tag_dict["item_count"] = 0
+                                        except Exception as e:
+                                            logger.warning(f"Failed to get count for tag '{tag_name}': {e}")
                                 
                                 tags.append(tag_dict)
                 

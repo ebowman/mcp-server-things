@@ -326,18 +326,62 @@ class TestGetTags:
         return ThingsTools(mock_applescript_manager_with_data)
     
     @pytest.mark.asyncio
-    async def test_get_tags(self, tools_with_mock):
-        """Test getting all tags."""
-        # Mock the AppleScript execution
+    async def test_get_tags_with_items(self, tools_with_mock):
+        """Test getting all tags with items included."""
+        # Mock the AppleScript execution for tags
         tools_with_mock.applescript.execute_applescript = AsyncMock(return_value={
             "success": True,
-            "output": "tag1\ntag2\ntag3",
+            "output": "tag-id-1\tWork, tag-id-2\tPersonal",
             "error": None
         })
         
-        result = await tools_with_mock.get_tags()
+        # Mock getting tagged items
+        tools_with_mock.get_tagged_items = AsyncMock(return_value=[
+            {"id": "todo1", "title": "Sample Todo"}
+        ])
+        
+        result = await tools_with_mock.get_tags(include_items=True)
         
         assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["name"] == "Work"
+        assert "items" in result[0]
+        assert isinstance(result[0]["items"], list)
+    
+    @pytest.mark.asyncio
+    async def test_get_tags_with_counts(self, tools_with_mock):
+        """Test getting all tags with item counts instead of items."""
+        # Track calls to determine which response to return
+        call_count = 0
+        
+        async def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            if "every tag" in args[0]:
+                # Return tags list
+                return {
+                    "success": True,
+                    "output": "tag-id-1\tWork, tag-id-2\tPersonal",
+                    "error": None
+                }
+            else:
+                # Return count for each tag
+                counts = ["5", "3"]
+                result = {"success": True, "output": counts[call_count]}
+                call_count += 1
+                return result
+        
+        tools_with_mock.applescript.execute_applescript = mock_execute
+        
+        result = await tools_with_mock.get_tags(include_items=False)
+        
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["name"] == "Work"
+        assert "item_count" in result[0]
+        assert result[0]["item_count"] == 5
+        assert result[1]["name"] == "Personal"
+        assert result[1]["item_count"] == 3
+        assert "items" not in result[0]  # Should not have items field
 
 
 class TestCompleteTodo:

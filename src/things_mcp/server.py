@@ -712,9 +712,16 @@ class ThingsMCPServer:
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
-            include_items: bool = Field(False, description="Include items tagged with each tag")
+            include_items: bool = Field(False, description="If True, include full items list for each tag. If False, include only the count of todos for each tag")
         ) -> List[Dict[str, Any]]:
-            """Get all tags."""
+            """Get all tags with either their items or item counts.
+            
+            Returns a list of tag dictionaries containing:
+            - id: Tag identifier
+            - name: Tag name
+            - item_count: Number of todos with this tag (when include_items=False)
+            - items: Full list of items with this tag (when include_items=True)
+            """
             try:
                 return await self.tools.get_tags(include_items=include_items)
             except Exception as e:
