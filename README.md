@@ -8,7 +8,20 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 ## Installation
 
-### From Source
+### Option 1: From PyPI (Recommended)
+
+1. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+```
+
+2. Install the package:
+```bash
+pip install mcp-server-things
+```
+
+### Option 2: From Source (Development)
 
 1. Clone the repository:
 ```bash
@@ -32,7 +45,28 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Claude Desktop Configuration
+## Claude Desktop Configuration
+
+### For PyPI Installation
+
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "things": {
+      "command": "/path/to/your/venv/bin/python",
+      "args": ["-m", "things_mcp"],
+      "env": {
+        "THINGS_MCP_LOG_LEVEL": "INFO",
+        "THINGS_MCP_APPLESCRIPT_TIMEOUT": "30"
+      }
+    }
+  }
+}
+```
+
+### For Source Installation
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -52,8 +86,9 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-**Note:** 
-- Replace `/path/to/mcp-server-things` with your actual installation path
+**Notes:** 
+- **PyPI**: Replace `/path/to/your/venv/bin/python` with your virtual environment's Python path
+- **Source**: Replace `/path/to/mcp-server-things` with your actual installation path and include the `PYTHONPATH`
 - Use the full path to the Python executable in your virtual environment
 - See Configuration section below for environment variable options
 
