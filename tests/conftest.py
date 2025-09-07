@@ -589,6 +589,13 @@ def event_loop():
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture
+def tools_fixture(mock_applescript_manager):
+    """Create a ThingsTools instance with mocked AppleScript manager for testing."""
+    from things_mcp.tools import ThingsTools
+    return ThingsTools(mock_applescript_manager)
+
+
 # Mock Response Builders
 def build_applescript_success_response(data: Any = None):
     """Build a successful AppleScript response."""

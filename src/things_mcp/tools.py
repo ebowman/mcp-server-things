@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
@@ -221,19 +222,19 @@ class ThingsTools:
                 'existing': [tag for tag in result.valid_tags if tag not in result.created_tags],
                 'filtered': result.filtered_tags,
                 'warnings': result.warnings,
-                'errors': result.get('errors', [])
+                'errors': result.errors
             }
             
             # Log warnings and errors
             for warning in result.warnings:
                 logger.warning(f"Tag validation: {warning}")
             
-            for error in result.get('errors', []):
+            for error in result.errors:
                 logger.error(f"Tag validation: {error}")
             
             # If there are errors (from FAIL_ON_UNKNOWN policy), raise exception
-            if result.get('errors'):
-                raise ValueError(f"Tag validation failed: {'; '.join(result.get('errors', []))}")
+            if result.errors:
+                raise ValueError(f"Tag validation failed: {'; '.join(result.errors)}")
             
             return legacy_result
             
@@ -561,8 +562,7 @@ class ThingsTools:
             for todo in todos:
                 todo_dict = {
                     "id": todo.get("id"),
-                    "uuid": todo.get("id"),  # Things uses ID as UUID
-                    "title": todo.get("name", ""),
+                    "name": todo.get("name", ""),
                     "notes": todo.get("notes", ""),
                     "status": todo.get("status", "open"),
                     "creation_date": todo.get("creation_date"),
@@ -852,9 +852,22 @@ class ThingsTools:
                 elif deadline_lower == "yesterday":
                     due_date_property = "due date:((current date) - 1 * days)"
                 else:
-                    # For specific dates, we'll set the deadline after creation
-                    # because AppleScript date strings are unreliable
-                    due_date_command = deadline  # Will be handled post-creation
+                    # For specific dates, validate before creation
+                    # to avoid creating todos with invalid deadlines
+                    if deadline and re.match(r'^\d{4}-\d{2}-\d{2}$', deadline):
+                        try:
+                            # Validate the date can be parsed
+                            datetime.strptime(deadline, '%Y-%m-%d')
+                            due_date_command = deadline  # Will be handled post-creation
+                        except ValueError as e:
+                            # Return error before creating the todo
+                            return {
+                                "success": False,
+                                "error": f"Invalid deadline date format '{deadline}': {str(e)}"
+                            }
+                    else:
+                        # Assume it's a valid relative date string for AppleScript
+                        due_date_command = deadline  # Will be handled post-creation
 
             # Add checklist items to notes if specified  
             # Note: Things 3 doesn't support checklist items via AppleScript properties
@@ -1293,7 +1306,7 @@ class ThingsTools:
                     elif deadline_lower == "yesterday":
                         script_parts.append('        set due date of theTodo to ((current date) - 1 * days)')
                     else:
-                        # For specific dates, construct date object safely
+                        # For specific dates, validate and construct date object safely
                         if "/" in deadline or "-" in deadline:
                             # Parse the ISO date to get components
                             try:
@@ -1307,11 +1320,14 @@ class ThingsTools:
         set month of dueDate to {parsed_date.month}
         set day of dueDate to {parsed_date.day}
         set due date of theTodo to dueDate''')
-                            except ValueError:
-                                # Fallback to string format if parsing fails
-                                script_parts.append(f'        set due date of theTodo to date "{deadline}"')
+                            except ValueError as e:
+                                # Return error instead of creating invalid update
+                                return {
+                                    "success": False,
+                                    "error": f"Invalid deadline date format '{deadline}': {str(e)}"
+                                }
                         else:
-                            # Try as-is
+                            # Try as-is for other date formats
                             script_parts.append(f'        set due date of theTodo to date "{deadline}"')
             
             # Handle completion status
@@ -1333,13 +1349,15 @@ class ThingsTools:
             
             # OPTIMIZATION: Invalidate related caches for granular cache management
             def _invalidate_caches_after_update():
-                cache_keys_to_clear = [
-                    "todos_all", "projects_all", "areas_all",
-                    "logbook_period_1d_100", "logbook_period_3d_100"  # Common logbook queries
-                ]
-                for key in filter(None, cache_keys_to_clear):
-                    # Use delete method for SharedCache
-                    self.applescript._cache.delete(key)
+                # Check if cache exists before trying to invalidate
+                if hasattr(self.applescript, '_cache'):
+                    cache_keys_to_clear = [
+                        "todos_all", "projects_all", "areas_all",
+                        "logbook_period_1d_100", "logbook_period_3d_100"  # Common logbook queries
+                    ]
+                    for key in filter(None, cache_keys_to_clear):
+                        # Use delete method for SharedCache
+                        self.applescript._cache.delete(key)
             
             script = '\n'.join(script_parts)
             
@@ -1445,8 +1463,7 @@ class ThingsTools:
                     
                     todo_data = {
                         "id": record.get("id", todo_id),
-                        "uuid": record.get("id", todo_id),
-                        "title": record.get("name", ""),
+                        "name": record.get("name", ""),
                         "notes": record.get("notes", ""),
                         "status": record.get("status", "open"),
                         "tags": tags,
@@ -1554,8 +1571,7 @@ class ThingsTools:
                 
                 project_dict = {
                     "id": project.get("id"),
-                    "uuid": project.get("id"),
-                    "title": project.get("name", ""),
+                    "name": project.get("name", ""),
                     "notes": project.get("notes", ""),
                     "status": project.get("status", "open"),
                     "tags": tags,  # Now properly extracted from AppleScript
@@ -1899,8 +1915,7 @@ class ThingsTools:
             for area in areas:
                 area_dict = {
                     "id": area.get("id"),
-                    "uuid": area.get("id"),
-                    "title": area.get("name", ""),
+                    "name": area.get("name", ""),
                     "notes": area.get("notes", ""),
                     "creation_date": area.get("creation_date"),
                     "modification_date": area.get("modification_date"),
@@ -2038,68 +2053,96 @@ class ThingsTools:
         """Get all tags using native AppleScript collection operations.
         
         Args:
-            include_items: Include items tagged with each tag
+            include_items: If True, include full items list for each tag.
+                         If False, include only the count of todos for each tag.
             
         Returns:
-            List of tag dictionaries
+            List of tag dictionaries with either items or item_count
         """
         try:
-            # Use native AppleScript record handling for cleaner output
+            # Get all tags and their todos in a single AppleScript call
+            # This is much more efficient than multiple calls for counts
             script = '''
             tell application "Things3"
                 set allTags to every tag
-                set tagRecords to {}
+                set tagDataList to {}
                 
                 repeat with currentTag in allTags
                     try
-                        set tagRecord to (id of currentTag) & tab & (name of currentTag)
-                        set tagRecords to tagRecords & {tagRecord}
+                        set tagId to id of currentTag
+                        set tagName to name of currentTag
+                        
+                        -- Get count of todos with this tag (only open/active todos)
+                        set taggedTodos to every to do whose tag names contains tagName and status is open
+                        set todoCount to count of taggedTodos
+                        
+                        -- Simple format: tagId<TAB>tagName<TAB>count
+                        set tagRecord to tagId & tab & tagName & tab & (todoCount as string)
+                        set tagDataList to tagDataList & {tagRecord}
                     on error
                         -- Skip tags that can't be accessed
                     end try
                 end repeat
                 
-                return tagRecords
+                -- Return comma-separated list
+                set AppleScript's text item delimiters to ", "
+                set tagData to tagDataList as string
+                set AppleScript's text item delimiters to ""
+                
+                return tagData
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, "tags_all")
+            result = await self.applescript.execute_applescript(script, "tags_all_with_counts")
             
             if result.get("success"):
                 output = (result.get("output") or "")
                 tags = []
                 
+                # Log the raw output for debugging
+                if not output or not output.strip():
+                    logger.warning("AppleScript returned empty output for tags")
+                else:
+                    logger.debug(f"Raw AppleScript output (first 500 chars): {output[:500]}")
+                
                 if output and output.strip():
-                    # Parse tab-delimited output: id<tab>name, id<tab>name, ...
+                    # Parse the simple tab-delimited output: tagId<TAB>tagName<TAB>count
                     tag_entries = output.strip().split(', ')
                     
                     for entry in tag_entries:
                         entry = entry.strip()
-                        if entry and "\t" in entry:
-                            # Parse id and name from "id<tab>name"
-                            tag_id, tag_name = entry.split('\t', 1)
-                            tag_id = tag_id.strip()
-                            tag_name = tag_name.strip()
-                            
-                            if tag_id and tag_name:
-                                tag_dict = {
-                                    "id": tag_id,
-                                    "uuid": tag_id,
-                                    "name": tag_name,
-                                    "shortcut": "",  # Skip shortcut for performance
-                                    "items": []
-                                }
+                        if entry and '\t' in entry:
+                            parts = entry.split('\t')
+                            if len(parts) >= 3:
+                                tag_id = parts[0].strip()
+                                tag_name = parts[1].strip()
+                                count_str = parts[2].strip()
                                 
-                                # If include_items is requested, get items with this tag
-                                if include_items and tag_name:
-                                    try:
-                                        tag_dict["items"] = await self.get_tagged_items(tag_name)
-                                    except Exception as e:
-                                        logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
-                                
-                                tags.append(tag_dict)
+                                if tag_id and tag_name:
+                                    tag_dict = {
+                                        "id": tag_id,
+                                        "uuid": tag_id,
+                                        "name": tag_name,
+                                        "shortcut": "",  # Skip shortcut for performance
+                                    }
+                                    
+                                    if include_items:
+                                        # If items are requested, we need to fetch them separately
+                                        tag_dict["items"] = []
+                                        try:
+                                            tag_dict["items"] = await self.get_tagged_items(tag_name)
+                                        except Exception as e:
+                                            logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
+                                    else:
+                                        # Just include the count
+                                        try:
+                                            tag_dict["item_count"] = int(count_str)
+                                        except ValueError:
+                                            tag_dict["item_count"] = 0
+                                    
+                                    tags.append(tag_dict)
                 
-                logger.info(f"Retrieved {len(tags)} tags with native operations")
+                logger.info(f"Retrieved {len(tags)} tags with counts in single call")
                 return tags
             else:
                 logger.error(f"Failed to get tags: {result.get('error')}")
@@ -2335,10 +2378,12 @@ class ThingsTools:
                 elif status == "canceled":
                     conditions.append('status is canceled')
             
-            # Tag filter  
+            # Tag filter - check for exact tag name match
             if tag:
                 escaped_tag = self._escape_applescript_string(tag)
-                conditions.append(f'tag names contains {escaped_tag}')
+                # Use exact match instead of contains to avoid partial matches
+                # This filters items that have the specified tag
+                conditions.append(f'{escaped_tag} is in tag names')
             
             # Date filters using native AppleScript date comparisons
             if deadline:
@@ -2622,8 +2667,7 @@ class ThingsTools:
                 for record in raw_records:
                     item_dict = {
                         "id": record.get("id", "unknown"),
-                        "uuid": record.get("id", "unknown"),
-                        "title": record.get("name", ""),
+                        "name": record.get("name", ""),
                         "notes": record.get("notes", ""),
                         "status": record.get("status", "open"),
                         "tags": record.get("tags", []),
@@ -2884,11 +2928,10 @@ class ThingsTools:
             for record in raw_records:
                 todo = {
                     "id": record.get("id", "unknown"),
-                    "uuid": record.get("id", "unknown"),  # Things uses ID as UUID
-                    "title": record.get("name", ""),
+                    "name": record.get("name", ""),
                     "notes": record.get("notes", ""),
                     "status": record.get("status", "open"),
-                    "tags": record.get("tags", []),  # Already parsed by _parse_applescript_list
+                    "tag_names": record.get("tags", []),  # Use Things 3's native field name
                     "creation_date": record.get("creation_date"),
                     "modification_date": record.get("modification_date"),
                     "area": record.get("area"),

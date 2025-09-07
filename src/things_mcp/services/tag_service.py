@@ -86,36 +86,51 @@ class TagValidationService:
         """Get current tags from Things 3.
         
         Returns:
-            Set of existing tag names (case-insensitive if configured)
+            Set of existing tag names (preserving original case)
         """
         try:
             script = '''
             tell application "Things3"
+                set AppleScript's text item delimiters to "|DELIMITER|"
                 set tagList to {}
                 repeat with theTag in tags
                     set end of tagList to name of theTag
                 end repeat
-                return tagList
+                set tagString to tagList as text
+                set AppleScript's text item delimiters to ""
+                return tagString
             end tell
             '''
             
             result = await self.applescript.execute_applescript(script, cache_key="all_tags")
             
             if result.get("success"):
-                tag_names = result.get("output", [])
-                if isinstance(tag_names, str):
-                    # Handle single tag as string
-                    tag_names = [tag_names]
-                elif not isinstance(tag_names, list):
-                    # Handle unexpected format
-                    logger.warning(f"Unexpected tag format from AppleScript: {type(tag_names)}")
+                output = result.get("output", "")
+                
+                # Parse the delimited string
+                if isinstance(output, str) and output:
+                    # Split by our delimiter
+                    if "|DELIMITER|" in output:
+                        tag_names = output.split("|DELIMITER|")
+                    else:
+                        # Fallback: might be a single tag
+                        tag_names = [output] if output else []
+                elif isinstance(output, list):
+                    # Already a list (shouldn't happen with our script but handle it)
+                    tag_names = output
+                else:
+                    logger.warning(f"Unexpected tag format from AppleScript: {type(output)}")
                     tag_names = []
                 
-                # Apply case sensitivity settings
-                if self.config.tag_validation_case_sensitive:
-                    return set(tag_names)
-                else:
-                    return set(tag.lower() for tag in tag_names)
+                # Clean up any empty strings
+                tag_names = [tag.strip() for tag in tag_names if tag.strip()]
+                
+                logger.info(f"Found {len(tag_names)} existing tags in Things 3")
+                if tag_names:
+                    logger.debug(f"Sample tags: {tag_names[:5]}")
+                
+                # Always return original tag names, case handling will be done during comparison
+                return set(tag_names)
             else:
                 logger.error(f"Failed to get existing tags: {result.get('error')}")
                 return set()
@@ -149,12 +164,26 @@ class TagValidationService:
         unknown_tags = []
         known_tags = []
         
+        # Create a lookup map for case-insensitive matching if needed
+        if not case_sensitive:
+            # Map lowercase tag names to original names for case-insensitive comparison
+            existing_tags_lower = {tag.lower() for tag in existing_tags}
+        
         # Categorize tags
         for tag in tags:
-            compare_tag = tag if case_sensitive else tag.lower()
-            if compare_tag in existing_tags:
-                known_tags.append(tag)
+            found = False
+            if case_sensitive:
+                # Case-sensitive: exact match required
+                if tag in existing_tags:
+                    known_tags.append(tag)
+                    found = True
             else:
+                # Case-insensitive: check lowercase version
+                if tag.lower() in existing_tags_lower:
+                    known_tags.append(tag)
+                    found = True
+            
+            if not found:
                 unknown_tags.append(tag)
         
         # Always include known tags

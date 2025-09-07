@@ -1,155 +1,140 @@
-2025-09-06 23:13:56 [   DEBUG] shared_cache.py:59 - __init__(): SharedCache initialized with directory: /var/folders/2v/c77rk6hn79x4mnjbfgn2wg600000gn/T/things_mcp_cache
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:56 [   DEBUG] shared_cache.py:237 - clear(): All cache entries cleared
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:1307 - clear_cache(): AppleScript shared cache cleared
-2025-09-06 23:13:56 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:56 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:56 [   DEBUG] shared_cache.py:237 - clear(): All cache entries cleared
-2025-09-06 23:13:56 [    INFO] applescript_manager.py:1307 - clear_cache(): AppleScript shared cache cleared
-2025-09-06 23:13:56 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:56 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:56 [ WARNING] applescript_manager.py:564 - _execute_script_with_retry(): Script execution failed, retrying in 1s: syntax error
-2025-09-06 23:13:57 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:57 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:57 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:57 [   DEBUG] shared_cache.py:237 - clear(): All cache entries cleared
-2025-09-06 23:13:57 [    INFO] applescript_manager.py:1307 - clear_cache(): AppleScript shared cache cleared
-2025-09-06 23:13:57 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:57 [ WARNING] applescript_manager.py:564 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Script execution timed out after 5 seconds
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] shared_cache.py:237 - clear(): All cache entries cleared
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:1307 - clear_cache(): AppleScript shared cache cleared
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] shared_cache.py:195 - set(): Cache set for key: todos_all, expires at: 1757193268.046965
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:106 - execute_applescript(): Cached result for key: todos_all
-2025-09-06 23:13:58 [   DEBUG] shared_cache.py:237 - clear(): All cache entries cleared
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:1307 - clear_cache(): AppleScript shared cache cleared
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] shared_cache.py:195 - set(): Cache set for key: todos_all, expires at: 1757193268.0486028
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:106 - execute_applescript(): Cached result for key: todos_all
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [ WARNING] applescript_manager.py:564 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Temporary error
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:622 - _execute_script(): AppleScript executed successfully in 0.000s
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [ WARNING] applescript_manager.py:564 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Persistent error
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:70 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
-2025-09-06 23:13:58 [    INFO] applescript_manager.py:48 - __init__(): AppleScript manager initialized with shared cache
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [ WARNING] applescript_manager.py:564 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Error
-2025-09-06 23:13:58 [   DEBUG] applescript_manager.py:629 - _execute_script(): AppleScript failed after 0.000s with return code 1
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '25:00' in datetime input 'today@25:00'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '12:75' in datetime input 'tomorrow@12:75'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format 'format' in datetime input 'invalid@format'
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@14:30' to Things format '2024-01-15@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@18:00' to Things format 'today@6pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'tomorrow@09:30' to Things format 'tomorrow@9:30am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@00:00' to Things format '2024-01-15@12am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@12:00' to Things format 'today@12pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@13:00' to Things format '2024-01-15@1pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@01:30' to Things format 'today@1:30am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'tomorrow@23:59' to Things format 'tomorrow@11:59pm'
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@00:01' to Things format 'today@12:01am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@11:59' to Things format 'today@11:59am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@12:01' to Things format 'today@12:01pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@23:58' to Things format 'today@11:58pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@06:00' to Things format '2024-01-15@6am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@18:00' to Things format '2024-01-15@6pm'
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@14:30' to Things format '2024-01-15@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Todo&when=2024-01-15%402%3A30pm&notes=Test%20notes&tags=work%2Curgent
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@09:00' to Things format 'today@9am'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Simple%20Todo&when=today%409am
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@15:30' to Things format 'today@3:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Meeting%20%26%20Review%21&when=today%403%3A30pm&notes=Important%3A%20review%20%23123&tags=urgent%2Cmeeting%40work
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:838 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2025-09-06@14:30' to Things format '2025-09-06@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Reminder%20Todo&when=2025-09-06%402%3A30pm&tags=work
-2025-09-06 23:13:58 [    INFO] tools.py:845 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Test%20Reminder%20Todo&when=2025-09-06%402%3A30pm&tags=work
-2025-09-06 23:13:58 [    INFO] tools.py:856 - _add_todo_impl(): Successfully created todo with reminder using URL scheme
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:838 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2025-09-06@14:30' to Things format '2025-09-06@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Fallback%20Todo&when=2025-09-06%402%3A30pm
-2025-09-06 23:13:58 [    INFO] tools.py:845 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Test%20Fallback%20Todo&when=2025-09-06%402%3A30pm
-2025-09-06 23:13:58 [ WARNING] tools.py:869 - _add_todo_impl(): URL scheme reminder creation failed: URL scheme failed, falling back to AppleScript
-2025-09-06 23:13:58 [   DEBUG] tools.py:971 - _add_todo_impl(): Generated AppleScript for add_todo:
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:31 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:31 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:31 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:31 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:31 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:31 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:31 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:31 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:31 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:31 [ WARNING] applescript_manager.py:548 - _execute_script_with_retry(): Script execution failed, retrying in 1s: syntax error
+2025-09-07 15:35:32 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:32 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:32 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:32 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:32 [ WARNING] applescript_manager.py:548 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Script execution timed out after 5 seconds
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [ WARNING] applescript_manager.py:548 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Temporary error
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:606 - _execute_script(): AppleScript executed successfully in 0.000s
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [ WARNING] applescript_manager.py:548 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Persistent error
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:69 - _load_auth_token(): No Things auth token found - will use direct AppleScript execution
+2025-09-07 15:35:33 [    INFO] applescript_manager.py:47 - __init__(): AppleScript manager initialized - cache removed for hybrid implementation
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [ WARNING] applescript_manager.py:548 - _execute_script_with_retry(): Script execution failed, retrying in 1s: Error
+2025-09-07 15:35:33 [   DEBUG] applescript_manager.py:613 - _execute_script(): AppleScript failed after 0.000s with return code 1
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '25:00' in datetime input 'today@25:00'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '12:75' in datetime input 'tomorrow@12:75'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format 'format' in datetime input 'invalid@format'
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@14:30' to Things format '2024-01-15@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@18:00' to Things format 'today@6pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'tomorrow@09:30' to Things format 'tomorrow@9:30am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@00:00' to Things format '2024-01-15@12am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@12:00' to Things format 'today@12pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@13:00' to Things format '2024-01-15@1pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@01:30' to Things format 'today@1:30am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'tomorrow@23:59' to Things format 'tomorrow@11:59pm'
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@00:01' to Things format 'today@12:01am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@11:59' to Things format 'today@11:59am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@12:01' to Things format 'today@12:01pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@23:58' to Things format 'today@11:58pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@06:00' to Things format '2024-01-15@6am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@18:00' to Things format '2024-01-15@6pm'
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2024-01-15@14:30' to Things format '2024-01-15@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Todo&when=2024-01-15%402%3A30pm&notes=Test%20notes&tags=work%2Curgent
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@09:00' to Things format 'today@9am'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Simple%20Todo&when=today%409am
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@15:30' to Things format 'today@3:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Meeting%20%26%20Review%21&when=today%403%3A30pm&notes=Important%3A%20review%20%23123&tags=urgent%2Cmeeting%40work
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:903 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2025-09-07@14:30' to Things format '2025-09-07@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Reminder%20Todo&when=2025-09-07%402%3A30pm&tags=work
+2025-09-07 15:35:33 [    INFO] tools.py:911 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Test%20Reminder%20Todo&when=2025-09-07%402%3A30pm&tags=work
+2025-09-07 15:35:33 [    INFO] tools.py:924 - _add_todo_impl(): Successfully created todo with reminder using URL scheme
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:903 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2025-09-07@14:30' to Things format '2025-09-07@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Test%20Fallback%20Todo&when=2025-09-07%402%3A30pm
+2025-09-07 15:35:33 [    INFO] tools.py:911 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Test%20Fallback%20Todo&when=2025-09-07%402%3A30pm
+2025-09-07 15:35:33 [ WARNING] tools.py:937 - _add_todo_impl(): URL scheme reminder creation failed: URL scheme failed, falling back to AppleScript
+2025-09-07 15:35:33 [   DEBUG] tools.py:1039 - _add_todo_impl(): Generated AppleScript for add_todo:
 tell application "Things3"
     try
         set newTodo to make new to do with properties {name:"Test Fallback Todo"}
@@ -158,30 +143,30 @@ tell application "Things3"
         return "error: " & errMsg
     end try
 end tell
-2025-09-06 23:13:58 [    INFO] tools.py:1056 - _add_todo_impl(): Successfully created todo with ID test-todo-id: Test Fallback Todo
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '' in datetime input 'today@'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '25:00' in datetime input 'today@25:00'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '12:60' in datetime input 'today@12:60'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format 'format' in datetime input 'invalid@format'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '14:30:45' in datetime input 'today@14:30:45'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '@14:30' in datetime input 'today@@14:30'
-2025-09-06 23:13:58 [ WARNING] tools.py:440 - _parse_datetime_input(): Invalid time format '14@30' in datetime input 'today@14@30'
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [ WARNING] tools.py:3082 - _convert_to_things_datetime_format(): Could not convert datetime format 'today@': invalid literal for int() with base 10: ''
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '@14:30' to Things format '@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime 'today@25:00' to Things format 'today@13pm'
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:838 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
-2025-09-06 23:13:58 [   DEBUG] tools.py:3078 - _convert_to_things_datetime_format(): Converted datetime '2025-09-06@14:30' to Things format '2025-09-06@2:30pm'
-2025-09-06 23:13:58 [   DEBUG] tools.py:3137 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Fallback%20Test&when=2025-09-06%402%3A30pm
-2025-09-06 23:13:58 [    INFO] tools.py:845 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Fallback%20Test&when=2025-09-06%402%3A30pm
-2025-09-06 23:13:58 [ WARNING] tools.py:869 - _add_todo_impl(): URL scheme reminder creation failed: URL scheme execution failed, falling back to AppleScript
-2025-09-06 23:13:58 [   DEBUG] tools.py:971 - _add_todo_impl(): Generated AppleScript for add_todo:
+2025-09-07 15:35:33 [    INFO] tools.py:1124 - _add_todo_impl(): Successfully created todo with ID test-todo-id: Test Fallback Todo
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '' in datetime input 'today@'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '25:00' in datetime input 'today@25:00'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '12:60' in datetime input 'today@12:60'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format 'format' in datetime input 'invalid@format'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '14:30:45' in datetime input 'today@14:30:45'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '@14:30' in datetime input 'today@@14:30'
+2025-09-07 15:35:33 [ WARNING] tools.py:441 - _parse_datetime_input(): Invalid time format '14@30' in datetime input 'today@14@30'
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [ WARNING] tools.py:3180 - _convert_to_things_datetime_format(): Could not convert datetime format 'today@': invalid literal for int() with base 10: ''
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '@14:30' to Things format '@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime 'today@25:00' to Things format 'today@13pm'
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:903 - _add_todo_impl(): Detected datetime reminder in 'today@14:30', using URL scheme instead of AppleScript
+2025-09-07 15:35:33 [   DEBUG] tools.py:3176 - _convert_to_things_datetime_format(): Converted datetime '2025-09-07@14:30' to Things format '2025-09-07@2:30pm'
+2025-09-07 15:35:33 [   DEBUG] tools.py:3235 - _build_url_scheme_with_reminder(): Built URL scheme for reminder: things:///add?title=Fallback%20Test&when=2025-09-07%402%3A30pm
+2025-09-07 15:35:33 [    INFO] tools.py:911 - _add_todo_impl(): Built reminder URL scheme: things:///add?title=Fallback%20Test&when=2025-09-07%402%3A30pm
+2025-09-07 15:35:33 [ WARNING] tools.py:937 - _add_todo_impl(): URL scheme reminder creation failed: URL scheme execution failed, falling back to AppleScript
+2025-09-07 15:35:33 [   DEBUG] tools.py:1039 - _add_todo_impl(): Generated AppleScript for add_todo:
 tell application "Things3"
     try
         set newTodo to make new to do with properties {name:"Fallback Test"}
@@ -190,11 +175,11 @@ tell application "Things3"
         return "error: " & errMsg
     end try
 end tell
-2025-09-06 23:13:58 [    INFO] tools.py:1056 - _add_todo_impl(): Successfully created todo with ID fallback-todo-id: Fallback Test
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   DEBUG] tools.py:971 - _add_todo_impl(): Generated AppleScript for add_todo:
+2025-09-07 15:35:33 [    INFO] tools.py:1124 - _add_todo_impl(): Successfully created todo with ID fallback-todo-id: Fallback Test
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] tools.py:1039 - _add_todo_impl(): Generated AppleScript for add_todo:
 tell application "Things3"
     try
         set newTodo to make new to do with properties {name:"Regular Todo"}
@@ -203,61 +188,67 @@ tell application "Things3"
         return "error: " & errMsg
     end try
 end tell
-2025-09-06 23:13:58 [    INFO] tools.py:1056 - _add_todo_impl(): Successfully created todo with ID test-todo-id: Regular Todo
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:42 - __init__(): Things tools initialized with tag validation service
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:576 - get_todos(): Retrieved 1 todos
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:576 - get_todos(): Retrieved 1 todos
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:1521 - get_projects(): Retrieved 1 projects
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [   ERROR] tools.py:2853 - _parse_applescript_todos(): Error parsing AppleScript output: 'MockAppleScriptManager' object has no attribute '_parse_applescript_list'
-2025-09-06 23:13:58 [    INFO] tools.py:2239 - search_todos(): Efficient search found 0 todos matching query: test
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:1858 - get_areas(): Retrieved 1 areas
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:2047 - get_tags(): Retrieved 0 tags with native operations
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-06 23:13:58 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-06 23:13:58 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-06 23:13:58 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:1124 - _add_todo_impl(): Successfully created todo with ID test-todo-id: Regular Todo
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:43 - __init__(): Things tools initialized with tag validation service
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:576 - get_todos(): Retrieved 1 todos
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:576 - get_todos(): Retrieved 1 todos
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:1592 - get_projects(): Retrieved 1 projects
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   ERROR] tools.py:2951 - _parse_applescript_todos(): Error parsing AppleScript output: 'MockAppleScriptManager' object has no attribute '_parse_applescript_list'
+2025-09-07 15:35:33 [    INFO] tools.py:2337 - search_todos(): Efficient search found 0 todos matching query: test
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:1928 - get_areas(): Retrieved 1 areas
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] tools.py:2106 - get_tags(): Raw AppleScript output (first 500 chars): tag-id-1	Work	2, tag-id-2	Personal	1
+2025-09-07 15:35:33 [    INFO] tools.py:2145 - get_tags(): Retrieved 2 tags with counts in single call
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [   DEBUG] tools.py:2106 - get_tags(): Raw AppleScript output (first 500 chars): tag-id-1	Work	5, tag-id-2	Personal	3
+2025-09-07 15:35:33 [    INFO] tools.py:2145 - get_tags(): Retrieved 2 tags with counts in single call
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 15:35:33 [    INFO] tools.py:45 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 15:35:33 [    INFO] tools.py:47 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 15:35:33 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector

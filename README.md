@@ -60,6 +60,12 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 ![Demo showing Claude creating tasks in Things 3](demo.gif)
 *Creating tasks with natural language through Claude*
 
+## 📚 Documentation
+
+- **[User Examples](docs/USER_EXAMPLES.md)** - Rich examples of how to use Things 3 with AI assistants
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - Technical design and implementation details
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+
 ## Features
 
 ### Core Todo Operations

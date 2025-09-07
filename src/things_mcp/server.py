@@ -20,7 +20,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from .services.applescript_manager import AppleScriptManager
-from .tools import ThingsTools
+from .hybrid_tools import HybridTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
@@ -58,7 +58,7 @@ class ThingsMCPServer:
         self._configure_logging()
         
         self.applescript_manager = AppleScriptManager()
-        self.tools = ThingsTools(self.applescript_manager, self.config)
+        self.tools = HybridTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()
         # self.query_engine = NaturalLanguageQueryEngine(self.tools)  # Removed - too complex
         self._register_tools()
@@ -239,13 +239,9 @@ class ThingsMCPServer:
                     raw_data, 'get_todos', response_mode, optimized_params
                 )
                 
-                # Add optimization metadata for transparency
+                # Add minimal optimization metadata
                 if was_modified:
-                    optimized_response['optimization_applied'] = {
-                        'smart_defaults_used': True,
-                        'original_params': request_params,
-                        'optimized_params': optimized_params
-                    }
+                    optimized_response['optimized'] = True
                 
                 return optimized_response
                 
@@ -579,46 +575,151 @@ class ThingsMCPServer:
         
         # List-based tools
         @self.mcp.tool()
-        async def get_inbox() -> List[Dict[str, Any]]:
-            """Get todos from Inbox."""
+        async def get_inbox(
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+            """Get todos from Inbox with context-aware response optimization.
+            
+            Supports progressive disclosure modes to manage large responses:
+            - auto: Automatically selects optimal mode based on data size
+            - summary: Returns count and preview only
+            - minimal: Returns essential fields only
+            - standard: Returns common fields
+            - detailed: Returns all fields
+            - raw: Returns unfiltered data
+            """
             try:
-                return await self.tools.get_inbox()
+                # Get raw data
+                raw_data = await self.tools.get_inbox()
+                
+                # Apply context-aware optimization if mode is specified
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    return self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                
+                return raw_data
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
         
         @self.mcp.tool()
-        async def get_today() -> List[Dict[str, Any]]:
-            """Get todos due today."""
+        async def get_today(
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+            """Get todos due today with context-aware response optimization.
+            
+            Supports progressive disclosure modes to manage responses:
+            - auto: Automatically selects optimal mode based on data size
+            - summary: Returns count and preview only
+            - minimal: Returns essential fields only
+            - standard: Returns common fields (default for Today)
+            - detailed: Returns all fields
+            - raw: Returns unfiltered data
+            """
             try:
-                return await self.tools.get_today()
+                # Get raw data
+                raw_data = await self.tools.get_today()
+                
+                # Apply context-aware optimization if mode is specified
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
+                    return self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                
+                return raw_data
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
         
         @self.mcp.tool()
-        async def get_upcoming() -> List[Dict[str, Any]]:
-            """Get upcoming todos."""
+        async def get_upcoming(
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+            """Get upcoming todos with context-aware response optimization.
+            
+            Supports progressive disclosure modes to manage large responses:
+            - auto: Automatically selects optimal mode based on data size
+            - summary: Returns count and preview only
+            - minimal: Returns essential fields only
+            - standard: Returns common fields
+            - detailed: Returns all fields
+            - raw: Returns unfiltered data
+            """
             try:
-                return await self.tools.get_upcoming()
+                # Get raw data
+                raw_data = await self.tools.get_upcoming()
+                
+                # Apply context-aware optimization if mode is specified
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    return self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                
+                return raw_data
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
         
         @self.mcp.tool()
-        async def get_anytime() -> List[Dict[str, Any]]:
-            """Get todos from Anytime list."""
+        async def get_anytime(
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+            """Get todos from Anytime list with context-aware response optimization.
+            
+            Supports progressive disclosure modes to manage large responses:
+            - auto: Automatically selects optimal mode based on data size
+            - summary: Returns count and preview only
+            - minimal: Returns essential fields only
+            - standard: Returns common fields
+            - detailed: Returns all fields
+            - raw: Returns unfiltered data
+            """
             try:
-                return await self.tools.get_anytime()
+                # Get raw data
+                raw_data = await self.tools.get_anytime()
+                
+                # Apply context-aware optimization if mode is specified
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    return self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                
+                return raw_data
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
         
         @self.mcp.tool()
-        async def get_someday() -> List[Dict[str, Any]]:
-            """Get todos from Someday list."""
+        async def get_someday(
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+            """Get todos from Someday list with context-aware response optimization.
+            
+            Supports progressive disclosure modes to manage large responses:
+            - auto: Automatically selects optimal mode based on data size
+            - summary: Returns count and preview only
+            - minimal: Returns essential fields only
+            - standard: Returns common fields
+            - detailed: Returns all fields
+            - raw: Returns unfiltered data
+            """
             try:
-                return await self.tools.get_someday()
+                # Get raw data
+                raw_data = await self.tools.get_someday()
+                
+                # Apply context-aware optimization if mode is specified
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    return self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                
+                return raw_data
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
@@ -689,8 +790,9 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_upcoming_in_days(
-            days: int = Field(30, description="Number of days ahead to check for upcoming todos", ge=1, le=365)
-        ) -> List[Dict[str, Any]]:
+            days: int = Field(30, description="Number of days ahead to check for upcoming todos", ge=1, le=365),
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
             """Get todos due OR activating within specified number of days.
             
             Combines results from due dates and activation dates, removing duplicates.
@@ -699,22 +801,55 @@ class ThingsMCPServer:
             
             Args:
                 days: Number of days ahead to check (1-365, default: 30)
+                mode: Response optimization mode
                 
             Returns:
-                List of unique todos that are either due or activating within the range
+                Formatted response with todos due or activating within the range
             """
             try:
-                return await self.tools.get_todos_upcoming_in_days(days)
+                logger.info(f"Getting todos upcoming in {days} days")
+                todos = await self.tools.get_todos_upcoming_in_days(days)
+                
+                # Always return a properly formatted response
+                if mode:
+                    request_params = {'mode': mode}
+                    optimized_params, _ = self.context_manager.optimize_request('get_upcoming_in_days', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    return self.context_manager.optimize_response(todos, 'get_upcoming_in_days', response_mode, optimized_params)
+                else:
+                    # Return structured response even without mode
+                    return {
+                        "data": todos,
+                        "meta": {
+                            "count": len(todos),
+                            "days": days
+                        }
+                    }
             except Exception as e:
                 logger.error(f"Error getting upcoming todos in {days} days: {e}")
-                return {"error": str(e), "todos": []}
+                # Return structured error response
+                return {
+                    "data": [],
+                    "meta": {
+                        "count": 0,
+                        "days": days,
+                        "error": str(e)
+                    }
+                }
         
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
-            include_items: bool = Field(False, description="Include items tagged with each tag")
+            include_items: bool = Field(False, description="If True, include full items list for each tag. If False, include only the count of todos for each tag")
         ) -> List[Dict[str, Any]]:
-            """Get all tags."""
+            """Get all tags with either their items or item counts.
+            
+            Returns a list of tag dictionaries containing:
+            - id: Tag identifier
+            - name: Tag name
+            - item_count: Number of todos with this tag (when include_items=False)
+            - items: Full list of items with this tag (when include_items=True)
+            """
             try:
                 return await self.tools.get_tags(include_items=include_items)
             except Exception as e:
@@ -735,11 +870,68 @@ class ThingsMCPServer:
         # Search tools
         @self.mcp.tool()
         async def search_todos(
-            query: str = Field(..., description="Search term to look for in todo titles and notes")
-        ) -> List[Dict[str, Any]]:
-            """Search todos by title or notes."""
+            query: str = Field(..., description="Search term to look for in todo titles and notes"),
+            limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
+            mode: Optional[str] = None
+        ) -> Dict[str, Any]:
+            """🔍 CONTEXT-OPTIMIZED todo search with INTELLIGENT response management.
+            
+            🎯 SMART FEATURES:
+            - Auto-selects optimal response size to prevent context exhaustion
+            - 5 progressive disclosure modes (auto/summary/minimal/standard/detailed/raw)
+            - Relevance-based ranking prioritizes matched content
+            - Built-in result limiting for large search results
+            
+            📊 PERFORMANCE OPTIMIZED:
+            - Handles large search results efficiently with smart defaults
+            - Dynamic field filtering reduces response size by 60-80%
+            - Estimated response size tracking prevents context overflow
+            
+            ⚡ AI ASSISTANT GUIDANCE:
+            - START: Use mode='auto' for unknown search result sizes
+            - LARGE RESULTS: Use mode='summary' first, then drill down
+            - SPECIFIC SEARCH: Use mode='minimal' to get IDs and essential fields
+            - DETAILED VIEW: Only request when you need full field data
+            
+            CONTEXT BUDGET: ~1KB per item (standard), ~50 bytes per item (summary)
+            """
             try:
-                return await self.tools.search_todos(query=query)
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
+                    }
+                
+                # Prepare request parameters
+                request_params = {
+                    'query': query,
+                    'limit': limit,
+                    'mode': mode
+                }
+                
+                # Apply smart defaults and optimization
+                optimized_params, was_modified = self.context_manager.optimize_request('search_todos', request_params)
+                
+                # Extract optimized parameters
+                final_limit = optimized_params.get('limit', 50)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                
+                # Get raw data from tools layer
+                raw_data = await self.tools.search_todos(query=query, limit=final_limit)
+                
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'search_todos', response_mode, optimized_params
+                )
+                
+                # Add minimal optimization metadata
+                if was_modified:
+                    optimized_response['optimized'] = True
+                
+                return optimized_response
+                
             except Exception as e:
                 logger.error(f"Error searching todos: {e}")
                 raise
@@ -752,19 +944,112 @@ class ThingsMCPServer:
             area: Optional[str] = Field(None, description="Filter by area UUID"),
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
-            limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500)
-        ) -> List[Dict[str, Any]]:
-            """Advanced todo search with multiple filters."""
+            limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
+            mode: Optional[str] = None
+        ) -> Dict[str, Any]:
+            """🔍 CONTEXT-OPTIMIZED advanced search with INTELLIGENT response management.
+            
+            🎯 SMART FEATURES:
+            - Multi-criteria filtering with context-aware response optimization
+            - 5 progressive disclosure modes (auto/summary/minimal/standard/detailed/raw)
+            - Relevance-based ranking prioritizes filtered results
+            - Built-in result limiting for complex queries
+            
+            📊 PERFORMANCE OPTIMIZED:
+            - Handles complex filter combinations efficiently
+            - Dynamic field filtering reduces response size by 60-80%
+            - Estimated response size tracking prevents context overflow
+            
+            🔄 WORKFLOW EXAMPLES:
+            1. Status Review: status='incomplete', mode='summary' for overview
+            2. Tag Analysis: tag='work', mode='standard' for detailed view
+            3. Deadline Tracking: deadline filters with mode='minimal' for bulk ops
+            
+            ⚡ AI ASSISTANT GUIDANCE:
+            - COMPLEX FILTERS: Start with mode='auto' for adaptive response
+            - MULTIPLE CRITERIA: Use mode='summary' first to understand scope
+            - BULK OPERATIONS: Use mode='minimal' to get IDs and essential fields
+            - ANALYSIS: Use mode='detailed' only when you need complete data
+            
+            CONTEXT BUDGET: ~1KB per item (standard), ~50 bytes per item (summary)
+            """
             try:
-                return await self.tools.search_advanced(
+                # Import datetime for validation
+                from datetime import datetime
+                
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                        "valid_modes": ["auto", "summary", "minimal", "standard", "detailed", "raw"]
+                    }
+                
+                # Validate date formats
+                if start_date:
+                    try:
+                        datetime.strptime(start_date, '%Y-%m-%d')
+                    except ValueError:
+                        return {
+                            "success": False,
+                            "error": "Invalid start_date format",
+                            "message": f"start_date must be in YYYY-MM-DD format. Got: {start_date}",
+                            "example": "2024-12-25"
+                        }
+                
+                if deadline:
+                    try:
+                        datetime.strptime(deadline, '%Y-%m-%d')
+                    except ValueError:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline format",
+                            "message": f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
+                            "example": "2024-12-31"
+                        }
+                
+                # Prepare request parameters
+                request_params = {
+                    'status': status,
+                    'type': type,
+                    'tag': tag,
+                    'area': area,
+                    'start_date': start_date,
+                    'deadline': deadline,
+                    'limit': limit,
+                    'mode': mode
+                }
+                
+                # Apply smart defaults and optimization
+                optimized_params, was_modified = self.context_manager.optimize_request('search_advanced', request_params)
+                
+                # Extract optimized parameters
+                final_limit = optimized_params.get('limit', 50)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                
+                # Get raw data from tools layer
+                raw_data = await self.tools.search_advanced(
                     status=status,
                     type=type,
                     tag=tag,
                     area=area,
                     start_date=start_date,
                     deadline=deadline,
-                    limit=limit
+                    limit=final_limit
                 )
+                
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'search_advanced', response_mode, optimized_params
+                )
+                
+                # Add minimal optimization metadata
+                if was_modified:
+                    optimized_response['optimized'] = True
+                
+                return optimized_response
+                
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")
                 raise
@@ -1285,7 +1570,7 @@ def main():
     # Check for config path in environment or command line
     import os
     config_path = os.getenv('THINGS_MCP_CONFIG_PATH')
-    server = ThingsMCPServer(config_path=config_path)
+    server = ThingsMCPServer(env_file=config_path)
     server.run()
 
 
