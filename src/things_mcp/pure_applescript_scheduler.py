@@ -15,7 +15,7 @@ Key Research Insights Applied:
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .locale_aware_dates import locale_handler
 
 logger = logging.getLogger(__name__)
@@ -262,3 +262,904 @@ class PureAppleScriptScheduler:
                     return "Anytime"  # Future dates go to Anytime
             else:
                 return "Today"  # Default fallback
+
+    def _escape_applescript_string(self, text: str) -> str:
+        """Escape a string for safe use in AppleScript."""
+        if not text:
+            return '""'
+        
+        # Escape backslashes first, then quotes
+        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+
+    async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a new todo using AppleScript."""
+        try:
+            # Extract parameters
+            notes = kwargs.get('notes', '')
+            tags = kwargs.get('tags', [])
+            when = kwargs.get('when', '')
+            deadline = kwargs.get('deadline', '')
+            area = kwargs.get('area', '')
+            project = kwargs.get('project', '')
+            checklist = kwargs.get('checklist', [])
+
+            # Escape strings for AppleScript
+            escaped_title = self._escape_applescript_string(title)
+            escaped_notes = self._escape_applescript_string(notes)
+
+            # Build the basic AppleScript
+            script = f'''
+            tell application "Things3"
+                try
+                    set newTodo to make new to do with properties {{name:{escaped_title}}}
+            '''
+
+            # Add notes if provided
+            if notes:
+                script += f'set notes of newTodo to {escaped_notes}\n                    '
+
+            # Add to area if specified
+            if area:
+                escaped_area = self._escape_applescript_string(area)
+                script += f'set area of newTodo to area {escaped_area}\n                    '
+
+            # Add to project if specified  
+            if project:
+                escaped_project = self._escape_applescript_string(project)
+                script += f'set project of newTodo to project {escaped_project}\n                    '
+
+            # Add tags if provided
+            if tags:
+                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
+                tags_string = '", "'.join(escaped_tags)
+                script += f'set tag names of newTodo to {{"{ tags_string}"}}\n                    '
+
+            # Add checklist items if provided
+            if checklist:
+                for item in checklist:
+                    escaped_item = self._escape_applescript_string(item)
+                    script += f'make new checklist item in newTodo with properties {{name:{escaped_item}}}\n                    '
+
+            # Set deadline if provided
+            if deadline:
+                date_components = locale_handler.normalize_date_input(deadline)
+                if date_components:
+                    year, month, day = date_components
+                    script += f'''
+                    set deadlineDate to (current date)
+                    set time of deadlineDate to 0
+                    set day of deadlineDate to 1
+                    set year of deadlineDate to {year}
+                    set month of deadlineDate to {month}
+                    set day of deadlineDate to {day}
+                    set deadline of newTodo to deadlineDate
+                    '''
+
+            # Get the todo ID and return
+            script += '''
+                    return id of newTodo
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            
+            if result.get("success"):
+                todo_id = result.get("output", "").strip()
+                if todo_id and not todo_id.startswith("error:"):
+                    # Schedule the todo if when date is provided
+                    if when:
+                        schedule_result = await self.schedule_todo_reliable(todo_id, when)
+                        return {
+                            "success": True,
+                            "todo_id": todo_id,
+                            "message": "Todo created and scheduled successfully",
+                            "scheduling": schedule_result
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "todo_id": todo_id,
+                            "message": "Todo created successfully"
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": todo_id,
+                        "message": "Failed to create todo"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("output", "AppleScript execution failed"),
+                    "message": "Failed to create todo"
+                }
+
+        except Exception as e:
+            logger.error(f"Error adding todo: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add todo"
+            }
+
+    async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
+        """Update an existing todo using AppleScript."""
+        try:
+            # Extract parameters
+            title = kwargs.get('title', '')
+            notes = kwargs.get('notes', '')
+            tags = kwargs.get('tags', [])
+            when = kwargs.get('when', '')
+            deadline = kwargs.get('deadline', '')
+            area = kwargs.get('area', '')
+            project = kwargs.get('project', '')
+            completed = kwargs.get('completed', None)
+
+            # Start building the AppleScript
+            script = f'''
+            tell application "Things3"
+                try
+                    set targetTodo to to do id "{todo_id}"
+            '''
+
+            # Update title if provided
+            if title:
+                escaped_title = self._escape_applescript_string(title)
+                script += f'set name of targetTodo to {escaped_title}\n                    '
+
+            # Update notes if provided
+            if notes:
+                escaped_notes = self._escape_applescript_string(notes)
+                script += f'set notes of targetTodo to {escaped_notes}\n                    '
+
+            # Update area if provided
+            if area:
+                escaped_area = self._escape_applescript_string(area)
+                script += f'set area of targetTodo to area {escaped_area}\n                    '
+
+            # Update project if provided  
+            if project:
+                escaped_project = self._escape_applescript_string(project)
+                script += f'set project of targetTodo to project {escaped_project}\n                    '
+
+            # Update tags if provided
+            if tags:
+                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
+                tags_string = '", "'.join(escaped_tags)
+                script += f'set tag names of targetTodo to {{"{ tags_string}"}}\n                    '
+
+            # Update deadline if provided
+            if deadline:
+                date_components = locale_handler.normalize_date_input(deadline)
+                if date_components:
+                    year, month, day = date_components
+                    script += f'''
+                    set deadlineDate to (current date)
+                    set time of deadlineDate to 0
+                    set day of deadlineDate to 1
+                    set year of deadlineDate to {year}
+                    set month of deadlineDate to {month}
+                    set day of deadlineDate to {day}
+                    set deadline of targetTodo to deadlineDate
+                    '''
+
+            # Update completion status if provided
+            if completed is not None:
+                if completed:
+                    script += 'set completion date of targetTodo to (current date)\n                    '
+                else:
+                    script += 'set completion date of targetTodo to missing value\n                    '
+
+            script += '''
+                    return "updated"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                if output == "updated":
+                    # Schedule the todo if when date is provided
+                    if when:
+                        schedule_result = await self.schedule_todo_reliable(todo_id, when)
+                        return {
+                            "success": True,
+                            "message": "Todo updated and scheduled successfully",
+                            "scheduling": schedule_result
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "message": "Todo updated successfully"
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": output,
+                        "message": "Failed to update todo"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("output", "AppleScript execution failed"),
+                    "message": "Failed to update todo"
+                }
+
+        except Exception as e:
+            logger.error(f"Error updating todo: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update todo"
+            }
+
+    async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a new project using AppleScript."""
+        try:
+            # Extract parameters
+            notes = kwargs.get('notes', '')
+            tags = kwargs.get('tags', [])
+            when = kwargs.get('when', '')
+            deadline = kwargs.get('deadline', '')
+            area = kwargs.get('area', '')
+
+            # Escape strings for AppleScript
+            escaped_title = self._escape_applescript_string(title)
+            escaped_notes = self._escape_applescript_string(notes)
+
+            # Build the basic AppleScript
+            script = f'''
+            tell application "Things3"
+                try
+                    set newProject to make new project with properties {{name:{escaped_title}}}
+            '''
+
+            # Add notes if provided
+            if notes:
+                script += f'set notes of newProject to {escaped_notes}\n                    '
+
+            # Add to area if specified
+            if area:
+                escaped_area = self._escape_applescript_string(area)
+                script += f'set area of newProject to area {escaped_area}\n                    '
+
+            # Add tags if provided
+            if tags:
+                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
+                tags_string = '", "'.join(escaped_tags)
+                script += f'set tag names of newProject to {{"{ tags_string}"}}\n                    '
+
+            # Set deadline if provided
+            if deadline:
+                date_components = locale_handler.normalize_date_input(deadline)
+                if date_components:
+                    year, month, day = date_components
+                    script += f'''
+                    set deadlineDate to (current date)
+                    set time of deadlineDate to 0
+                    set day of deadlineDate to 1
+                    set year of deadlineDate to {year}
+                    set month of deadlineDate to {month}
+                    set day of deadlineDate to {day}
+                    set deadline of newProject to deadlineDate
+                    '''
+
+            # Get the project ID and return
+            script += '''
+                    return id of newProject
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            
+            if result.get("success"):
+                project_id = result.get("output", "").strip()
+                if project_id and not project_id.startswith("error:"):
+                    # Schedule the project if when date is provided
+                    if when:
+                        schedule_result = await self.schedule_todo_reliable(project_id, when)
+                        return {
+                            "success": True,
+                            "project_id": project_id,
+                            "message": "Project created and scheduled successfully",
+                            "scheduling": schedule_result
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "project_id": project_id,
+                            "message": "Project created successfully"
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": project_id,
+                        "message": "Failed to create project"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("output", "AppleScript execution failed"),
+                    "message": "Failed to create project"
+                }
+
+        except Exception as e:
+            logger.error(f"Error adding project: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add project"
+            }
+
+    async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
+        """Update an existing project using AppleScript."""
+        try:
+            # Extract parameters
+            title = kwargs.get('title', '')
+            notes = kwargs.get('notes', '')
+            tags = kwargs.get('tags', [])
+            when = kwargs.get('when', '')
+            deadline = kwargs.get('deadline', '')
+            area = kwargs.get('area', '')
+            completed = kwargs.get('completed', None)
+
+            # Start building the AppleScript
+            script = f'''
+            tell application "Things3"
+                try
+                    set targetProject to project id "{project_id}"
+            '''
+
+            # Update title if provided
+            if title:
+                escaped_title = self._escape_applescript_string(title)
+                script += f'set name of targetProject to {escaped_title}\n                    '
+
+            # Update notes if provided
+            if notes:
+                escaped_notes = self._escape_applescript_string(notes)
+                script += f'set notes of targetProject to {escaped_notes}\n                    '
+
+            # Update area if provided
+            if area:
+                escaped_area = self._escape_applescript_string(area)
+                script += f'set area of targetProject to area {escaped_area}\n                    '
+
+            # Update tags if provided
+            if tags:
+                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
+                tags_string = '", "'.join(escaped_tags)
+                script += f'set tag names of targetProject to {{"{ tags_string}"}}\n                    '
+
+            # Update deadline if provided
+            if deadline:
+                date_components = locale_handler.normalize_date_input(deadline)
+                if date_components:
+                    year, month, day = date_components
+                    script += f'''
+                    set deadlineDate to (current date)
+                    set time of deadlineDate to 0
+                    set day of deadlineDate to 1
+                    set year of deadlineDate to {year}
+                    set month of deadlineDate to {month}
+                    set day of deadlineDate to {day}
+                    set deadline of targetProject to deadlineDate
+                    '''
+
+            # Update completion status if provided
+            if completed is not None:
+                if completed:
+                    script += 'set completion date of targetProject to (current date)\n                    '
+                else:
+                    script += 'set completion date of targetProject to missing value\n                    '
+
+            script += '''
+                    return "updated"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                if output == "updated":
+                    # Schedule the project if when date is provided
+                    if when:
+                        schedule_result = await self.schedule_todo_reliable(project_id, when)
+                        return {
+                            "success": True,
+                            "message": "Project updated and scheduled successfully",
+                            "scheduling": schedule_result
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "message": "Project updated successfully"
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": output,
+                        "message": "Failed to update project"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get("output", "AppleScript execution failed"),
+                    "message": "Failed to update project"
+                }
+
+        except Exception as e:
+            logger.error(f"Error updating project: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update project"
+            }
+
+    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos due within specified days using AppleScript."""
+        try:
+            script = f'''
+            tell application "Things3"
+                try
+                    set currentDate to (current date)
+                    set targetDate to currentDate + ({days} * days)
+                    set time of currentDate to 0
+                    set time of targetDate to 86400  -- End of target day
+                    
+                    set dueTodos to {{}}
+                    repeat with aTodo in (to dos of list "Today")
+                        if deadline of aTodo is not missing value then
+                            if deadline of aTodo >= currentDate and deadline of aTodo <= targetDate then
+                                set dueTodos to dueTodos & aTodo
+                            end if
+                        end if
+                    end repeat
+                    
+                    repeat with aTodo in (to dos of list "Upcoming")
+                        if deadline of aTodo is not missing value then
+                            if deadline of aTodo >= currentDate and deadline of aTodo <= targetDate then
+                                set dueTodos to dueTodos & aTodo
+                            end if
+                        end if
+                    end repeat
+                    
+                    repeat with aTodo in (to dos of list "Anytime")
+                        if deadline of aTodo is not missing value then
+                            if deadline of aTodo >= currentDate and deadline of aTodo <= targetDate then
+                                set dueTodos to dueTodos & aTodo
+                            end if
+                        end if
+                    end repeat
+                    
+                    set resultList to {{}}
+                    repeat with aTodo in dueTodos
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        if deadline of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|DEADLINE:" & (deadline of aTodo as string)
+                        end if
+                        set resultList to resultList & todoInfo
+                    end repeat
+                    
+                    return resultList
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success"):
+                output = result.get("output", "")
+                if isinstance(output, list):
+                    todos = []
+                    for item in output:
+                        if isinstance(item, str) and item.startswith("ID:"):
+                            todo_dict = self._parse_todo_info(item)
+                            todos.append(todo_dict)
+                    return todos
+                else:
+                    return []
+            else:
+                logger.error(f"Failed to get due todos: {result.get('output', 'Unknown error')}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting todos due in {days} days: {e}")
+            return []
+
+    async def get_todos_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos activating within specified days using AppleScript."""
+        try:
+            script = f'''
+            tell application "Things3"
+                try
+                    set currentDate to (current date)
+                    set targetDate to currentDate + ({days} * days)
+                    set time of currentDate to 0
+                    set time of targetDate to 86400  -- End of target day
+                    
+                    set activatingTodos to {{}}
+                    repeat with aTodo in (to dos of list "Upcoming")
+                        if activation date of aTodo is not missing value then
+                            if activation date of aTodo >= currentDate and activation date of aTodo <= targetDate then
+                                set activatingTodos to activatingTodos & aTodo
+                            end if
+                        end if
+                    end repeat
+                    
+                    set resultList to {{}}
+                    repeat with aTodo in activatingTodos
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        if activation date of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|ACTIVATION:" & (activation date of aTodo as string)
+                        end if
+                        set resultList to resultList & todoInfo
+                    end repeat
+                    
+                    return resultList
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success"):
+                output = result.get("output", "")
+                if isinstance(output, list):
+                    todos = []
+                    for item in output:
+                        if isinstance(item, str) and item.startswith("ID:"):
+                            todo_dict = self._parse_todo_info(item)
+                            todos.append(todo_dict)
+                    return todos
+                else:
+                    return []
+            else:
+                logger.error(f"Failed to get activating todos: {result.get('output', 'Unknown error')}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting todos activating in {days} days: {e}")
+            return []
+
+    async def get_todos_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos upcoming within specified days using AppleScript."""
+        try:
+            script = f'''
+            tell application "Things3"
+                try
+                    set currentDate to (current date)
+                    set targetDate to currentDate + ({days} * days)
+                    set time of currentDate to 0
+                    set time of targetDate to 86400  -- End of target day
+                    
+                    set upcomingTodos to {{}}
+                    repeat with aTodo in (to dos of list "Upcoming")
+                        if ((activation date of aTodo is not missing value and activation date of aTodo >= currentDate and activation date of aTodo <= targetDate) or (deadline of aTodo is not missing value and deadline of aTodo >= currentDate and deadline of aTodo <= targetDate)) then
+                            set upcomingTodos to upcomingTodos & aTodo
+                        end if
+                    end repeat
+                    
+                    set resultList to {{}}
+                    repeat with aTodo in upcomingTodos
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        if activation date of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|ACTIVATION:" & (activation date of aTodo as string)
+                        end if
+                        if deadline of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|DEADLINE:" & (deadline of aTodo as string)
+                        end if
+                        set resultList to resultList & todoInfo
+                    end repeat
+                    
+                    return resultList
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success"):
+                output = result.get("output", "")
+                if isinstance(output, list):
+                    todos = []
+                    for item in output:
+                        if isinstance(item, str) and item.startswith("ID:"):
+                            todo_dict = self._parse_todo_info(item)
+                            todos.append(todo_dict)
+                    return todos
+                else:
+                    return []
+            else:
+                logger.error(f"Failed to get upcoming todos: {result.get('output', 'Unknown error')}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting todos upcoming in {days} days: {e}")
+            return []
+
+    async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
+        """Advanced search using AppleScript with multiple filters."""
+        try:
+            # Extract filter parameters
+            query = filters.get('query', '')
+            tags = filters.get('tags', [])
+            area = filters.get('area', '')
+            project = filters.get('project', '')
+            list_name = filters.get('list', '')
+            completed = filters.get('completed', None)
+
+            # Build AppleScript to search todos
+            script = '''
+            tell application "Things3"
+                try
+                    set matchingTodos to {}
+                    set allTodos to {}
+            '''
+
+            # Add todos from specified list or all lists
+            if list_name:
+                script += f'set allTodos to to dos of list "{list_name}"\n'
+            else:
+                script += '''
+                    set allTodos to allTodos & (to dos of list "Today")
+                    set allTodos to allTodos & (to dos of list "Upcoming") 
+                    set allTodos to allTodos & (to dos of list "Anytime")
+                    set allTodos to allTodos & (to dos of list "Someday")
+                    set allTodos to allTodos & (to dos of list "Inbox")
+                '''
+
+            script += '''
+                    repeat with aTodo in allTodos
+                        set todoMatches to true
+            '''
+
+            # Add query filter
+            if query:
+                escaped_query = self._escape_applescript_string(query.lower()).strip('"')
+                script += f'''
+                        -- Check if query matches title or notes
+                        set titleMatch to false
+                        set notesMatch to false
+                        try
+                            if (name of aTodo as string) contains "{escaped_query}" then
+                                set titleMatch to true
+                            end if
+                        end try
+                        try
+                            if (notes of aTodo as string) contains "{escaped_query}" then
+                                set notesMatch to true
+                            end if
+                        end try
+                        if not (titleMatch or notesMatch) then
+                            set todoMatches to false
+                        end if
+                '''
+
+            # Add tag filter
+            if tags:
+                for tag in tags:
+                    escaped_tag = self._escape_applescript_string(tag).strip('"')
+                    script += f'''
+                        set tagFound to false
+                        try
+                            repeat with tagName in (tag names of aTodo)
+                                if tagName as string is equal to "{escaped_tag}" then
+                                    set tagFound to true
+                                    exit repeat
+                                end if
+                            end repeat
+                        end try
+                        if not tagFound then
+                            set todoMatches to false
+                        end if
+                    '''
+
+            # Add area filter
+            if area:
+                escaped_area = self._escape_applescript_string(area).strip('"')
+                script += f'''
+                        try
+                            if (area of aTodo as string) is not equal to "{escaped_area}" then
+                                set todoMatches to false
+                            end if
+                        on error
+                            set todoMatches to false
+                        end try
+                '''
+
+            # Add project filter
+            if project:
+                escaped_project = self._escape_applescript_string(project).strip('"')
+                script += f'''
+                        try
+                            if (project of aTodo as string) is not equal to "{escaped_project}" then
+                                set todoMatches to false
+                            end if
+                        on error
+                            set todoMatches to false
+                        end try
+                '''
+
+            # Add completion status filter
+            if completed is not None:
+                if completed:
+                    script += '''
+                        if completion date of aTodo is missing value then
+                            set todoMatches to false
+                        end if
+                    '''
+                else:
+                    script += '''
+                        if completion date of aTodo is not missing value then
+                            set todoMatches to false
+                        end if
+                    '''
+
+            # Collect matching todos
+            script += '''
+                        if todoMatches then
+                            set matchingTodos to matchingTodos & aTodo
+                        end if
+                    end repeat
+                    
+                    set resultList to {}
+                    repeat with aTodo in matchingTodos
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        try
+                            set todoInfo to todoInfo & "|NOTES:" & (notes of aTodo)
+                        end try
+                        try
+                            set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
+                        end try
+                        set resultList to resultList & todoInfo
+                    end repeat
+                    
+                    return resultList
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success"):
+                output = result.get("output", "")
+                if isinstance(output, list):
+                    todos = []
+                    for item in output:
+                        if isinstance(item, str) and item.startswith("ID:"):
+                            todo_dict = self._parse_todo_info(item)
+                            todos.append(todo_dict)
+                    return todos
+                else:
+                    return []
+            else:
+                logger.error(f"Failed to perform advanced search: {result.get('output', 'Unknown error')}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error in advanced search: {e}")
+            return []
+
+    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
+        """Get recent items using AppleScript."""
+        try:
+            # Convert period to days
+            days = 7  # Default to 7 days
+            if period == "1d":
+                days = 1
+            elif period == "3d":
+                days = 3
+            elif period == "7d":
+                days = 7
+            elif period == "30d":
+                days = 30
+
+            script = f'''
+            tell application "Things3"
+                try
+                    set currentDate to (current date)
+                    set pastDate to currentDate - ({days} * days)
+                    
+                    set recentTodos to {{}}
+                    repeat with aTodo in (to dos of list "Logbook")
+                        if completion date of aTodo is not missing value then
+                            if completion date of aTodo >= pastDate then
+                                set recentTodos to recentTodos & aTodo
+                            end if
+                        end if
+                    end repeat
+                    
+                    set resultList to {{}}
+                    repeat with aTodo in recentTodos
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        if completion date of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|COMPLETED:" & (completion date of aTodo as string)
+                        end if
+                        set resultList to resultList & todoInfo
+                    end repeat
+                    
+                    return resultList
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success"):
+                output = result.get("output", "")
+                if isinstance(output, list):
+                    todos = []
+                    for item in output:
+                        if isinstance(item, str) and item.startswith("ID:"):
+                            todo_dict = self._parse_todo_info(item)
+                            todos.append(todo_dict)
+                    return todos
+                else:
+                    return []
+            else:
+                logger.error(f"Failed to get recent items: {result.get('output', 'Unknown error')}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting recent items: {e}")
+            return []
+
+    def _parse_todo_info(self, info_string: str) -> Dict[str, Any]:
+        """Parse the todo info string returned from AppleScript."""
+        todo_dict = {
+            'id': '',
+            'uuid': '',
+            'title': '',
+            'notes': '',
+            'tags': [],
+            'deadline': '',
+            'activation_date': '',
+            'completion_date': ''
+        }
+
+        # Split by | and parse each part
+        parts = info_string.split('|')
+        for part in parts:
+            if ':' in part:
+                key, value = part.split(':', 1)
+                if key == 'ID':
+                    todo_dict['id'] = value
+                    todo_dict['uuid'] = value
+                elif key == 'TITLE':
+                    todo_dict['title'] = value
+                elif key == 'NOTES':
+                    todo_dict['notes'] = value
+                elif key == 'TAGS':
+                    # Parse tags from string representation
+                    if value and value != '{}':
+                        tag_string = value.strip('{}')
+                        todo_dict['tags'] = [tag.strip() for tag in tag_string.split(',') if tag.strip()]
+                elif key == 'DEADLINE':
+                    todo_dict['deadline'] = value
+                elif key == 'ACTIVATION':
+                    todo_dict['activation_date'] = value
+                elif key == 'COMPLETED':
+                    todo_dict['completion_date'] = value
+
+        return todo_dict

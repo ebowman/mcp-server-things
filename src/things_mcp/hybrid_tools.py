@@ -1,294 +1,854 @@
-"""
-Hybrid implementation using things.py for read operations and AppleScript for write operations.
-
-This provides the best of both worlds:
-- Fast, reliable reads directly from the SQLite database via things.py
-- Full write capabilities via AppleScript (since things.py is read-only)
-"""
+"""Simplified hybrid implementation: things.py for reads, AppleScript for writes."""
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
-try:
-    import things
-    THINGS_PY_AVAILABLE = True
-except ImportError:
-    THINGS_PY_AVAILABLE = False
-    logging.warning("things.py not available, falling back to AppleScript for all operations")
+# Import things.py for direct database access
+import things
 
 from .services.applescript_manager import AppleScriptManager
+from .pure_applescript_scheduler import PureAppleScriptScheduler
+from .operation_queue import get_operation_queue, Priority
+from .locale_aware_dates import locale_handler
 from .services.validation_service import ValidationService
-from .move_operations import MoveOperations
-from .reliable_scheduling import ReliableScheduler
+from .services.tag_service import TagValidationService
+from .move_operations import MoveOperationsTools
+from .config import ThingsMCPConfig
 
 logger = logging.getLogger(__name__)
 
 
-class HybridThingsTools:
+class HybridTools:
     """
-    Hybrid implementation that uses things.py for reads and AppleScript for writes.
-    
-    Benefits:
-    - Read operations are 10-100x faster using direct SQLite access
-    - No timeout issues for large read operations
-    - Write operations maintain full compatibility with existing AppleScript
-    - Graceful fallback to pure AppleScript if things.py is not available
+    Simple hybrid implementation:
+    - Read from things.py (fast)
+    - Write with AppleScript (full control)
+    - No caching, no fallback, no complexity
     """
     
-    def __init__(self, applescript_manager: AppleScriptManager, config=None):
-        """Initialize hybrid tools with AppleScript manager and optional config."""
+    def __init__(self, applescript_manager: AppleScriptManager, config: Optional[ThingsMCPConfig] = None):
+        """Initialize with AppleScript manager and optional configuration.
+        
+        Args:
+            applescript_manager: AppleScript manager instance for write operations
+            config: Optional configuration for tag validation and policies
+        """
         self.applescript = applescript_manager
         self.config = config
+        self.reliable_scheduler = PureAppleScriptScheduler(applescript_manager)
+        
+        # Initialize validation service and advanced move operations for writes
         self.validation_service = ValidationService(applescript_manager)
-        self.move_operations = MoveOperations(applescript_manager)
-        self.reliable_scheduler = ReliableScheduler(applescript_manager)
+        self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
         
-        # Check if things.py is available
-        self.use_things_py = THINGS_PY_AVAILABLE
-        if self.use_things_py:
-            logger.info("Hybrid mode enabled: Using things.py for reads, AppleScript for writes")
+        # Initialize tag validation service if config is provided
+        self.tag_validation_service = None
+        if config:
+            self.tag_validation_service = TagValidationService(applescript_manager, config)
+            logger.info("Hybrid tools initialized with tag validation service")
         else:
-            logger.warning("Hybrid mode disabled: things.py not available, using AppleScript only")
-    
-    # ==================== READ OPERATIONS (things.py) ====================
-    
-    async def get_todos(self, project_uuid: Optional[str] = None, include_items: bool = True) -> List[Dict[str, Any]]:
-        """Get todos using things.py for fast access."""
-        if not self.use_things_py:
-            # Fallback to AppleScript implementation
-            return await self._get_todos_applescript(project_uuid, include_items)
+            logger.info("Hybrid tools initialized without tag validation (backward compatibility mode)")
         
+        logger.info("Hybrid tools initialized - reads via things.py, writes via AppleScript")
+    
+    # ========== READ OPERATIONS (things.py) ==========
+    
+    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None) -> List[Dict]:
+        """Get todos directly from database via things.py."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items)
+    
+    def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None) -> List[Dict]:
+        """Synchronous implementation of get_todos using things.py."""
         try:
-            # Use things.py for fast read
             if project_uuid:
-                # Get todos for specific project
-                todos = things.todos(uuid=project_uuid)
+                # Get todos for a specific project
+                todos_data = things.todos(project=project_uuid)
             else:
                 # Get all todos
-                todos = things.todos()
+                todos_data = things.todos()
             
-            # Convert things.py format to our expected format
+            # Convert to list if it's a generator/iterator
+            if hasattr(todos_data, '__iter__') and not isinstance(todos_data, (list, dict)):
+                todos_data = list(todos_data)
+            
+            # Handle case where things.py returns a single dict instead of list
+            if isinstance(todos_data, dict):
+                todos_data = [todos_data]
+            
+            return [self._convert_todo(todo) for todo in todos_data]
+        except Exception as e:
+            logger.error(f"Error getting todos via things.py: {e}")
+            return []
+    
+    async def get_projects(self, include_items: bool = False) -> List[Dict]:
+        """Get all projects directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_projects_sync, include_items)
+    
+    def _get_projects_sync(self, include_items: bool = False) -> List[Dict]:
+        """Synchronous implementation using things.py."""
+        try:
+            projects_data = things.projects()
+            
+            # Convert to list if needed
+            if hasattr(projects_data, '__iter__') and not isinstance(projects_data, (list, dict)):
+                projects_data = list(projects_data)
+            
+            if isinstance(projects_data, dict):
+                projects_data = [projects_data]
+            
             result = []
-            for todo in todos:
-                todo_dict = self._convert_things_py_todo(todo)
-                if include_items and todo.get('checklist'):
-                    todo_dict['checklist_items'] = [
-                        {'title': item['title'], 'completed': item.get('status') == 'completed'}
-                        for item in todo['checklist']
-                    ]
-                result.append(todo_dict)
+            for project in projects_data:
+                project_dict = self._convert_project(project)
+                
+                # Add items if requested
+                if include_items:
+                    project_items = things.todos(project=project.get('uuid', ''))
+                    if hasattr(project_items, '__iter__') and not isinstance(project_items, (list, dict)):
+                        project_items = list(project_items)
+                    if isinstance(project_items, dict):
+                        project_items = [project_items]
+                    
+                    project_dict['items'] = [self._convert_todo(item) for item in project_items]
+                else:
+                    # Just count items
+                    project_items = things.todos(project=project.get('uuid', ''))
+                    if hasattr(project_items, '__iter__') and not isinstance(project_items, (list, dict)):
+                        project_items = list(project_items)
+                    if isinstance(project_items, dict):
+                        project_items = [project_items]
+                    project_dict['item_count'] = len(project_items)
+                
+                result.append(project_dict)
             
             return result
+        except Exception as e:
+            logger.error(f"Error getting projects via things.py: {e}")
+            return []
+    
+    async def get_areas(self, include_items: bool = False) -> List[Dict]:
+        """Get all areas directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_areas_sync, include_items)
+    
+    def _get_areas_sync(self, include_items: bool = False) -> List[Dict]:
+        """Synchronous implementation using things.py."""
+        try:
+            areas_data = things.areas()
             
-        except Exception as e:
-            logger.error(f"things.py failed, falling back to AppleScript: {e}")
-            return await self._get_todos_applescript(project_uuid, include_items)
-    
-    async def get_projects(self, include_items: bool = False) -> List[Dict[str, Any]]:
-        """Get projects using things.py."""
-        if not self.use_things_py:
-            return await self._get_projects_applescript(include_items)
-        
-        try:
-            projects = things.projects(include_items=include_items)
-            return [self._convert_things_py_project(p) for p in projects]
-        except Exception as e:
-            logger.error(f"things.py failed for projects: {e}")
-            return await self._get_projects_applescript(include_items)
-    
-    async def get_areas(self, include_items: bool = False) -> List[Dict[str, Any]]:
-        """Get areas using things.py."""
-        if not self.use_things_py:
-            return await self._get_areas_applescript(include_items)
-        
-        try:
-            areas = things.areas(include_items=include_items)
-            return [self._convert_things_py_area(a) for a in areas]
-        except Exception as e:
-            logger.error(f"things.py failed for areas: {e}")
-            return await self._get_areas_applescript(include_items)
-    
-    async def get_tags(self, include_items: bool = False) -> List[Dict[str, Any]]:
-        """Get tags using things.py with fast counting."""
-        if not self.use_things_py:
-            return await self._get_tags_applescript(include_items)
-        
-        try:
-            tags = things.tags(include_items=include_items)
+            # Convert to list if needed
+            if hasattr(areas_data, '__iter__') and not isinstance(areas_data, (list, dict)):
+                areas_data = list(areas_data)
+            
+            if isinstance(areas_data, dict):
+                areas_data = [areas_data]
+            
             result = []
+            for area in areas_data:
+                area_dict = self._convert_area(area)
+                
+                # Add items if requested
+                if include_items:
+                    # Get projects in this area
+                    area_projects = things.projects(area=area.get('uuid', ''))
+                    if hasattr(area_projects, '__iter__') and not isinstance(area_projects, (list, dict)):
+                        area_projects = list(area_projects)
+                    if isinstance(area_projects, dict):
+                        area_projects = [area_projects]
+                    
+                    # Get todos in this area
+                    area_todos = things.todos(area=area.get('uuid', ''))
+                    if hasattr(area_todos, '__iter__') and not isinstance(area_todos, (list, dict)):
+                        area_todos = list(area_todos)
+                    if isinstance(area_todos, dict):
+                        area_todos = [area_todos]
+                    
+                    area_dict['projects'] = [self._convert_project(proj) for proj in area_projects]
+                    area_dict['todos'] = [self._convert_todo(todo) for todo in area_todos]
+                else:
+                    # Just count items
+                    area_projects = things.projects(area=area.get('uuid', ''))
+                    if hasattr(area_projects, '__iter__') and not isinstance(area_projects, (list, dict)):
+                        area_projects = list(area_projects)
+                    if isinstance(area_projects, dict):
+                        area_projects = [area_projects]
+                    
+                    area_todos = things.todos(area=area.get('uuid', ''))
+                    if hasattr(area_todos, '__iter__') and not isinstance(area_todos, (list, dict)):
+                        area_todos = list(area_todos)
+                    if isinstance(area_todos, dict):
+                        area_todos = [area_todos]
+                    
+                    area_dict['project_count'] = len(area_projects)
+                    area_dict['todo_count'] = len(area_todos)
+                
+                result.append(area_dict)
             
-            for tag in tags:
+            return result
+        except Exception as e:
+            logger.error(f"Error getting areas via things.py: {e}")
+            return []
+    
+    async def get_tags(self, include_items: bool = False) -> List[Dict]:
+        """Get all tags with counts or items - super fast with things.py."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_tags_sync, include_items)
+    
+    def _get_tags_sync(self, include_items: bool) -> List[Dict]:
+        """Synchronous implementation - this should be very fast."""
+        try:
+            tags_data = things.tags()
+            
+            # Convert to list if needed
+            if hasattr(tags_data, '__iter__') and not isinstance(tags_data, (list, dict)):
+                tags_data = list(tags_data)
+            
+            if isinstance(tags_data, dict):
+                tags_data = [tags_data]
+            
+            result = []
+            for tag in tags_data:
                 tag_dict = {
                     'id': tag.get('uuid', ''),
                     'uuid': tag.get('uuid', ''),
                     'name': tag.get('title', ''),
-                    'shortcut': ''  # things.py doesn't provide shortcuts
+                    'title': tag.get('title', '')
                 }
                 
                 if include_items:
-                    # Include actual items
-                    tag_dict['items'] = tag.get('items', [])
+                    # Get actual items for this tag
+                    tagged_todos = things.todos(tag=tag.get('title', ''))
+                    if hasattr(tagged_todos, '__iter__') and not isinstance(tagged_todos, (list, dict)):
+                        tagged_todos = list(tagged_todos)
+                    if isinstance(tagged_todos, dict):
+                        tagged_todos = [tagged_todos]
+                    
+                    tag_dict['items'] = [self._convert_todo(todo) for todo in tagged_todos]
                 else:
-                    # Just include count - this is MUCH faster than AppleScript
-                    # things.py can count items without fetching them all
-                    tag_dict['item_count'] = len(tag.get('items', []))
+                    # Just count - this should be instant with SQL
+                    tagged_todos = things.todos(tag=tag.get('title', ''))
+                    if hasattr(tagged_todos, '__iter__') and not isinstance(tagged_todos, (list, dict)):
+                        tagged_todos = list(tagged_todos)
+                    if isinstance(tagged_todos, dict):
+                        tagged_todos = [tagged_todos]
+                    
+                    tag_dict['item_count'] = len(tagged_todos)
                 
                 result.append(tag_dict)
             
-            logger.info(f"Retrieved {len(result)} tags via things.py")
             return result
+        except Exception as e:
+            logger.error(f"Error getting tags via things.py: {e}")
+            return []
+    
+    async def search_todos(self, query: str) -> List[Dict]:
+        """Search todos directly in database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._search_sync, query)
+    
+    def _search_sync(self, query: str) -> List[Dict]:
+        """Synchronous search implementation."""
+        try:
+            # Use things.py search functionality if available
+            if hasattr(things, 'search'):
+                results = things.search(query)
+            else:
+                # Fallback: get all todos and filter manually
+                all_todos = things.todos()
+                if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                    all_todos = list(all_todos)
+                if isinstance(all_todos, dict):
+                    all_todos = [all_todos]
+                
+                query_lower = query.lower()
+                results = []
+                for todo in all_todos:
+                    title = todo.get('title', '').lower()
+                    notes = todo.get('notes', '').lower()
+                    if query_lower in title or query_lower in notes:
+                        results.append(todo)
             
+            # Convert to list if needed
+            if hasattr(results, '__iter__') and not isinstance(results, (list, dict)):
+                results = list(results)
+            if isinstance(results, dict):
+                results = [results]
+            
+            return [self._convert_todo(todo) for todo in results]
         except Exception as e:
-            logger.error(f"things.py failed for tags: {e}")
-            return await self._get_tags_applescript(include_items)
+            logger.error(f"Error searching todos via things.py: {e}")
+            return []
     
-    async def get_inbox(self) -> List[Dict[str, Any]]:
-        """Get inbox items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("inbox")
-        
+    async def get_inbox(self) -> List[Dict]:
+        """Get inbox items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_inbox_sync)
+    
+    def _get_inbox_sync(self) -> List[Dict]:
+        """Synchronous implementation with error handling."""
         try:
-            todos = things.inbox()
-            return [self._convert_things_py_todo(t) for t in todos]
+            # Get all todos and filter for inbox manually to avoid potential sorting issues
+            all_todos = things.todos()
+            
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            # Filter for inbox items (start='Inbox' or no start/area/project)
+            inbox_todos = []
+            for todo in all_todos:
+                start = todo.get('start', '')
+                area = todo.get('area', '')
+                project = todo.get('project', '')
+                
+                if (start == 'Inbox' or 
+                    (not start and not area and not project)):
+                    inbox_todos.append(todo)
+            
+            return [self._convert_todo(todo) for todo in inbox_todos]
         except Exception as e:
-            logger.error(f"things.py failed for inbox: {e}")
-            return await self._get_list_todos_applescript("inbox")
+            logger.error(f"Error getting inbox via things.py: {e}")
+            return []
     
-    async def get_today(self) -> List[Dict[str, Any]]:
-        """Get today items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("today")
-        
+    async def get_today(self) -> List[Dict]:
+        """Get today items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_today_sync)
+    
+    def _get_today_sync(self) -> List[Dict]:
+        """Synchronous implementation with error handling for None values in sorting."""
         try:
-            todos = things.today()
-            return [self._convert_things_py_todo(t) for t in todos]
+            # Get all todos and filter for today manually to avoid sorting issues
+            all_todos = things.todos()
+            
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            # Filter for today items (start='Today' or activation_date=today)
+            from datetime import date
+            today_str = date.today().strftime('%Y-%m-%d')
+            
+            today_todos = []
+            for todo in all_todos:
+                # Check if this is a today item
+                start = todo.get('start', '')
+                start_date = todo.get('start_date', '')
+                
+                if (start == 'Today' or 
+                    start_date == today_str or
+                    (start_date and start_date <= today_str and start != 'Someday')):
+                    today_todos.append(todo)
+            
+            # Sort manually with None-safe comparison
+            def safe_sort_key(todo):
+                today_index = todo.get('today_index', 0) or 0
+                start_date = todo.get('start_date', '') or ''
+                return (today_index, start_date)
+            
+            today_todos.sort(key=safe_sort_key)
+            
+            return [self._convert_todo(todo) for todo in today_todos]
         except Exception as e:
-            logger.error(f"things.py failed for today: {e}")
-            return await self._get_list_todos_applescript("today")
+            logger.error(f"Error getting today via things.py: {e}")
+            return []
     
-    async def get_upcoming(self) -> List[Dict[str, Any]]:
-        """Get upcoming items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("upcoming")
-        
+    async def get_upcoming(self) -> List[Dict]:
+        """Get upcoming items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_upcoming_sync)
+    
+    def _get_upcoming_sync(self) -> List[Dict]:
+        """Synchronous implementation."""
         try:
-            todos = things.upcoming()
-            return [self._convert_things_py_todo(t) for t in todos]
+            upcoming_data = things.upcoming()
+            
+            if hasattr(upcoming_data, '__iter__') and not isinstance(upcoming_data, (list, dict)):
+                upcoming_data = list(upcoming_data)
+            if isinstance(upcoming_data, dict):
+                upcoming_data = [upcoming_data]
+            
+            return [self._convert_todo(todo) for todo in upcoming_data]
         except Exception as e:
-            logger.error(f"things.py failed for upcoming: {e}")
-            return await self._get_list_todos_applescript("upcoming")
+            logger.error(f"Error getting upcoming via things.py: {e}")
+            return []
     
-    async def get_anytime(self) -> List[Dict[str, Any]]:
-        """Get anytime items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("anytime")
-        
+    async def get_anytime(self) -> List[Dict]:
+        """Get anytime items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_anytime_sync)
+    
+    def _get_anytime_sync(self) -> List[Dict]:
+        """Synchronous implementation with error handling."""
         try:
-            todos = things.anytime()
-            return [self._convert_things_py_todo(t) for t in todos]
+            # Get all todos and filter for anytime manually to avoid sorting issues
+            all_todos = things.todos()
+            
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            # Filter for anytime items
+            anytime_todos = []
+            for todo in all_todos:
+                start = todo.get('start', '')
+                if start == 'Anytime':
+                    anytime_todos.append(todo)
+            
+            return [self._convert_todo(todo) for todo in anytime_todos]
         except Exception as e:
-            logger.error(f"things.py failed for anytime: {e}")
-            return await self._get_list_todos_applescript("anytime")
+            logger.error(f"Error getting anytime via things.py: {e}")
+            return []
     
-    async def get_someday(self) -> List[Dict[str, Any]]:
-        """Get someday items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("someday")
-        
+    async def get_someday(self) -> List[Dict]:
+        """Get someday items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_someday_sync)
+    
+    def _get_someday_sync(self) -> List[Dict]:
+        """Synchronous implementation with error handling."""
         try:
-            todos = things.someday()
-            return [self._convert_things_py_todo(t) for t in todos]
+            # Get all todos and filter for someday manually to avoid sorting issues
+            all_todos = things.todos()
+            
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            # Filter for someday items
+            someday_todos = []
+            for todo in all_todos:
+                start = todo.get('start', '')
+                if start == 'Someday':
+                    someday_todos.append(todo)
+            
+            return [self._convert_todo(todo) for todo in someday_todos]
         except Exception as e:
-            logger.error(f"things.py failed for someday: {e}")
-            return await self._get_list_todos_applescript("someday")
+            logger.error(f"Error getting someday via things.py: {e}")
+            return []
     
-    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict[str, Any]]:
-        """Get logbook items using things.py."""
-        if not self.use_things_py:
-            return await self._get_logbook_applescript(limit, period)
-        
+    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+        """Get completed items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period)
+    
+    def _get_logbook_sync(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+        """Synchronous implementation."""
         try:
-            todos = things.logbook()
-            # Apply period filter
-            cutoff_date = self._calculate_cutoff_date(period)
-            filtered = [t for t in todos if self._is_after_date(t, cutoff_date)]
+            logbook_data = things.logbook()
+            
+            if hasattr(logbook_data, '__iter__') and not isinstance(logbook_data, (list, dict)):
+                logbook_data = list(logbook_data)
+            if isinstance(logbook_data, dict):
+                logbook_data = [logbook_data]
+            
             # Apply limit
-            filtered = filtered[:limit]
-            return [self._convert_things_py_todo(t) for t in filtered]
+            if limit and len(logbook_data) > limit:
+                logbook_data = logbook_data[:limit]
+            
+            # TODO: Apply period filter based on completion date if available in the data
+            
+            return [self._convert_todo(todo) for todo in logbook_data]
         except Exception as e:
-            logger.error(f"things.py failed for logbook: {e}")
-            return await self._get_logbook_applescript(limit, period)
+            logger.error(f"Error getting logbook via things.py: {e}")
+            return []
     
-    async def get_trash(self) -> List[Dict[str, Any]]:
-        """Get trash items using things.py."""
-        if not self.use_things_py:
-            return await self._get_list_todos_applescript("trash")
-        
+    async def get_trash(self) -> List[Dict]:
+        """Get trashed items directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_trash_sync)
+    
+    def _get_trash_sync(self) -> List[Dict]:
+        """Synchronous implementation."""
         try:
-            todos = things.trash()
-            return [self._convert_things_py_todo(t) for t in todos]
+            trash_data = things.trash()
+            
+            if hasattr(trash_data, '__iter__') and not isinstance(trash_data, (list, dict)):
+                trash_data = list(trash_data)
+            if isinstance(trash_data, dict):
+                trash_data = [trash_data]
+            
+            return [self._convert_todo(todo) for todo in trash_data]
         except Exception as e:
-            logger.error(f"things.py failed for trash: {e}")
-            return await self._get_list_todos_applescript("trash")
+            logger.error(f"Error getting trash via things.py: {e}")
+            return []
     
-    async def search_todos(self, query: str) -> List[Dict[str, Any]]:
-        """Search todos using things.py."""
-        if not self.use_things_py:
-            return await self._search_todos_applescript(query)
-        
+    async def get_tagged_items(self, tag: str) -> List[Dict]:
+        """Get items with a specific tag directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_tagged_items_sync, tag)
+    
+    def _get_tagged_items_sync(self, tag: str) -> List[Dict]:
+        """Synchronous implementation."""
         try:
-            # things.py has a search method
-            todos = things.search(query)
-            return [self._convert_things_py_todo(t) for t in todos]
+            tagged_data = things.todos(tag=tag)
+            
+            if hasattr(tagged_data, '__iter__') and not isinstance(tagged_data, (list, dict)):
+                tagged_data = list(tagged_data)
+            if isinstance(tagged_data, dict):
+                tagged_data = [tagged_data]
+            
+            return [self._convert_todo(todo) for todo in tagged_data]
         except Exception as e:
-            logger.error(f"things.py search failed: {e}")
-            return await self._search_todos_applescript(query)
+            logger.error(f"Error getting tagged items via things.py: {e}")
+            return []
     
-    # ==================== WRITE OPERATIONS (AppleScript) ====================
+    async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
+        """Get a specific todo by ID directly from database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
     
-    async def add_todo(self, title: str, notes: Optional[str] = None, 
-                      tags: Optional[List[str]] = None, when: Optional[str] = None,
-                      deadline: Optional[str] = None, list_id: Optional[str] = None,
-                      list_title: Optional[str] = None, heading: Optional[str] = None,
-                      checklist_items: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Add a todo using AppleScript (write operation)."""
-        # Write operations must use AppleScript since things.py is read-only
-        # This would call the existing AppleScript implementation
-        # ... (existing add_todo implementation)
-        pass  # Placeholder - would use existing AppleScript code
+    def _get_todo_by_id_sync(self, todo_id: str) -> Dict[str, Any]:
+        """Synchronous implementation."""
+        try:
+            # Get all todos and find the one with matching ID
+            # things.py might not have a direct get-by-id method
+            all_todos = things.todos()
+            
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            for todo in all_todos:
+                if todo.get('uuid') == todo_id:
+                    return self._convert_todo(todo)
+            
+            # If not found, return error
+            return {
+                "success": False,
+                "error": "TODO_NOT_FOUND",
+                "message": f"Todo with ID '{todo_id}' not found"
+            }
+        except Exception as e:
+            logger.error(f"Error getting todo by ID via things.py: {e}")
+            return {
+                "success": False,
+                "error": "DATABASE_ERROR",
+                "message": str(e)
+            }
+    
+    # ========== WRITE OPERATIONS (AppleScript) ==========
+    # Keep all the existing write operations from the original tools.py
+    
+    def _escape_applescript_string(self, text: str) -> str:
+        """Escape a string for safe use in AppleScript."""
+        if not text:
+            return '""'
+        
+        # Escape backslashes first, then quotes
+        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+    
+    def _convert_iso_to_applescript_date(self, iso_date: str) -> str:
+        """Convert ISO date (YYYY-MM-DD) to AppleScript property-based date construction."""
+        try:
+            # Use the locale-aware date handler
+            return locale_handler.convert_iso_to_applescript(iso_date)
+        except Exception as e:
+            logger.error(f"Error converting ISO date '{iso_date}': {e}")
+            # Fallback to original approach if needed
+            try:
+                parsed = datetime.strptime(iso_date, '%Y-%m-%d').date()
+                return parsed.strftime('%d/%m/%Y')  # DD/MM/YYYY for European locale
+            except ValueError:
+                return iso_date
+    
+    async def _validate_tags_with_policy(self, tags: List[str]) -> Dict[str, List[str]]:
+        """Validate tags using policy-aware service if available."""
+        if self.tag_validation_service:
+            return await self.tag_validation_service.validate_tags(tags)
+        else:
+            # Fallback to simple validation - assume all tags are valid
+            return {
+                'created': [],
+                'existing': tags,
+                'filtered': [],
+                'warnings': []
+            }
+    
+    async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a new todo using AppleScript (write operation)."""
+        try:
+            # Use the reliable scheduler for adding todos
+            result = await self.reliable_scheduler.add_todo(title=title, **kwargs)
+            
+            # Handle tag validation if needed
+            tags = kwargs.get('tags', [])
+            if tags and self.tag_validation_service:
+                tag_validation = await self._validate_tags_with_policy(tags)
+                result['tag_info'] = tag_validation
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error adding todo: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add todo"
+            }
     
     async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
-        """Update a todo using AppleScript."""
-        # Write operations must use AppleScript
-        pass  # Placeholder - would use existing AppleScript code
+        """Update a todo using AppleScript (write operation)."""
+        try:
+            # Use the reliable scheduler for updating todos
+            result = await self.reliable_scheduler.update_todo(todo_id=todo_id, **kwargs)
+            
+            # Handle tag validation if needed
+            tags = kwargs.get('tags', [])
+            if tags and self.tag_validation_service:
+                tag_validation = await self._validate_tags_with_policy(tags)
+                result['tag_info'] = tag_validation
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error updating todo: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update todo"
+            }
     
     async def delete_todo(self, todo_id: str) -> Dict[str, Any]:
-        """Delete a todo using AppleScript."""
-        # Write operations must use AppleScript
-        pass  # Placeholder - would use existing AppleScript code
-    
-    async def complete_todo(self, todo_id: str) -> Dict[str, Any]:
-        """Complete a todo - things.py has a complete method but it uses URL scheme."""
-        if not self.use_things_py:
-            return await self._complete_todo_applescript(todo_id)
-        
+        """Delete a todo using AppleScript (write operation)."""
         try:
-            # things.py can complete via URL scheme
-            todo = things.todos(uuid=todo_id)[0] if things.todos(uuid=todo_id) else None
-            if todo:
-                todo.complete()  # This uses URL scheme
-                return {'success': True, 'message': 'Todo completed'}
-            return {'success': False, 'error': 'Todo not found'}
+            script = f'''
+            tell application "Things3"
+                set targetTodo to to do id "{todo_id}"
+                delete targetTodo
+                return "deleted"
+            end tell
+            '''
+            result = await self.applescript.execute_applescript(script)
+            return {
+                "success": result.get('success', False),
+                "message": "Todo deleted successfully" if result.get('success') else result.get('error', 'Failed to delete todo')
+            }
         except Exception as e:
-            logger.error(f"things.py complete failed: {e}")
-            return await self._complete_todo_applescript(todo_id)
+            logger.error(f"Error deleting todo: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to delete todo"
+            }
     
-    # ==================== HELPER METHODS ====================
+    async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a new project using AppleScript (write operation)."""
+        try:
+            # Use the reliable scheduler for adding projects
+            result = await self.reliable_scheduler.add_project(title=title, **kwargs)
+            
+            # Handle tag validation if needed
+            tags = kwargs.get('tags', [])
+            if tags and self.tag_validation_service:
+                tag_validation = await self._validate_tags_with_policy(tags)
+                result['tag_info'] = tag_validation
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error adding project: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add project"
+            }
     
-    def _convert_things_py_todo(self, todo: Dict) -> Dict[str, Any]:
-        """Convert things.py todo format to our expected format."""
+    async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
+        """Update a project using AppleScript (write operation)."""
+        try:
+            # Use the reliable scheduler for updating projects
+            result = await self.reliable_scheduler.update_project(project_id=project_id, **kwargs)
+            
+            # Handle tag validation if needed
+            tags = kwargs.get('tags', [])
+            if tags and self.tag_validation_service:
+                tag_validation = await self._validate_tags_with_policy(tags)
+                result['tag_info'] = tag_validation
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error updating project: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update project"
+            }
+    
+    async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
+        """Move a todo using AppleScript (write operation)."""
+        try:
+            return await self.move_operations.move_record(todo_id, destination_list)
+        except Exception as e:
+            logger.error(f"Error moving record: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to move record"
+            }
+    
+    async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+        """Add tags to a todo using AppleScript (write operation)."""
+        try:
+            # Validate tags first
+            tag_validation = await self._validate_tags_with_policy(tags)
+            
+            # Use only valid tags
+            valid_tags = tag_validation['existing'] + tag_validation['created']
+            
+            if not valid_tags:
+                return {
+                    "success": False,
+                    "error": "NO_VALID_TAGS",
+                    "message": "No valid tags to add",
+                    "tag_info": tag_validation
+                }
+            
+            # Build AppleScript to add tags
+            script = f'''
+            tell application "Things3"
+                set targetTodo to to do id "{todo_id}"
+            '''
+            
+            for tag in valid_tags:
+                escaped_tag = self._escape_applescript_string(tag).strip('"')
+                script += f'\n    set tag names of targetTodo to tag names of targetTodo & "{escaped_tag}"'
+            
+            script += '''
+                return "tags_added"
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script)
+            return {
+                "success": result.get('success', False),
+                "message": f"Added {len(valid_tags)} tags successfully" if result.get('success') else result.get('error', 'Failed to add tags'),
+                "tag_info": tag_validation
+            }
+        except Exception as e:
+            logger.error(f"Error adding tags: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add tags"
+            }
+    
+    async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+        """Remove tags from a todo using AppleScript (write operation)."""
+        try:
+            # Build AppleScript to remove tags
+            script = f'''
+            tell application "Things3"
+                set targetTodo to to do id "{todo_id}"
+                set currentTags to tag names of targetTodo
+            '''
+            
+            for tag in tags:
+                escaped_tag = self._escape_applescript_string(tag).strip('"')
+                script += f'''
+                set newTags to {{}}
+                repeat with tagName in currentTags
+                    if tagName is not equal to "{escaped_tag}" then
+                        set newTags to newTags & tagName
+                    end if
+                end repeat
+                set tag names of targetTodo to newTags
+                set currentTags to newTags
+                '''
+            
+            script += '''
+                return "tags_removed"
+            end tell
+            '''
+            
+            result = await self.applescript.execute_applescript(script)
+            return {
+                "success": result.get('success', False),
+                "message": f"Removed {len(tags)} tags successfully" if result.get('success') else result.get('error', 'Failed to remove tags')
+            }
+        except Exception as e:
+            logger.error(f"Error removing tags: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to remove tags"
+            }
+    
+    # Additional write operations that might be needed - delegate to existing methods
+    async def get_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos due within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_due_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos due in {days} days: {e}")
+            return []
+    
+    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos due within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_due_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos due in {days} days: {e}")
+            return []
+    
+    async def get_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos activating within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_activating_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos activating in {days} days: {e}")
+            return []
+    
+    async def get_todos_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos activating within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_activating_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos activating in {days} days: {e}")
+            return []
+    
+    async def get_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos upcoming within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_upcoming_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos upcoming in {days} days: {e}")
+            return []
+    
+    async def get_todos_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos upcoming within specified days - use AppleScript for now."""
+        try:
+            return await self.reliable_scheduler.get_todos_upcoming_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos upcoming in {days} days: {e}")
+            return []
+    
+    async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
+        """Advanced search - for now delegate to AppleScript, could be optimized with things.py later."""
+        try:
+            return await self.reliable_scheduler.search_advanced(**filters)
+        except Exception as e:
+            logger.error(f"Error in advanced search: {e}")
+            return []
+    
+    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
+        """Get recent items - for now delegate to AppleScript, could be optimized with things.py later."""
+        try:
+            return await self.reliable_scheduler.get_recent(period)
+        except Exception as e:
+            logger.error(f"Error getting recent items: {e}")
+            return []
+    
+    # ========== CONVERSION HELPERS ==========
+    
+    def _convert_todo(self, todo: Dict) -> Dict:
+        """Convert things.py todo to our MCP format."""
         return {
             'id': todo.get('uuid', ''),
             'uuid': todo.get('uuid', ''),
@@ -298,124 +858,43 @@ class HybridThingsTools:
             'tags': todo.get('tags', []),
             'created': todo.get('created', ''),
             'modified': todo.get('modified', ''),
-            'start_date': todo.get('start_date', ''),
+            'when': todo.get('start_date', ''),
             'deadline': todo.get('deadline', ''),
-            'completed': todo.get('status') == 'completed',
-            'canceled': todo.get('status') == 'canceled',
+            'completed': todo.get('stop_date', ''),
             'project': todo.get('project', ''),
             'area': todo.get('area', ''),
             'heading': todo.get('heading', ''),
-            # Reminder detection
-            'has_reminder': self._has_reminder(todo),
-            'reminder_time': self._get_reminder_time(todo),
-            'activation_date': todo.get('start_date', '')
+            'checklist': todo.get('checklist_items', []),
+            'has_reminder': bool(todo.get('reminder_time')),
+            'reminder_time': todo.get('reminder_time', ''),
+            'activation_date': todo.get('activation_date', '')
         }
     
-    def _convert_things_py_project(self, project: Dict) -> Dict[str, Any]:
-        """Convert things.py project format to our expected format."""
+    def _convert_project(self, project: Dict) -> Dict:
+        """Convert things.py project to our MCP format."""
         return {
             'id': project.get('uuid', ''),
             'uuid': project.get('uuid', ''),
             'title': project.get('title', ''),
             'notes': project.get('notes', ''),
             'tags': project.get('tags', []),
-            'status': project.get('status', 'open'),
             'area': project.get('area', ''),
-            'items': project.get('items', []) if 'items' in project else []
+            'status': project.get('status', 'open'),
+            'created': project.get('created', ''),
+            'modified': project.get('modified', ''),
+            'when': project.get('start_date', ''),
+            'deadline': project.get('deadline', ''),
+            'completed': project.get('stop_date', '')
         }
     
-    def _convert_things_py_area(self, area: Dict) -> Dict[str, Any]:
-        """Convert things.py area format to our expected format."""
+    def _convert_area(self, area: Dict) -> Dict:
+        """Convert things.py area to our MCP format."""
         return {
             'id': area.get('uuid', ''),
             'uuid': area.get('uuid', ''),
             'title': area.get('title', ''),
             'tags': area.get('tags', []),
-            'items': area.get('items', []) if 'items' in area else []
+            'notes': area.get('notes', ''),
+            'created': area.get('created', ''),
+            'modified': area.get('modified', '')
         }
-    
-    def _has_reminder(self, todo: Dict) -> bool:
-        """Check if a todo has a reminder time set."""
-        # Check if start_date includes a time component
-        start = todo.get('start_date', '')
-        if start and 'T' in start and not start.endswith('T00:00:00'):
-            return True
-        return False
-    
-    def _get_reminder_time(self, todo: Dict) -> Optional[str]:
-        """Extract reminder time from todo."""
-        if self._has_reminder(todo):
-            start = todo.get('start_date', '')
-            # Extract time portion
-            if 'T' in start:
-                time_part = start.split('T')[1].split('.')[0]
-                # Convert to HH:MM format
-                return time_part[:5]
-        return None
-    
-    def _calculate_cutoff_date(self, period: str) -> datetime:
-        """Calculate cutoff date from period string like '7d', '2w', '1m'."""
-        import re
-        match = re.match(r'^(\d+)([dwmy])$', period)
-        if not match:
-            return datetime.now() - timedelta(days=7)
-        
-        num = int(match.group(1))
-        unit = match.group(2)
-        
-        if unit == 'd':
-            return datetime.now() - timedelta(days=num)
-        elif unit == 'w':
-            return datetime.now() - timedelta(weeks=num)
-        elif unit == 'm':
-            return datetime.now() - timedelta(days=num * 30)
-        elif unit == 'y':
-            return datetime.now() - timedelta(days=num * 365)
-        
-        return datetime.now() - timedelta(days=7)
-    
-    def _is_after_date(self, todo: Dict, cutoff: datetime) -> bool:
-        """Check if todo was modified after cutoff date."""
-        modified = todo.get('modified', '')
-        if modified:
-            try:
-                todo_date = datetime.fromisoformat(modified.replace('Z', '+00:00'))
-                return todo_date > cutoff
-            except:
-                pass
-        return False
-    
-    # ==================== FALLBACK METHODS (would import from existing) ====================
-    
-    async def _get_todos_applescript(self, project_uuid, include_items):
-        """Fallback to AppleScript for getting todos."""
-        # This would use the existing AppleScript implementation
-        pass
-    
-    async def _get_projects_applescript(self, include_items):
-        """Fallback to AppleScript for getting projects."""
-        pass
-    
-    async def _get_areas_applescript(self, include_items):
-        """Fallback to AppleScript for getting areas."""
-        pass
-    
-    async def _get_tags_applescript(self, include_items):
-        """Fallback to AppleScript for getting tags."""
-        pass
-    
-    async def _get_list_todos_applescript(self, list_name):
-        """Fallback to AppleScript for getting list todos."""
-        pass
-    
-    async def _get_logbook_applescript(self, limit, period):
-        """Fallback to AppleScript for getting logbook."""
-        pass
-    
-    async def _search_todos_applescript(self, query):
-        """Fallback to AppleScript for searching."""
-        pass
-    
-    async def _complete_todo_applescript(self, todo_id):
-        """Fallback to AppleScript for completing todo."""
-        pass

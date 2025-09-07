@@ -12,7 +12,7 @@ from urllib.parse import quote
 import re
 import dateparser
 
-from ..shared_cache import get_shared_cache
+# Cache removed for hybrid implementation
 from ..locale_aware_dates import locale_handler
 
 logger = logging.getLogger(__name__)
@@ -43,9 +43,8 @@ class AppleScriptManager:
         """
         self.timeout = timeout
         self.retry_count = retry_count
-        self._cache = get_shared_cache(default_ttl=30.0)  # Use shared cache with 30 second TTL
         self.auth_token = self._load_auth_token()
-        logger.info("AppleScript manager initialized with shared cache")
+        logger.info("AppleScript manager initialized - cache removed for hybrid implementation")
     
     def _load_auth_token(self) -> Optional[str]:
         """Load Things auth token from file if it exists."""
@@ -85,26 +84,12 @@ class AppleScriptManager:
         
         Args:
             script: AppleScript code to execute
-            cache_key: Optional cache key for result caching
+            cache_key: Ignored - caching removed for hybrid implementation
             
         Returns:
             Dict with success status, output, and error information
         """
-        # Check cache first
-        if cache_key:
-            cached_result = self._cache.get(cache_key)
-            if cached_result is not None:
-                logger.debug(f"Cache hit for key: {cache_key}")
-                return cached_result
-        
         result = await self._execute_script_with_retry(script)
-        
-        # OPTIMIZATION: Cache successful results with granular invalidation strategy
-        # Don't cache mutation operations but do cache read-only queries
-        if cache_key and result.get("success") and not any(x in cache_key for x in ['search', 'add', 'update', 'delete', 'move', 'complete']):
-            self._cache.set(cache_key, result)
-            logger.debug(f"Cached result for key: {cache_key}")
-        
         return result
     
     async def execute_url_scheme(self, action: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -324,8 +309,7 @@ class AppleScriptManager:
                 end tell
                 '''
             
-            cache_key = f"todos_{project_uuid or 'all'}"
-            result = await self.execute_applescript(script, cache_key)
+            result = await self.execute_applescript(script)
             
             if result.get("success"):
                 try:
@@ -1302,9 +1286,8 @@ class AppleScriptManager:
             }
 
     def clear_cache(self) -> None:
-        """Clear all cached results."""
-        self._cache.clear()
-        logger.info("AppleScript shared cache cleared")
+        """Clear all cached results - no-op in hybrid implementation."""
+        logger.info("Cache clearing requested but caching is disabled in hybrid implementation")
     
     def _has_reminder_time(self, activation_date_str: Optional[str]) -> bool:
         """Detect if an activation_date indicates a reminder is set.

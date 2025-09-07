@@ -20,7 +20,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from .services.applescript_manager import AppleScriptManager
-from .tools import ThingsTools
+from .hybrid_tools import HybridTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
@@ -58,7 +58,7 @@ class ThingsMCPServer:
         self._configure_logging()
         
         self.applescript_manager = AppleScriptManager()
-        self.tools = ThingsTools(self.applescript_manager, self.config)
+        self.tools = HybridTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()
         # self.query_engine = NaturalLanguageQueryEngine(self.tools)  # Removed - too complex
         self._register_tools()
@@ -1292,7 +1292,7 @@ def main():
     # Check for config path in environment or command line
     import os
     config_path = os.getenv('THINGS_MCP_CONFIG_PATH')
-    server = ThingsMCPServer(config_path=config_path)
+    server = ThingsMCPServer(env_file=config_path)
     server.run()
 
 
