@@ -897,7 +897,7 @@ class PureAppleScriptScheduler:
             return []
 
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
-        """Advanced search using AppleScript with multiple filters."""
+        """Advanced search using AppleScript with multiple filters and limit support."""
         try:
             # Extract filter parameters
             query = filters.get('query', '')
@@ -906,6 +906,7 @@ class PureAppleScriptScheduler:
             project = filters.get('project', '')
             list_name = filters.get('list', '')
             completed = filters.get('completed', None)
+            limit = filters.get('limit', None)
 
             # Build AppleScript to search todos
             script = '''
@@ -1014,7 +1015,7 @@ class PureAppleScriptScheduler:
                         end if
                     '''
 
-            # Collect matching todos
+            # Collect matching todos with limit support
             script += '''
                         if todoMatches then
                             set matchingTodos to matchingTodos & aTodo
@@ -1022,6 +1023,28 @@ class PureAppleScriptScheduler:
                     end repeat
                     
                     set resultList to {}
+                    set resultCount to 0
+            '''
+            
+            # Add limit logic if specified
+            if limit and limit > 0:
+                script += f'''
+                    set maxResults to {limit}
+                    repeat with aTodo in matchingTodos
+                        if resultCount >= maxResults then exit repeat
+                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                        try
+                            set todoInfo to todoInfo & "|NOTES:" & (notes of aTodo)
+                        end try
+                        try
+                            set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
+                        end try
+                        set resultList to resultList & todoInfo
+                        set resultCount to resultCount + 1
+                    end repeat
+                '''
+            else:
+                script += '''
                     repeat with aTodo in matchingTodos
                         set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
                         try
@@ -1032,7 +1055,9 @@ class PureAppleScriptScheduler:
                         end try
                         set resultList to resultList & todoInfo
                     end repeat
-                    
+                '''
+            
+            script += '''
                     return resultList
                 on error errMsg
                     return "error: " & errMsg

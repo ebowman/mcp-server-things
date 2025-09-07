@@ -54,6 +54,8 @@ class ContextBudget:
             'get_anytime': 0.8,
             'get_someday': 0.8,
             'get_logbook': 0.9,
+            'search_todos': 1.0,    # Search results vary widely
+            'search_advanced': 0.8, # Advanced search can be complex
         }
         
         multiplier = method_multipliers.get(method_name, 1.0)
@@ -172,6 +174,8 @@ class SmartDefaultManager:
         'get_anytime': 40,
         'get_someday': 20,
         'get_logbook': 50,  # Already has limit
+        'search_todos': 50,     # Search can return many results
+        'search_advanced': 50,  # Advanced search needs limiting
     }
     
     # Default modes by method (AUTO mode for intelligent selection)
@@ -186,24 +190,26 @@ class SmartDefaultManager:
         'get_anytime': ResponseMode.AUTO,
         'get_someday': ResponseMode.AUTO,
         'get_logbook': ResponseMode.MINIMAL,   # Historical data, keep minimal
+        'search_todos': ResponseMode.AUTO,     # Search results vary widely in size
+        'search_advanced': ResponseMode.AUTO,  # Advanced search results unpredictable
     }
     
     def apply_smart_defaults(self, method_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Apply intelligent defaults to method parameters."""
         optimized_params = params.copy()
         
-        # Set default response mode if not specified
-        if 'mode' not in optimized_params:
+        # Set default response mode if not specified or is None
+        if optimized_params.get('mode') is None:
             optimized_params['mode'] = self.DEFAULT_MODES.get(method_name, ResponseMode.STANDARD)
         
-        # Set default limit if not specified and method has high volume potential
-        if method_name in self.DEFAULT_LIMITS and 'limit' not in optimized_params:
+        # Set default limit if not specified or is None and method has high volume potential
+        if method_name in self.DEFAULT_LIMITS and optimized_params.get('limit') is None:
             default_limit = self.DEFAULT_LIMITS[method_name]
             if default_limit > 0:  # 0 means no limit
                 optimized_params['limit'] = default_limit
         
         # Disable include_items by default for high-volume methods
-        high_volume_methods = ['get_todos', 'get_projects', 'get_areas', 'get_tags']
+        high_volume_methods = ['get_todos', 'get_projects', 'get_areas', 'get_tags', 'search_todos', 'search_advanced']
         if method_name in high_volume_methods and 'include_items' not in optimized_params:
             optimized_params['include_items'] = False
         
@@ -294,6 +300,30 @@ class ProgressiveDisclosureEngine:
             "total_tags": len(tags)
         }
     
+    def _summarize_search_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create search-specific summary."""
+        status_counts = {}
+        recent_items = []
+        
+        for result in results:
+            status = result.get('status', 'open')
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Add to preview (first 3 items)
+            if len(recent_items) < 3:
+                recent_items.append({
+                    "id": result.get("id"),
+                    "name": result.get("name", "")[:60] + ("..." if len(result.get("name", "")) > 60 else ""),
+                    "status": result.get("status", "open")
+                })
+        
+        return {
+            "search_results_breakdown": status_counts,
+            "result_preview": recent_items,
+            "total_matches": len(results),
+            "suggestion": "Use mode='minimal' or 'standard' to see more details, or add filters to narrow results"
+        }
+    
     def _get_empty_suggestions(self, method_name: str) -> List[str]:
         """Get helpful suggestions for empty datasets."""
         suggestions_map = {
@@ -301,6 +331,8 @@ class ProgressiveDisclosureEngine:
             'get_today': ["Schedule some todos for today", "Check 'Upcoming' list"],
             'get_projects': ["Create your first project", "Check 'Areas' for existing work"],
             'get_tags': ["Tags are created when you add them to todos", "Try creating a todo first"],
+            'search_todos': ["Try different search terms", "Check spelling and try broader terms", "Search in notes with longer phrases"],
+            'search_advanced': ["Try broader filter criteria", "Remove some filters to expand results", "Check if filtered items exist in Things 3"]
         }
         return suggestions_map.get(method_name, ["Check if Things 3 has data", "Try other list methods"])
 

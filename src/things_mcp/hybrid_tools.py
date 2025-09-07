@@ -244,13 +244,13 @@ class HybridTools:
             logger.error(f"Error getting tags via things.py: {e}")
             return []
     
-    async def search_todos(self, query: str) -> List[Dict]:
-        """Search todos directly in database."""
+    async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
+        """Search todos directly in database with optional limit."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_sync, query)
+        return await loop.run_in_executor(None, self._search_sync, query, limit)
     
-    def _search_sync(self, query: str) -> List[Dict]:
-        """Synchronous search implementation."""
+    def _search_sync(self, query: str, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous search implementation with limit support."""
         try:
             # Use things.py search functionality if available
             if hasattr(things, 'search'):
@@ -270,12 +270,19 @@ class HybridTools:
                     notes = todo.get('notes', '').lower()
                     if query_lower in title or query_lower in notes:
                         results.append(todo)
+                        # Apply limit during search for efficiency
+                        if limit and len(results) >= limit:
+                            break
             
             # Convert to list if needed
             if hasattr(results, '__iter__') and not isinstance(results, (list, dict)):
                 results = list(results)
             if isinstance(results, dict):
                 results = [results]
+            
+            # Apply limit if not already applied during search
+            if limit and len(results) > limit:
+                results = results[:limit]
             
             return [self._convert_todo(todo) for todo in results]
         except Exception as e:
@@ -830,7 +837,7 @@ class HybridTools:
             return []
     
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
-        """Advanced search - for now delegate to AppleScript, could be optimized with things.py later."""
+        """Advanced search - delegate to AppleScript scheduler with limit support."""
         try:
             return await self.reliable_scheduler.search_advanced(**filters)
         except Exception as e:
