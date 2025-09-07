@@ -224,27 +224,40 @@ class ProgressiveDisclosureEngine:
         self.size_estimator = ResponseSizeEstimator()
     
     def create_summary_response(self, data: List[Dict[str, Any]], method_name: str) -> Dict[str, Any]:
-        """Create a lightweight summary response."""
+        """Create a lightweight summary response with useful information."""
         if not data:
+            # Provide helpful context for empty results
+            empty_message = self._get_empty_message(method_name)
             return {
-                "summary": f"No items found",
+                "success": True,
+                "summary": empty_message,
                 "count": 0,
+                "items": [],
+                "message": empty_message,
                 "suggestions": self._get_empty_suggestions(method_name)
             }
         
         summary = {
+            "success": True,
             "count": len(data),
             "mode": "summary",
-            "data_available": True
+            "data_available": True,
+            "message": f"Found {len(data)} items"
         }
         
         # Add method-specific summary insights
-        if method_name == 'get_todos':
+        if method_name in ['get_todos', 'get_today', 'get_inbox', 'get_upcoming', 'get_anytime', 'get_someday']:
             summary.update(self._summarize_todos(data))
         elif method_name == 'get_projects':
             summary.update(self._summarize_projects(data))
         elif method_name == 'get_tags':
             summary.update(self._summarize_tags(data))
+        elif method_name == 'get_areas':
+            summary.update(self._summarize_areas(data))
+        elif method_name == 'get_logbook':
+            summary.update(self._summarize_logbook(data))
+        elif 'search' in method_name:
+            summary.update(self._summarize_search_results(data))
         
         return summary
     
@@ -300,6 +313,33 @@ class ProgressiveDisclosureEngine:
             "total_tags": len(tags)
         }
     
+    def _summarize_areas(self, areas: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create area-specific summary."""
+        area_names = [area.get('name', '') for area in areas[:10]]
+        
+        return {
+            "areas": area_names,
+            "total_areas": len(areas)
+        }
+    
+    def _summarize_logbook(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create logbook-specific summary."""
+        # Group by completion date
+        dates = {}
+        for entry in entries:
+            completion_date = entry.get('completion_date', 'unknown')
+            if completion_date:
+                date_key = completion_date.split('T')[0] if 'T' in completion_date else completion_date
+                dates[date_key] = dates.get(date_key, 0) + 1
+        
+        return {
+            "completed_count": len(entries),
+            "completion_by_date": dict(list(dates.items())[:7]),  # Last 7 days
+            "recent_completed": [
+                {"name": e.get("name", "")[:50]} for e in entries[:5]
+            ]
+        }
+    
     def _summarize_search_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create search-specific summary."""
         status_counts = {}
@@ -323,6 +363,19 @@ class ProgressiveDisclosureEngine:
             "total_matches": len(results),
             "suggestion": "Use mode='minimal' or 'standard' to see more details, or add filters to narrow results"
         }
+    
+    def _get_empty_message(self, method_name: str) -> str:
+        """Get helpful message for empty results."""
+        messages_map = {
+            'get_inbox': "Inbox is empty - all tasks have been processed",
+            'get_today': "No tasks scheduled for today",
+            'get_upcoming': "No upcoming tasks found",
+            'get_projects': "No projects found",
+            'get_tags': "No tags found - tags are created when added to todos",
+            'search_todos': "No todos matched the search query",
+            'search_advanced': "No items matched the specified filters"
+        }
+        return messages_map.get(method_name, "No items found")
     
     def _get_empty_suggestions(self, method_name: str) -> List[str]:
         """Get helpful suggestions for empty datasets."""
@@ -402,9 +455,7 @@ class ContextAwareResponseManager:
             "data": filtered_data,
             "meta": {
                 "mode": mode.value,
-                "count": len(filtered_data),
-                "estimated_size_kb": round(estimated_size / 1024, 1),
-                "truncated": False
+                "count": len(filtered_data)
             }
         }
     
@@ -428,17 +479,10 @@ class ContextAwareResponseManager:
             "meta": {
                 "mode": mode.value,
                 "count": len(filtered_data),
-                "total_available": len(data),
-                "estimated_size_kb": round(estimated_size / 1024, 1),
+                "total": len(data),
                 "truncated": True,
-                "pagination": {
-                    "has_more": len(data) > max_items,
-                    "next_available": True,
-                    "suggested_page_size": max_items
-                },
-                "remaining_summary": f"{len(data) - max_items} more items available"
-            },
-            "optimization_hint": f"Response truncated to fit context. Use pagination or summary mode for full dataset."
+                "more": len(data) - max_items
+            }
         }
     
     def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode) -> List[Dict[str, Any]]:
@@ -448,7 +492,7 @@ class ContextAwareResponseManager:
         
         # Define field sets by mode
         field_sets = {
-            ResponseMode.SUMMARY: {'id', 'name', 'status'},
+            ResponseMode.SUMMARY: {'id', 'name', 'status', 'tag_names', 'due_date'},  # Include useful fields in summary
             ResponseMode.MINIMAL: {
                 'id', 'name', 'status', 'due_date', 'modification_date', 'creation_date'
             },
@@ -520,15 +564,26 @@ class ContextAwareResponseManager:
         return sorted(items, key=relevance_score, reverse=True)
     
     def _select_optimal_mode(self, data: List[Dict[str, Any]], method_name: str) -> ResponseMode:
-        """Automatically select the optimal response mode based on data characteristics."""
+        """Automatically select the optimal response mode based on data characteristics and query intent."""
         item_count = len(data)
+        
+        # Special handling for search methods - users likely want to see results
+        if 'search' in method_name:
+            if item_count <= 5:
+                return ResponseMode.DETAILED  # Few results, show everything
+            elif item_count <= 20:
+                return ResponseMode.STANDARD  # Moderate results, show key fields
+            elif item_count <= 50:
+                return ResponseMode.MINIMAL   # Many results, show essentials
+            else:
+                return ResponseMode.MINIMAL   # Too many results, minimal mode better than summary
         
         # Quick size estimation for mode selection
         sample_item = data[0] if data else {}
         estimated_avg_size = self.size_estimator.calculate_accurate_size(sample_item, ResponseMode.STANDARD)
         projected_total = estimated_avg_size * item_count + 1000  # Add overhead
         
-        # Mode selection logic based on projected size and item count
+        # General mode selection logic based on projected size and item count
         if projected_total <= 2000:  # Very small dataset
             return ResponseMode.DETAILED
         elif projected_total <= 15000:  # Small dataset  

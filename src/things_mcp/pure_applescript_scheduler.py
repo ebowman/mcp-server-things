@@ -311,9 +311,10 @@ class PureAppleScriptScheduler:
 
             # Add tags if provided
             if tags:
-                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
-                tags_string = '", "'.join(escaped_tags)
-                script += f'set tag names of newTodo to {{"{ tags_string}"}}\n                    '
+                # Things 3 expects tags as comma-separated string, not AppleScript list
+                tags_string = ', '.join(tags)
+                escaped_tags_string = self._escape_applescript_string(tags_string)
+                script += f'set tag names of newTodo to {escaped_tags_string}\n                    '
 
             # Add checklist items if provided
             if checklist:
@@ -428,9 +429,10 @@ class PureAppleScriptScheduler:
 
             # Update tags if provided
             if tags:
-                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
-                tags_string = '", "'.join(escaped_tags)
-                script += f'set tag names of targetTodo to {{"{ tags_string}"}}\n                    '
+                # Things 3 expects tags as comma-separated string, not AppleScript list
+                tags_string = ', '.join(tags)
+                escaped_tags_string = self._escape_applescript_string(tags_string)
+                script += f'set tag names of targetTodo to {escaped_tags_string}\n                    '
 
             # Update deadline if provided
             if deadline:
@@ -533,9 +535,10 @@ class PureAppleScriptScheduler:
 
             # Add tags if provided
             if tags:
-                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
-                tags_string = '", "'.join(escaped_tags)
-                script += f'set tag names of newProject to {{"{ tags_string}"}}\n                    '
+                # Things 3 expects tags as comma-separated string, not AppleScript list
+                tags_string = ', '.join(tags)
+                escaped_tags_string = self._escape_applescript_string(tags_string)
+                script += f'set tag names of newProject to {escaped_tags_string}\n                    '
 
             # Set deadline if provided
             if deadline:
@@ -638,9 +641,10 @@ class PureAppleScriptScheduler:
 
             # Update tags if provided
             if tags:
-                escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in tags]
-                tags_string = '", "'.join(escaped_tags)
-                script += f'set tag names of targetProject to {{"{ tags_string}"}}\n                    '
+                # Things 3 expects tags as comma-separated string, not AppleScript list
+                tags_string = ', '.join(tags)
+                escaped_tags_string = self._escape_applescript_string(tags_string)
+                script += f'set tag names of targetProject to {escaped_tags_string}\n                    '
 
             # Update deadline if provided
             if deadline:
@@ -842,6 +846,12 @@ class PureAppleScriptScheduler:
     async def get_todos_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos upcoming within specified days using AppleScript."""
         try:
+            from datetime import datetime, timedelta
+            current_date = datetime.now()
+            target_date = current_date + timedelta(days=days)
+            
+            logger.info(f"Searching for todos between {current_date.date()} and {target_date.date()}")
+            
             script = f'''
             tell application "Things3"
                 try
@@ -851,13 +861,35 @@ class PureAppleScriptScheduler:
                     set time of targetDate to 86400  -- End of target day
                     
                     set upcomingTodos to {{}}
-                    repeat with aTodo in (to dos of list "Upcoming")
-                        if ((activation date of aTodo is not missing value and activation date of aTodo >= currentDate and activation date of aTodo <= targetDate) or (deadline of aTodo is not missing value and deadline of aTodo >= currentDate and deadline of aTodo <= targetDate)) then
-                            set upcomingTodos to upcomingTodos & aTodo
+                    set totalChecked to 0
+                    set matchCount to 0
+                    
+                    -- Check all open todos, not just Upcoming list
+                    repeat with aTodo in (to dos whose status is open)
+                        set totalChecked to totalChecked + 1
+                        
+                        set hasActivation to (activation date of aTodo is not missing value)
+                        set hasDeadline to (deadline of aTodo is not missing value)
+                        
+                        if hasActivation then
+                            set activDate to activation date of aTodo
+                            if (activDate >= currentDate and activDate <= targetDate) then
+                                set upcomingTodos to upcomingTodos & aTodo
+                                set matchCount to matchCount + 1
+                            end if
+                        else if hasDeadline then
+                            set dueDate to deadline of aTodo
+                            if (dueDate >= currentDate and dueDate <= targetDate) then
+                                set upcomingTodos to upcomingTodos & aTodo
+                                set matchCount to matchCount + 1
+                            end if
                         end if
                     end repeat
                     
-                    set resultList to {{}}
+                    -- Log statistics for debugging
+                    set statsInfo to "STATS:checked=" & totalChecked & "|matches=" & matchCount
+                    
+                    set resultList to {{statsInfo}}
                     repeat with aTodo in upcomingTodos
                         set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
                         if activation date of aTodo is not missing value then
@@ -866,34 +898,57 @@ class PureAppleScriptScheduler:
                         if deadline of aTodo is not missing value then
                             set todoInfo to todoInfo & "|DEADLINE:" & (deadline of aTodo as string)
                         end if
+                        if status of aTodo is not missing value then
+                            set todoInfo to todoInfo & "|STATUS:" & (status of aTodo as string)
+                        end if
                         set resultList to resultList & todoInfo
                     end repeat
                     
                     return resultList
                 on error errMsg
-                    return "error: " & errMsg
+                    return {{"ERROR:" & errMsg}}
                 end try
             end tell
             '''
 
+            logger.debug(f"Executing AppleScript for {days} days range")
             result = await self.applescript.execute_applescript(script)
+            
             if result.get("success"):
-                output = result.get("output", "")
+                output = result.get("output", [])
+                logger.info(f"AppleScript returned {len(output) if isinstance(output, list) else 0} items")
+                
                 if isinstance(output, list):
                     todos = []
+                    stats = None
+                    
                     for item in output:
-                        if isinstance(item, str) and item.startswith("ID:"):
-                            todo_dict = self._parse_todo_info(item)
-                            todos.append(todo_dict)
+                        if isinstance(item, str):
+                            if item.startswith("STATS:"):
+                                # Parse statistics for logging
+                                stats = item
+                                logger.info(f"Query statistics: {stats}")
+                            elif item.startswith("ERROR:"):
+                                logger.error(f"AppleScript error: {item}")
+                            elif item.startswith("ID:"):
+                                todo_dict = self._parse_todo_info(item)
+                                todos.append(todo_dict)
+                    
+                    logger.info(f"Parsed {len(todos)} todos from AppleScript output")
                     return todos
+                elif isinstance(output, str) and "error:" in output.lower():
+                    logger.error(f"AppleScript error: {output}")
+                    return []
                 else:
+                    logger.warning(f"Unexpected output type: {type(output)}")
                     return []
             else:
-                logger.error(f"Failed to get upcoming todos: {result.get('output', 'Unknown error')}")
+                error_msg = result.get('output', result.get('error', 'Unknown error'))
+                logger.error(f"Failed to execute AppleScript: {error_msg}")
                 return []
 
         except Exception as e:
-            logger.error(f"Error getting todos upcoming in {days} days: {e}")
+            logger.error(f"Error getting todos upcoming in {days} days: {e}", exc_info=True)
             return []
 
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
@@ -929,6 +984,9 @@ class PureAppleScriptScheduler:
                 '''
 
             script += '''
+                    set resultList to {}
+                    set resultCount to 0
+                    
                     repeat with aTodo in allTodos
                         set todoMatches to true
             '''
@@ -960,18 +1018,16 @@ class PureAppleScriptScheduler:
                 for tag in tags:
                     escaped_tag = self._escape_applescript_string(tag).strip('"')
                     script += f'''
-                        set tagFound to false
+                        -- Check if todo has the specified tag
                         try
-                            repeat with tagName in (tag names of aTodo)
-                                if tagName as string is equal to "{escaped_tag}" then
-                                    set tagFound to true
-                                    exit repeat
-                                end if
-                            end repeat
-                        end try
-                        if not tagFound then
+                            set todoTags to tag names of aTodo
+                            if not (todoTags contains "{escaped_tag}") then
+                                set todoMatches to false
+                            end if
+                        on error
+                            -- No tags, doesn't match
                             set todoMatches to false
-                        end if
+                        end try
                     '''
 
             # Add area filter
@@ -1015,45 +1071,22 @@ class PureAppleScriptScheduler:
                         end if
                     '''
 
-            # Collect matching todos with limit support
-            script += '''
+            # Collect matching todos directly to avoid AppleScript vector conversion issues
+            limit_value = limit if limit and limit > 0 else 999999
+            script += f'''
                         if todoMatches then
-                            set matchingTodos to matchingTodos & aTodo
+                            if resultCount < {limit_value} then
+                                set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                                try
+                                    set todoInfo to todoInfo & "|NOTES:" & (notes of aTodo)
+                                end try
+                                try
+                                    set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
+                                end try
+                                set resultList to resultList & todoInfo
+                                set resultCount to resultCount + 1
+                            end if
                         end if
-                    end repeat
-                    
-                    set resultList to {}
-                    set resultCount to 0
-            '''
-            
-            # Add limit logic if specified
-            if limit and limit > 0:
-                script += f'''
-                    set maxResults to {limit}
-                    repeat with aTodo in matchingTodos
-                        if resultCount >= maxResults then exit repeat
-                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
-                        try
-                            set todoInfo to todoInfo & "|NOTES:" & (notes of aTodo)
-                        end try
-                        try
-                            set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
-                        end try
-                        set resultList to resultList & todoInfo
-                        set resultCount to resultCount + 1
-                    end repeat
-                '''
-            else:
-                script += '''
-                    repeat with aTodo in matchingTodos
-                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
-                        try
-                            set todoInfo to todoInfo & "|NOTES:" & (notes of aTodo)
-                        end try
-                        try
-                            set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
-                        end try
-                        set resultList to resultList & todoInfo
                     end repeat
                 '''
             
@@ -1068,15 +1101,34 @@ class PureAppleScriptScheduler:
             result = await self.applescript.execute_applescript(script)
             if result.get("success"):
                 output = result.get("output", "")
+                logger.debug(f"search_advanced raw output: {output[:500] if output else 'empty'}")
+                todos = []
+                
+                # Handle both list and string output formats
                 if isinstance(output, list):
-                    todos = []
                     for item in output:
                         if isinstance(item, str) and item.startswith("ID:"):
                             todo_dict = self._parse_todo_info(item)
                             todos.append(todo_dict)
-                    return todos
-                else:
-                    return []
+                elif isinstance(output, str) and output:
+                    # Split by ID: to separate todos (each todo starts with ID:)
+                    # But we need to preserve the ID: prefix
+                    if "ID:" in output:
+                        # Split by ', ID:' for comma-separated format
+                        if ", ID:" in output:
+                            parts = output.split(", ID:")
+                            # First part already has ID:, others need it added back
+                            for i, part in enumerate(parts):
+                                if i > 0:
+                                    part = "ID:" + part
+                                todo_dict = self._parse_todo_info(part.strip())
+                                todos.append(todo_dict)
+                        else:
+                            # Single todo
+                            todo_dict = self._parse_todo_info(output.strip())
+                            todos.append(todo_dict)
+                
+                return todos
             else:
                 logger.error(f"Failed to perform advanced search: {result.get('output', 'Unknown error')}")
                 return []

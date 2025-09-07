@@ -16,6 +16,7 @@ from .services.validation_service import ValidationService
 from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
+from .response_optimizer import ResponseOptimizer, FieldOptimizationPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,9 @@ class HybridTools:
         # Initialize validation service and advanced move operations for writes
         self.validation_service = ValidationService(applescript_manager)
         self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
+        
+        # Initialize response optimizer
+        self.response_optimizer = ResponseOptimizer(FieldOptimizationPolicy.STANDARD)
         
         # Initialize tag validation service if config is provided
         self.tag_validation_service = None
@@ -211,12 +215,15 @@ class HybridTools:
             
             result = []
             for tag in tags_data:
+                # Start with basic tag structure
                 tag_dict = {
-                    'id': tag.get('uuid', ''),
-                    'uuid': tag.get('uuid', ''),
-                    'name': tag.get('title', ''),
-                    'title': tag.get('title', '')
+                    'name': tag.get('title', '')
                 }
+                
+                # Only add id if it's different from name
+                tag_id = tag.get('uuid', '')
+                if tag_id and tag_id != tag_dict['name']:
+                    tag_dict['id'] = tag_id
                 
                 if include_items:
                     # Get actual items for this tag
@@ -235,7 +242,10 @@ class HybridTools:
                     if isinstance(tagged_todos, dict):
                         tagged_todos = [tagged_todos]
                     
-                    tag_dict['item_count'] = len(tagged_todos)
+                    # Only add count if greater than 0
+                    count = len(tagged_todos)
+                    if count > 0:
+                        tag_dict['item_count'] = count
                 
                 result.append(tag_dict)
             
@@ -571,7 +581,15 @@ class HybridTools:
     async def _validate_tags_with_policy(self, tags: List[str]) -> Dict[str, List[str]]:
         """Validate tags using policy-aware service if available."""
         if self.tag_validation_service:
-            return await self.tag_validation_service.validate_tags(tags)
+            # Use the correct method name
+            result = await self.tag_validation_service.validate_and_filter_tags(tags)
+            # Convert TagValidationResult to dict format expected by callers
+            return {
+                'created': result.created_tags,
+                'existing': result.valid_tags,
+                'filtered': result.filtered_tags,
+                'warnings': result.warnings
+            }
         else:
             # Fallback to simple validation - assume all tags are valid
             return {
@@ -821,24 +839,99 @@ class HybridTools:
             return []
     
     async def get_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
-        """Get todos upcoming within specified days - use AppleScript for now."""
+        """Get todos upcoming within specified days using things.py."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_upcoming_in_days_sync, days)
+    
+    def _get_upcoming_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
+        """Synchronous implementation using things.py to find todos due/activating within days."""
         try:
-            return await self.reliable_scheduler.get_todos_upcoming_in_days(days)
+            from datetime import datetime, date, timedelta
+            
+            today = date.today()
+            target_date = today + timedelta(days=days)
+            
+            logger.info(f"Searching for todos between {today} and {target_date}")
+            
+            # Get all open todos
+            all_todos = things.todos()
+            
+            # Convert to list if needed
+            if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
+                all_todos = list(all_todos)
+            if isinstance(all_todos, dict):
+                all_todos = [all_todos]
+            
+            upcoming_todos = []
+            seen_ids = set()  # Track unique todos
+            
+            for todo in all_todos:
+                # Skip if already processed (avoid duplicates)
+                todo_id = todo.get('uuid', '')
+                if todo_id in seen_ids:
+                    continue
+                
+                # Check if todo is open (things.py uses 'incomplete' instead of 'open')
+                status = todo.get('status', '')
+                if status not in ('open', 'incomplete', ''):
+                    continue
+                
+                # Check deadline
+                deadline = todo.get('deadline')
+                if deadline:
+                    try:
+                        # Parse deadline date
+                        if isinstance(deadline, str):
+                            deadline_date = datetime.strptime(deadline[:10], '%Y-%m-%d').date()
+                        else:
+                            deadline_date = deadline
+                        
+                        # Check if within range
+                        if today <= deadline_date <= target_date:
+                            upcoming_todos.append(todo)
+                            seen_ids.add(todo_id)
+                            continue
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Could not parse deadline {deadline}: {e}")
+                
+                # Check activation date (start date)
+                start_date = todo.get('start_date')
+                if start_date:
+                    try:
+                        # Parse start date
+                        if isinstance(start_date, str):
+                            start_date_obj = datetime.strptime(start_date[:10], '%Y-%m-%d').date()
+                        else:
+                            start_date_obj = start_date
+                        
+                        # Check if within range
+                        if today <= start_date_obj <= target_date:
+                            upcoming_todos.append(todo)
+                            seen_ids.add(todo_id)
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Could not parse start_date {start_date}: {e}")
+            
+            logger.info(f"Found {len(upcoming_todos)} todos due/activating in next {days} days")
+            
+            # Convert to our format
+            return [self._convert_todo(todo) for todo in upcoming_todos]
+            
         except Exception as e:
-            logger.error(f"Error getting todos upcoming in {days} days: {e}")
+            logger.error(f"Error getting upcoming todos in {days} days: {e}", exc_info=True)
             return []
     
     async def get_todos_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
-        """Get todos upcoming within specified days - use AppleScript for now."""
-        try:
-            return await self.reliable_scheduler.get_todos_upcoming_in_days(days)
-        except Exception as e:
-            logger.error(f"Error getting todos upcoming in {days} days: {e}")
-            return []
+        """Alias for get_upcoming_in_days for compatibility."""
+        return await self.get_upcoming_in_days(days)
     
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
         """Advanced search - delegate to AppleScript scheduler with limit support."""
         try:
+            # Convert 'tag' to 'tags' for PureAppleScriptScheduler compatibility
+            if 'tag' in filters and filters['tag']:
+                filters['tags'] = [filters['tag']]  # Convert single tag to list
+                del filters['tag']  # Remove the singular key
+            
             return await self.reliable_scheduler.search_advanced(**filters)
         except Exception as e:
             logger.error(f"Error in advanced search: {e}")
@@ -855,53 +948,56 @@ class HybridTools:
     # ========== CONVERSION HELPERS ==========
     
     def _convert_todo(self, todo: Dict) -> Dict:
-        """Convert things.py todo to our MCP format."""
-        return {
+        """Convert things.py todo to our MCP format with optimization."""
+        converted = {
             'id': todo.get('uuid', ''),
-            'uuid': todo.get('uuid', ''),
-            'title': todo.get('title', ''),
-            'notes': todo.get('notes', ''),
+            'name': todo.get('title', ''),
+            'notes': todo.get('notes'),
             'status': todo.get('status', 'open'),
-            'tags': todo.get('tags', []),
-            'created': todo.get('created', ''),
-            'modified': todo.get('modified', ''),
-            'when': todo.get('start_date', ''),
-            'deadline': todo.get('deadline', ''),
-            'completed': todo.get('stop_date', ''),
-            'project': todo.get('project', ''),
-            'area': todo.get('area', ''),
-            'heading': todo.get('heading', ''),
+            'tag_names': todo.get('tags', []),
+            'created': todo.get('created'),
+            'modified': todo.get('modified'),
+            'when': todo.get('start_date'),
+            'deadline': todo.get('deadline'),
+            'completed': todo.get('stop_date'),
+            'project': todo.get('project'),
+            'area': todo.get('area'),
+            'heading': todo.get('heading'),
             'checklist': todo.get('checklist_items', []),
             'has_reminder': bool(todo.get('reminder_time')),
-            'reminder_time': todo.get('reminder_time', ''),
-            'activation_date': todo.get('activation_date', '')
+            'reminder_time': todo.get('reminder_time'),
+            'activation_date': todo.get('activation_date')
         }
+        # Apply optimization to remove duplicates and empty fields
+        return self.response_optimizer.optimize_todo(converted)
     
     def _convert_project(self, project: Dict) -> Dict:
-        """Convert things.py project to our MCP format."""
-        return {
+        """Convert things.py project to our MCP format with optimization."""
+        converted = {
             'id': project.get('uuid', ''),
-            'uuid': project.get('uuid', ''),
-            'title': project.get('title', ''),
-            'notes': project.get('notes', ''),
-            'tags': project.get('tags', []),
-            'area': project.get('area', ''),
+            'name': project.get('title', ''),
+            'notes': project.get('notes'),
+            'tag_names': project.get('tags', []),
+            'area': project.get('area'),
             'status': project.get('status', 'open'),
-            'created': project.get('created', ''),
-            'modified': project.get('modified', ''),
-            'when': project.get('start_date', ''),
-            'deadline': project.get('deadline', ''),
-            'completed': project.get('stop_date', '')
+            'created': project.get('created'),
+            'modified': project.get('modified'),
+            'when': project.get('start_date'),
+            'deadline': project.get('deadline'),
+            'completed': project.get('stop_date')
         }
+        # Apply optimization to remove duplicates and empty fields
+        return self.response_optimizer.optimize_project(converted)
     
     def _convert_area(self, area: Dict) -> Dict:
-        """Convert things.py area to our MCP format."""
-        return {
+        """Convert things.py area to our MCP format with optimization."""
+        converted = {
             'id': area.get('uuid', ''),
-            'uuid': area.get('uuid', ''),
-            'title': area.get('title', ''),
-            'tags': area.get('tags', []),
-            'notes': area.get('notes', ''),
-            'created': area.get('created', ''),
-            'modified': area.get('modified', '')
+            'name': area.get('title', ''),
+            'tag_names': area.get('tags', []),
+            'notes': area.get('notes'),
+            'created': area.get('created'),
+            'modified': area.get('modified')
         }
+        # Apply optimization to remove duplicates and empty fields
+        return self.response_optimizer.optimize_area(converted)

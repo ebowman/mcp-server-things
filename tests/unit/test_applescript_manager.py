@@ -24,7 +24,7 @@ class TestAppleScriptManagerInit:
         
         assert manager.timeout == 45  # default timeout
         assert manager.retry_count == 3  # default retry count
-        assert hasattr(manager, '_cache')
+        # Cache removed in hybrid implementation
         assert hasattr(manager, 'auth_token')
     
     def test_init_with_custom_config(self):
@@ -33,7 +33,7 @@ class TestAppleScriptManagerInit:
         
         assert manager.timeout == 60
         assert manager.retry_count == 5
-        assert hasattr(manager, '_cache')
+        # Cache removed in hybrid implementation
         assert hasattr(manager, 'auth_token')
     
     def test_init_without_dependencies(self):
@@ -43,7 +43,7 @@ class TestAppleScriptManagerInit:
         # Should initialize without error
         assert manager.timeout == 45
         assert manager.retry_count == 3
-        assert hasattr(manager, '_cache')
+        # Cache removed in hybrid implementation
 
 
 class TestAppleScriptExecution:
@@ -53,7 +53,7 @@ class TestAppleScriptExecution:
     def manager_with_mocks(self):
         """Fixture providing manager with mocked dependencies."""
         manager = AppleScriptManager(timeout=5, retry_count=2)
-        manager.clear_cache()  # Ensure clean state for tests
+        # Cache removed in hybrid implementation, no need to clear
         return manager
     
     @pytest.mark.asyncio
@@ -133,10 +133,7 @@ class TestAppleScriptExecution:
             assert result1["success"] is True
             assert result1["output"] == "3.20.1"
             
-            # Clear the cache to test cache miss behavior
-            manager_with_mocks.clear_cache()
-            
-            # Second call should also execute since cache is cleared
+            # Second call should also execute (no caching in hybrid mode)
             result2 = await manager_with_mocks.execute_applescript(script, cache_key)
             assert result2["success"] is True
             assert result2["output"] == "3.20.1"  
