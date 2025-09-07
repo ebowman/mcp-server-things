@@ -1,9 +1,11 @@
-2025-09-07 10:18:09 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-07 10:18:09 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-07 10:18:09 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-07 10:18:09 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-07 10:18:09 [    INFO] tools.py:2154 - get_tags(): Retrieved 2 tags with counts in single call
-2025-09-07 10:18:09 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
-2025-09-07 10:18:09 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
-2025-09-07 10:18:09 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
-2025-09-07 10:18:09 [    INFO] tools.py:2154 - get_tags(): Retrieved 2 tags with counts in single call
+2025-09-07 10:54:10 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 10:54:10 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 10:54:10 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 10:54:10 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 10:54:10 [   DEBUG] tools.py:2091 - get_tags(): Raw AppleScript output (first 500 chars): tag-id-1	Work	2, tag-id-2	Personal	1
+2025-09-07 10:54:10 [    INFO] tools.py:2130 - get_tags(): Retrieved 2 tags with counts in single call
+2025-09-07 10:54:10 [    INFO] tools.py:44 - __init__(): Things tools initialized without tag validation (backward compatibility mode)
+2025-09-07 10:54:10 [    INFO] tools.py:46 - __init__(): Things tools initialized with advanced move operations
+2025-09-07 10:54:10 [   DEBUG] selector_events.py:64 - __init__(): Using selector: KqueueSelector
+2025-09-07 10:54:10 [   DEBUG] tools.py:2091 - get_tags(): Raw AppleScript output (first 500 chars): tag-id-1	Work	5, tag-id-2	Personal	3
+2025-09-07 10:54:10 [    INFO] tools.py:2130 - get_tags(): Retrieved 2 tags with counts in single call
