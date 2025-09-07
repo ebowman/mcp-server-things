@@ -328,17 +328,12 @@ class TestGetTags:
     @pytest.mark.asyncio
     async def test_get_tags_with_items(self, tools_with_mock):
         """Test getting all tags with items included."""
-        # Mock the AppleScript execution for tags
+        # Mock the AppleScript execution that returns tags with todos
         tools_with_mock.applescript.execute_applescript = AsyncMock(return_value={
             "success": True,
-            "output": "tag-id-1\tWork, tag-id-2\tPersonal",
+            "output": "tag-id-1|||Work|||todo-1|||Task 1|||open^^^todo-2|||Task 2|||open§§§tag-id-2|||Personal|||todo-3|||Personal Task|||open",
             "error": None
         })
-        
-        # Mock getting tagged items
-        tools_with_mock.get_tagged_items = AsyncMock(return_value=[
-            {"id": "todo1", "title": "Sample Todo"}
-        ])
         
         result = await tools_with_mock.get_tags(include_items=True)
         
@@ -347,30 +342,20 @@ class TestGetTags:
         assert result[0]["name"] == "Work"
         assert "items" in result[0]
         assert isinstance(result[0]["items"], list)
+        assert len(result[0]["items"]) == 2
+        assert result[0]["items"][0]["title"] == "Task 1"
     
     @pytest.mark.asyncio
     async def test_get_tags_with_counts(self, tools_with_mock):
         """Test getting all tags with item counts instead of items."""
-        # Track calls to determine which response to return
-        call_count = 0
-        
-        async def mock_execute(*args, **kwargs):
-            nonlocal call_count
-            if "every tag" in args[0]:
-                # Return tags list
-                return {
-                    "success": True,
-                    "output": "tag-id-1\tWork, tag-id-2\tPersonal",
-                    "error": None
-                }
-            else:
-                # Return count for each tag
-                counts = ["5", "3"]
-                result = {"success": True, "output": counts[call_count]}
-                call_count += 1
-                return result
-        
-        tools_with_mock.applescript.execute_applescript = mock_execute
+        # Mock the AppleScript execution that returns tags with todos
+        # The new implementation gets everything in one call and counts in Python
+        tools_with_mock.applescript.execute_applescript = AsyncMock(return_value={
+            "success": True,
+            # Work has 5 todos, Personal has 3 todos
+            "output": "tag-id-1|||Work|||todo-1|||Task 1|||open^^^todo-2|||Task 2|||open^^^todo-3|||Task 3|||open^^^todo-4|||Task 4|||open^^^todo-5|||Task 5|||open§§§tag-id-2|||Personal|||todo-6|||Personal 1|||open^^^todo-7|||Personal 2|||open^^^todo-8|||Personal 3|||open",
+            "error": None
+        })
         
         result = await tools_with_mock.get_tags(include_items=False)
         

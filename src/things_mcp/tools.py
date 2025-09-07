@@ -2045,84 +2045,113 @@ class ThingsTools:
             List of tag dictionaries with either items or item_count
         """
         try:
-            # Use native AppleScript record handling for cleaner output
-            # When include_items is False, we'll get counts instead of full items
+            # Get all tags and their todos in a single AppleScript call
+            # This is much more efficient than multiple calls for counts
             script = '''
             tell application "Things3"
                 set allTags to every tag
-                set tagRecords to {}
+                set tagData to {}
                 
                 repeat with currentTag in allTags
                     try
-                        set tagRecord to (id of currentTag) & tab & (name of currentTag)
-                        set tagRecords to tagRecords & {tagRecord}
+                        set tagId to id of currentTag
+                        set tagName to name of currentTag
+                        
+                        -- Get todos with this tag (only open/active todos)
+                        set taggedTodos to every to do whose tag names contains tagName and status is open
+                        set todoList to {}
+                        
+                        repeat with todo in taggedTodos
+                            try
+                                -- Clean the todo name to avoid parsing issues
+                                set todoName to name of todo
+                                set AppleScript's text item delimiters to "|||"
+                                set nameParts to text items of todoName
+                                set AppleScript's text item delimiters to "_"
+                                set cleanName to nameParts as text
+                                set AppleScript's text item delimiters to ""
+                                
+                                set todoRecord to (id of todo) & "|||" & cleanName & "|||" & (status of todo)
+                                set todoList to todoList & {todoRecord}
+                            on error
+                                -- Skip todos that can't be accessed
+                            end try
+                        end repeat
+                        
+                        -- Format: tagId|||tagName|||todo1^^^todo2^^^...
+                        set todoString to ""
+                        repeat with i from 1 to count of todoList
+                            if i > 1 then set todoString to todoString & "^^^"
+                            set todoString to todoString & (item i of todoList)
+                        end repeat
+                        
+                        set tagRecord to tagId & "|||" & tagName & "|||" & todoString
+                        
+                        -- Use a delimiter between tag records
+                        if length of tagData > 0 then
+                            set tagData to tagData & "§§§"
+                        end if
+                        set tagData to tagData & tagRecord
                     on error
                         -- Skip tags that can't be accessed
                     end try
                 end repeat
                 
-                return tagRecords
+                return tagData
             end tell
             '''
             
-            result = await self.applescript.execute_applescript(script, "tags_all")
+            result = await self.applescript.execute_applescript(script, "tags_all_with_counts")
             
             if result.get("success"):
                 output = (result.get("output") or "")
                 tags = []
                 
                 if output and output.strip():
-                    # Parse tab-delimited output: id<tab>name, id<tab>name, ...
-                    tag_entries = output.strip().split(', ')
+                    # Parse the output: each entry is tagId|||tagName|||todos
+                    tag_entries = output.strip().split('§§§')
                     
                     for entry in tag_entries:
                         entry = entry.strip()
-                        if entry and "\t" in entry:
-                            # Parse id and name from "id<tab>name"
-                            tag_id, tag_name = entry.split('\t', 1)
-                            tag_id = tag_id.strip()
-                            tag_name = tag_name.strip()
-                            
-                            if tag_id and tag_name:
-                                tag_dict = {
-                                    "id": tag_id,
-                                    "uuid": tag_id,
-                                    "name": tag_name,
-                                    "shortcut": "",  # Skip shortcut for performance
-                                }
+                        if entry and "|||" in entry:
+                            parts = entry.split('|||', 2)
+                            if len(parts) >= 2:
+                                tag_id = parts[0].strip()
+                                tag_name = parts[1].strip()
+                                todos_str = parts[2].strip() if len(parts) > 2 else ""
                                 
-                                # If include_items is requested, get full items list
-                                if include_items:
-                                    tag_dict["items"] = []
-                                    if tag_name:
-                                        try:
-                                            tag_dict["items"] = await self.get_tagged_items(tag_name)
-                                        except Exception as e:
-                                            logger.warning(f"Failed to get items for tag '{tag_name}': {e}")
-                                else:
-                                    # When include_items is False, get the count of todos with this tag
-                                    tag_dict["item_count"] = 0
-                                    if tag_name:
-                                        try:
-                                            # Get count of todos with this tag
-                                            count_script = f'''
-                                            tell application "Things3"
-                                                set taggedTodos to every to do whose tag names contains "{self._escape_applescript_string(tag_name)}"
-                                                return count of taggedTodos
-                                            end tell
-                                            '''
-                                            count_result = await self.applescript.execute_applescript(count_script, f"tag_count_{tag_id}")
-                                            if count_result.get("success"):
-                                                try:
-                                                    tag_dict["item_count"] = int(count_result.get("output", "0").strip())
-                                                except (ValueError, AttributeError):
-                                                    tag_dict["item_count"] = 0
-                                        except Exception as e:
-                                            logger.warning(f"Failed to get count for tag '{tag_name}': {e}")
-                                
-                                tags.append(tag_dict)
+                                if tag_id and tag_name:
+                                    tag_dict = {
+                                        "id": tag_id,
+                                        "uuid": tag_id,
+                                        "name": tag_name,
+                                        "shortcut": "",  # Skip shortcut for performance
+                                    }
+                                    
+                                    # Parse todos if present
+                                    todos = []
+                                    if todos_str:
+                                        todo_entries = todos_str.split('^^^')
+                                        for todo_entry in todo_entries:
+                                            if todo_entry and "|||" in todo_entry:
+                                                todo_parts = todo_entry.split('|||', 2)
+                                                if len(todo_parts) >= 3:
+                                                    todos.append({
+                                                        "id": todo_parts[0],
+                                                        "title": todo_parts[1],
+                                                        "status": todo_parts[2]
+                                                    })
+                                    
+                                    if include_items:
+                                        # Include the full items list
+                                        tag_dict["items"] = todos
+                                    else:
+                                        # Just include the count
+                                        tag_dict["item_count"] = len(todos)
+                                    
+                                    tags.append(tag_dict)
                 
-                logger.info(f"Retrieved {len(tags)} tags with native operations")
+                logger.info(f"Retrieved {len(tags)} tags with counts in single call")
                 return tags
             else:
                 logger.error(f"Failed to get tags: {result.get('error')}")
