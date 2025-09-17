@@ -386,30 +386,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Discussions**: [GitHub Discussions](https://github.com/ebowman/mcp-server-things/discussions)
 - **Email**: ebowman@boboco.ie
 
-## Roadmap
-
-### Phase 1: Core Stability (Current)
-- Complete MCP tool implementation (Completed)
-- Robust error handling and logging (Completed)
-- Comprehensive testing suite (Completed)
-- Documentation and examples (Completed)
-
-### Phase 2: Enhanced Features
-- Multi-client concurrency support with operation queuing (Completed)
-- Configurable tag creation policies (Completed)
-- Reminder support with datetime scheduling (Completed)
-- Date-range query tools (Completed)
-- Bulk move operations (Completed)
-- Real-time sync with Things 3 changes (Planned)
-- Advanced natural language processing (Planned)
-- Integration with calendar and email (Planned)
-
-### Phase 3: Advanced Integration
-- Multi-user support (Planned)
-- API rate limiting (Planned)
-- Webhook support (Planned)
-- Analytics and reporting (Planned)
-
 ---
 
 Built for the Things 3 and MCP community.
