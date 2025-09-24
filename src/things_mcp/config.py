@@ -381,6 +381,20 @@ class ThingsMCPConfig(BaseSettings):
                 logging.getLogger(__name__).warning(
                     "python-dotenv not installed. Install it to use .env files: pip install python-dotenv"
                 )
+        else:
+            # Look for default .env file in current directory
+            default_env = Path(".env")
+            if default_env.exists():
+                try:
+                    from dotenv import load_dotenv
+                    load_dotenv(default_env, override=True)
+                    import logging
+                    logging.getLogger(__name__).info(f"Loaded default .env file from {default_env.absolute()}")
+                except ImportError:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "python-dotenv not installed. Install it to use .env files: pip install python-dotenv"
+                    )
         
         # Create config from environment variables
         return cls()
