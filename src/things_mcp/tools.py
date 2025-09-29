@@ -811,7 +811,7 @@ class ThingsTools:
                 set targetTodo to to do id "{todo_id}"
                 set currentTags to tag names of targetTodo
             '''
-            
+
             for tag in tags:
                 escaped_tag = self._escape_applescript_string(tag).strip('"')
                 script += f'''
@@ -824,12 +824,12 @@ class ThingsTools:
                 set tag names of targetTodo to newTags
                 set currentTags to newTags
                 '''
-            
+
             script += '''
                 return "tags_removed"
             end tell
             '''
-            
+
             result = await self.applescript.execute_applescript(script)
             return {
                 "success": result.get('success', False),
@@ -841,6 +841,151 @@ class ThingsTools:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to remove tags"
+            }
+
+    async def bulk_update_todos(self, todo_ids: List[str], **kwargs) -> Dict[str, Any]:
+        """
+        Update multiple todos with the same changes in a single operation.
+
+        Args:
+            todo_ids: List of todo IDs to update
+            **kwargs: Update parameters (same as update_todo: completed, canceled, title, notes, when, deadline, tags)
+
+        Returns:
+            Dict with success status, count of updated items, and any errors
+        """
+        try:
+            if not todo_ids:
+                return {
+                    "success": False,
+                    "error": "No todo IDs provided",
+                    "updated_count": 0
+                }
+
+            # Handle tag validation once for all todos if tags are being updated
+            tags = kwargs.get('tags', [])
+            tag_validation = None
+            if tags and self.tag_validation_service:
+                tag_validation = await self._validate_tags_with_policy(tags)
+
+                # Check if there are any errors that should block update
+                if tag_validation.get('errors'):
+                    return {
+                        "success": False,
+                        "error": "; ".join(tag_validation['errors']),
+                        "message": "Tag validation failed",
+                        "tag_info": tag_validation,
+                        "updated_count": 0
+                    }
+
+                # Update kwargs with only the valid tags
+                valid_tags = tag_validation.get('existing', []) + tag_validation.get('created', [])
+                if valid_tags != tags:
+                    kwargs = dict(kwargs)
+                    kwargs['tags'] = valid_tags
+
+            # Build a single AppleScript to update all todos
+            script = 'tell application "Things3"\n'
+            script += '    set successCount to 0\n'
+            script += '    set errorMessages to {}\n'
+
+            for todo_id in todo_ids:
+                script += f'    try\n'
+                script += f'        set targetTodo to to do id "{todo_id}"\n'
+
+                # Add update operations based on kwargs
+                if 'completed' in kwargs:
+                    completed_val = str(kwargs['completed']).lower()
+                    script += f'        set status of targetTodo to {"completed" if completed_val == "true" else "open"}\n'
+
+                if 'canceled' in kwargs:
+                    canceled_val = str(kwargs['canceled']).lower()
+                    script += f'        set status of targetTodo to {"canceled" if canceled_val == "true" else "open"}\n'
+
+                if 'title' in kwargs:
+                    escaped_title = self._escape_applescript_string(kwargs['title']).strip('"')
+                    script += f'        set name of targetTodo to "{escaped_title}"\n'
+
+                if 'notes' in kwargs:
+                    escaped_notes = self._escape_applescript_string(kwargs['notes']).strip('"')
+                    script += f'        set notes of targetTodo to "{escaped_notes}"\n'
+
+                if 'when' in kwargs:
+                    when_value = kwargs['when']
+                    if when_value:
+                        as_date = self._convert_iso_to_applescript_date(when_value)
+                        script += f'        set activation date of targetTodo to date "{as_date}"\n'
+
+                if 'deadline' in kwargs:
+                    deadline = kwargs['deadline']
+                    if deadline:
+                        as_date = self._convert_iso_to_applescript_date(deadline)
+                        script += f'        set due date of targetTodo to date "{as_date}"\n'
+
+                if 'tags' in kwargs and kwargs['tags']:
+                    escaped_tags = [self._escape_applescript_string(t).strip('"') for t in kwargs['tags']]
+                    tags_list = ', '.join([f'"{tag}"' for tag in escaped_tags])
+                    script += f'        set tag names of targetTodo to {{{tags_list}}}\n'
+
+                script += '        set successCount to successCount + 1\n'
+                script += '    on error errMsg\n'
+                script += f'        set end of errorMessages to "ID {todo_id}: " & errMsg\n'
+                script += '    end try\n'
+
+            script += '    return {successCount:successCount, errors:errorMessages}\n'
+            script += 'end tell'
+
+            result = await self.applescript.execute_applescript(script)
+
+            if result.get('success'):
+                # Parse the AppleScript result
+                # AppleScript returns: {successCount:X, errors:[...]}
+                output = result.get('output', '')
+
+                # Try to parse the success count from the output
+                success_count = len(todo_ids)  # Default to all if we can't parse
+                error_messages = []
+
+                # Simple parsing: look for successCount in the output
+                if 'successCount' in output:
+                    try:
+                        # Extract number after successCount:
+                        import re
+                        match = re.search(r'successCount[:\s]+(\d+)', output)
+                        if match:
+                            success_count = int(match.group(1))
+                    except Exception as e:
+                        logger.warning(f"Could not parse success count from: {output}, error: {e}")
+
+                # Check if there were any errors
+                if 'errors' in output and success_count < len(todo_ids):
+                    error_messages.append(f"{len(todo_ids) - success_count} todos failed to update")
+
+                return {
+                    "success": success_count > 0,
+                    "message": f"Bulk update completed: {success_count}/{len(todo_ids)} todos updated" +
+                              (f" ({', '.join(error_messages)})" if error_messages else ""),
+                    "updated_count": success_count,
+                    "failed_count": len(todo_ids) - success_count,
+                    "total_requested": len(todo_ids),
+                    "tag_info": tag_validation if tag_validation else None
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "updated_count": 0,
+                    "failed_count": len(todo_ids),
+                    "total_requested": len(todo_ids)
+                }
+
+        except Exception as e:
+            logger.error(f"Error in bulk update: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to perform bulk update",
+                "updated_count": 0
             }
     
     # Additional write operations that might be needed - delegate to existing methods

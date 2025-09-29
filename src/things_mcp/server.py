@@ -408,7 +408,84 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
                 raise
-        
+
+        @self.mcp.tool()
+        async def bulk_update_todos(
+            todo_ids: str = Field(..., description="Comma-separated list of todo IDs to update"),
+            title: Optional[str] = Field(None, description="New title for all todos"),
+            notes: Optional[str] = Field(None, description="New notes for all todos"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos"),
+            when: Optional[str] = Field(None, description="New schedule for all todos. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD'"),
+            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD)"),
+            completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
+            canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
+        ) -> Dict[str, Any]:
+            """
+            Update multiple todos with the same changes in a single operation.
+
+            This is much more efficient than calling update_todo multiple times, as it:
+            - Executes a single AppleScript command for all updates
+            - Validates tags once instead of per-todo
+            - Reduces overhead and improves performance
+
+            Use this when you need to apply the same changes to multiple todos,
+            such as marking several todos as complete, adding the same tags to multiple items,
+            or updating scheduling for a batch of todos.
+            """
+            try:
+                # Parse comma-separated IDs
+                id_list = [id.strip() for id in todo_ids.split(",") if id.strip()]
+
+                if not id_list:
+                    return {
+                        "success": False,
+                        "error": "No valid todo IDs provided",
+                        "updated_count": 0
+                    }
+
+                # Convert comma-separated tags to list
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+                # Convert string booleans to actual booleans
+                completed_bool = None
+                if completed is not None:
+                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
+
+                canceled_bool = None
+                if canceled is not None:
+                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+
+                result = await self.tools.bulk_update_todos(
+                    todo_ids=id_list,
+                    title=title,
+                    notes=notes,
+                    tags=tag_list,
+                    when=when,
+                    deadline=deadline,
+                    completed=completed_bool,
+                    canceled=canceled_bool
+                )
+
+                # Enhance response with tag validation feedback if available
+                if (tag_list and result.get('success') and 'tag_info' in result):
+                    tag_info = result['tag_info']
+                    if tag_info:
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
+                        if tag_info.get('warnings'):
+                            result['tag_warnings'] = tag_info['warnings']
+
+                return result
+            except Exception as e:
+                logger.error(f"Error in bulk update: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "updated_count": 0
+                }
+
         @self.mcp.tool()
         async def get_todo_by_id(
             todo_id: str = Field(..., description="ID of the todo to retrieve")

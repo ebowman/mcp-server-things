@@ -249,6 +249,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_todos(project_uuid?, include_items?)` - List todos
 - `add_todo(title, ...)` - Create new todo with optional reminder time
 - `update_todo(id, ...)` - Update existing todo
+- `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
 - `get_todo_by_id(todo_id)` - Get specific todo
 - `delete_todo(todo_id)` - Delete todo
 
