@@ -334,7 +334,7 @@ class PureAppleScriptScheduler:
                     set year of deadlineDate to {year}
                     set month of deadlineDate to {month}
                     set day of deadlineDate to {day}
-                    set deadline of newTodo to deadlineDate
+                    set due date of newTodo to deadlineDate
                     '''
 
             # Get the todo ID and return
@@ -446,7 +446,7 @@ class PureAppleScriptScheduler:
                     set year of deadlineDate to {year}
                     set month of deadlineDate to {month}
                     set day of deadlineDate to {day}
-                    set deadline of targetTodo to deadlineDate
+                    set due date of targetTodo to deadlineDate
                     '''
 
             # Update completion status if provided
@@ -552,7 +552,7 @@ class PureAppleScriptScheduler:
                     set year of deadlineDate to {year}
                     set month of deadlineDate to {month}
                     set day of deadlineDate to {day}
-                    set deadline of newProject to deadlineDate
+                    set due date of newProject to deadlineDate
                     '''
 
             # Get the project ID and return
@@ -658,7 +658,7 @@ class PureAppleScriptScheduler:
                     set year of deadlineDate to {year}
                     set month of deadlineDate to {month}
                     set day of deadlineDate to {day}
-                    set deadline of targetProject to deadlineDate
+                    set due date of targetProject to deadlineDate
                     '''
 
             # Update completion status if provided
