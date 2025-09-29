@@ -781,7 +781,7 @@ class ThingsTools:
             
             for tag in valid_tags:
                 escaped_tag = self._escape_applescript_string(tag).strip('"')
-                script += f'\n    set tag names of targetTodo to tag names of targetTodo & "{escaped_tag}"'
+                script += f'\n    set tag names of targetTodo to (tag names of targetTodo) & {{"{escaped_tag}"}}'
             
             script += '''
                 return "tags_added"
