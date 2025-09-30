@@ -116,7 +116,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP server implementation for Things 3
 - Hybrid architecture (things.py for reads, AppleScript for writes)
 - Support for todos, projects, areas, tags
-- Reminder functionality with datetime scheduling
 - Comprehensive test suite
 
 ---
