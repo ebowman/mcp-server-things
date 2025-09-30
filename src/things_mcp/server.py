@@ -147,32 +147,7 @@ class ThingsMCPServer:
             mode: Optional[str] = None,
             limit: Any = None
         ) -> Dict[str, Any]:
-            """🔍 CONTEXT-OPTIMIZED todo retrieval with INTELLIGENT response management.
-
-            🎯 SMART FEATURES:
-            - Auto-selects optimal response size to prevent context exhaustion  
-            - 5 progressive disclosure modes (auto/summary/minimal/standard/detailed/raw)
-            - Relevance-based ranking prioritizes today's and overdue items
-            - Built-in pagination for large datasets
-
-            📊 PERFORMANCE OPTIMIZED:
-            - Handles 1000+ items efficiently with smart defaults
-            - Dynamic field filtering reduces response size by 60-80%
-            - Estimated response size tracking prevents context overflow
-
-            🔄 WORKFLOW EXAMPLES:
-            1. Daily Review: mode='standard', limit=20
-            2. Project Analysis: mode='summary' → mode='detailed' for specifics  
-            3. Bulk Operations: mode='minimal', limit=100
-
-            ⚡ AI ASSISTANT GUIDANCE:
-            - START: Use mode='auto' for unknown datasets
-            - LARGE DATA: Use mode='summary' first, then drill down
-            - BULK OPS: Use mode='minimal' to get IDs and essential fields
-            - DETAILED VIEW: Only request when you need full field data
-
-            CONTEXT BUDGET: ~1KB per item (standard), ~50 bytes per item (summary)
-            """
+            """Get todos with context-aware response optimization. Supports mode parameter (auto/summary/minimal/standard/detailed/raw) and optional project filtering. Use mode='auto' for adaptive responses."""
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
@@ -253,13 +228,7 @@ class ThingsMCPServer:
         async def create_tag(
             tag_name: str = Field(..., description="Name of the tag to create")
         ) -> Dict[str, Any]:
-            """Create a new tag in Things 3.
-            
-            IMPORTANT: This tool is for HUMAN USE ONLY. AI assistants should not create tags
-            automatically. Tags should be intentionally created by users to maintain a clean
-            and organized tag structure. If you need to use a tag that doesn't exist, please
-            inform the user and ask if they'd like to create it.
-            """
+            """Create a new tag. Note: For human use only, AI should ask users to create tags."""
             # Check if AI can create tags based on configuration
             if not self.config.ai_can_create_tags:
                 # Provide informative response for AI guidance
@@ -307,21 +276,15 @@ class ThingsMCPServer:
         async def add_todo(
             title: str = Field(..., description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
-            tags: Optional[str] = Field(None, description="Comma-separated tags. NOTE: Only existing tags will be applied. New tags must be created separately by the user."),
-            when: Optional[str] = Field(None, description="When to schedule the todo. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags (only existing tags applied)"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
             checklist_items: Optional[str] = Field(None, description="Newline-separated checklist items to add")
         ) -> Dict[str, Any]:
-            """Create a new todo in Things. 
-            
-            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
-            - 'today@18:00' creates a reminder today at 6 PM
-            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
-            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
-            """
+            """Create a new todo. Supports reminders (when='today@14:30'), tags, projects, deadlines, and notes."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -361,12 +324,12 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title"),
             notes: Optional[str] = Field(None, description="New notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="New deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing todo in Things."""
+            """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content."""
             try:
                 # Convert comma-separated tags to list  
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -415,23 +378,12 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title for all todos"),
             notes: Optional[str] = Field(None, description="New notes for all todos"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos"),
-            when: Optional[str] = Field(None, description="New schedule for all todos. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD'"),
+            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25')"),
             deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD)"),
             completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """
-            Update multiple todos with the same changes in a single operation.
-
-            This is much more efficient than calling update_todo multiple times, as it:
-            - Executes a single AppleScript command for all updates
-            - Validates tags once instead of per-todo
-            - Reduces overhead and improves performance
-
-            Use this when you need to apply the same changes to multiple todos,
-            such as marking several todos as complete, adding the same tags to multiple items,
-            or updating scheduling for a batch of todos.
-            """
+            """Update multiple todos with the same changes in a single operation."""
             try:
                 # Parse comma-separated IDs
                 id_list = [id.strip() for id in todo_ids.split(",") if id.strip()]
@@ -501,7 +453,7 @@ class ThingsMCPServer:
         async def delete_todo(
             todo_id: str = Field(..., description="ID of the todo to delete")
         ) -> Dict[str, Any]:
-            """Delete a todo from Things."""
+            """Delete a todo by ID."""
             try:
                 return await self.tools.delete_todo(todo_id)
             except Exception as e:
@@ -513,7 +465,7 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to move"),
             destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
         ) -> Dict[str, Any]:
-            """Move a todo to a different list, project, or area in Things."""
+            """Move a todo to a different list, project, or area."""
             try:
                 return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
             except Exception as e:
@@ -555,11 +507,41 @@ class ThingsMCPServer:
         # Project management tools
         @self.mcp.tool()
         async def get_projects(
-            include_items: bool = Field(False, description="Include tasks within projects")
-        ) -> List[Dict[str, Any]]:
-            """Get all projects from Things."""
+            include_items: bool = Field(False, description="Include tasks within projects"),
+            mode: Optional[str] = Field(None, description="Response mode (auto/summary/minimal/standard/detailed/raw)")
+        ) -> Dict[str, Any]:
+            """Get all projects with optional task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
-                return await self.tools.get_projects(include_items=include_items)
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
+                    }
+
+                # Prepare request parameters
+                request_params = {
+                    'include_items': include_items,
+                    'mode': mode
+                }
+
+                # Apply smart defaults and optimization
+                optimized_params, was_modified = self.context_manager.optimize_request('get_projects', request_params)
+
+                # Extract optimized parameters
+                final_include_items = optimized_params.get('include_items', False)
+                response_mode = ResponseMode(optimized_params.get('mode', 'standard'))
+
+                # Get raw data from tools layer
+                raw_data = await self.tools.get_projects(include_items=final_include_items)
+
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'get_projects', response_mode, optimized_params
+                )
+
+                return optimized_response
             except Exception as e:
                 logger.error(f"Error getting projects: {e}")
                 raise
@@ -569,19 +551,13 @@ class ThingsMCPServer:
             title: str = Field(..., description="Title of the project"),
             notes: Optional[str] = Field(None, description="Notes for the project"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
-            when: Optional[str] = Field(None, description="When to schedule the project. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="Deadline for the project"),
             area_id: Optional[str] = Field(None, description="ID of area to add to"),
             area_title: Optional[str] = Field(None, description="Title of area to add to"),
             todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
         ) -> Dict[str, Any]:
-            """Create a new project in Things.
-            
-            REMINDER SUPPORT: Use 'when' parameter with @HH:MM format for specific time reminders:
-            - 'today@18:00' creates a reminder today at 6 PM
-            - 'tomorrow@09:30' creates a reminder tomorrow at 9:30 AM  
-            - '2024-12-25@14:30' creates a reminder on Christmas at 2:30 PM
-            """
+            """Create a new project. Supports areas, deadlines, tags, initial todos, and scheduling."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -605,12 +581,12 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title"),
             notes: Optional[str] = Field(None, description="New notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="New schedule. Supports: 'today', 'tomorrow', 'evening', 'anytime', 'someday', 'YYYY-MM-DD' for dates, or 'today@HH:MM', 'tomorrow@HH:MM', 'YYYY-MM-DD@HH:MM' for specific time reminders (e.g. 'today@18:00', '2024-12-25@14:30')"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="New deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing project in Things."""
+            """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -641,11 +617,41 @@ class ThingsMCPServer:
         # Area management tools
         @self.mcp.tool()
         async def get_areas(
-            include_items: bool = Field(False, description="Include projects and tasks within areas")
-        ) -> List[Dict[str, Any]]:
-            """Get all areas from Things."""
+            include_items: bool = Field(False, description="Include projects and tasks within areas"),
+            mode: Optional[str] = Field(None, description="Response mode (auto/summary/minimal/standard/detailed/raw)")
+        ) -> Dict[str, Any]:
+            """Get all areas with optional project/task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
-                return await self.tools.get_areas(include_items=include_items)
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
+                    }
+
+                # Prepare request parameters
+                request_params = {
+                    'include_items': include_items,
+                    'mode': mode
+                }
+
+                # Apply smart defaults and optimization
+                optimized_params, was_modified = self.context_manager.optimize_request('get_areas', request_params)
+
+                # Extract optimized parameters
+                final_include_items = optimized_params.get('include_items', False)
+                response_mode = ResponseMode(optimized_params.get('mode', 'standard'))
+
+                # Get raw data from tools layer
+                raw_data = await self.tools.get_areas(include_items=final_include_items)
+
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'get_areas', response_mode, optimized_params
+                )
+
+                return optimized_response
             except Exception as e:
                 logger.error(f"Error getting areas: {e}")
                 raise
@@ -655,16 +661,7 @@ class ThingsMCPServer:
         async def get_inbox(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Inbox with context-aware response optimization.
-            
-            Supports progressive disclosure modes to manage large responses:
-            - auto: Automatically selects optimal mode based on data size
-            - summary: Returns count and preview only
-            - minimal: Returns essential fields only
-            - standard: Returns common fields
-            - detailed: Returns all fields
-            - raw: Returns unfiltered data
-            """
+            """Get todos from Inbox. Supports response optimization via mode parameter."""
             try:
                 # Get raw data
                 raw_data = await self.tools.get_inbox()
@@ -685,16 +682,7 @@ class ThingsMCPServer:
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos due today with context-aware response optimization.
-            
-            Supports progressive disclosure modes to manage responses:
-            - auto: Automatically selects optimal mode based on data size
-            - summary: Returns count and preview only
-            - minimal: Returns essential fields only
-            - standard: Returns common fields (default for Today)
-            - detailed: Returns all fields
-            - raw: Returns unfiltered data
-            """
+            """Get todos due today. Supports response optimization via mode parameter."""
             try:
                 # Get raw data
                 raw_data = await self.tools.get_today()
@@ -715,16 +703,7 @@ class ThingsMCPServer:
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get upcoming todos with context-aware response optimization.
-            
-            Supports progressive disclosure modes to manage large responses:
-            - auto: Automatically selects optimal mode based on data size
-            - summary: Returns count and preview only
-            - minimal: Returns essential fields only
-            - standard: Returns common fields
-            - detailed: Returns all fields
-            - raw: Returns unfiltered data
-            """
+            """Get upcoming todos. Supports response optimization via mode parameter."""
             try:
                 # Get raw data
                 raw_data = await self.tools.get_upcoming()
@@ -745,16 +724,7 @@ class ThingsMCPServer:
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Anytime list with context-aware response optimization.
-            
-            Supports progressive disclosure modes to manage large responses:
-            - auto: Automatically selects optimal mode based on data size
-            - summary: Returns count and preview only
-            - minimal: Returns essential fields only
-            - standard: Returns common fields
-            - detailed: Returns all fields
-            - raw: Returns unfiltered data
-            """
+            """Get todos from Anytime list. Supports response optimization via mode parameter."""
             try:
                 # Get raw data
                 raw_data = await self.tools.get_anytime()
@@ -775,16 +745,7 @@ class ThingsMCPServer:
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Someday list with context-aware response optimization.
-            
-            Supports progressive disclosure modes to manage large responses:
-            - auto: Automatically selects optimal mode based on data size
-            - summary: Returns count and preview only
-            - minimal: Returns essential fields only
-            - standard: Returns common fields
-            - detailed: Returns all fields
-            - raw: Returns unfiltered data
-            """
+            """Get todos from Someday list. Supports response optimization via mode parameter."""
             try:
                 # Get raw data
                 raw_data = await self.tools.get_someday()
@@ -806,7 +767,7 @@ class ThingsMCPServer:
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
             period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
         ) -> List[Dict[str, Any]]:
-            """Get completed todos from Logbook, defaults to last 7 days."""
+            """Get completed todos from Logbook. Supports limit (max 100) and period filters (e.g., '7d', '1w')."""
             try:
                 return await self.tools.get_logbook(limit=limit, period=period)
             except Exception as e:
@@ -814,10 +775,27 @@ class ThingsMCPServer:
                 raise
         
         @self.mcp.tool()
-        async def get_trash() -> List[Dict[str, Any]]:
-            """Get trashed todos."""
+        async def get_trash(
+            limit: int = Field(50, description="Maximum number of items to return (default: 50, max: 100)", ge=1, le=100),
+            offset: int = Field(0, description="Number of items to skip (default: 0)", ge=0)
+        ) -> Dict[str, Any]:
+            """Get trashed todos with pagination support.
+
+            Returns a dictionary containing:
+            - items: List of trashed todos
+            - total_count: Total number of items in trash
+            - limit: Applied limit value
+            - offset: Applied offset value
+            - has_more: Boolean indicating if more items are available
+
+            Examples:
+            - get_trash() - Get first 50 items
+            - get_trash(limit=20) - Get first 20 items
+            - get_trash(limit=50, offset=50) - Get items 51-100
+            - get_trash(limit=100, offset=200) - Get items 201-300
+            """
             try:
-                return await self.tools.get_trash()
+                return await self.tools.get_trash(limit=limit, offset=offset)
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
                 raise
@@ -827,17 +805,7 @@ class ThingsMCPServer:
         async def get_due_in_days(
             days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
         ) -> List[Dict[str, Any]]:
-            """Get todos due within specified number of days.
-            
-            Uses efficient AppleScript filtering with 'whose' clause for fast performance.
-            Directly filters in Things 3 rather than fetching all todos and filtering in Python.
-            
-            Args:
-                days: Number of days ahead to check (1-365, default: 30)
-                
-            Returns:
-                List of todos with due dates within the specified range
-            """
+            """Get todos due within specified days (1-365). Uses efficient AppleScript filtering."""
             try:
                 return await self.tools.get_todos_due_in_days(days)
             except Exception as e:
@@ -848,17 +816,7 @@ class ThingsMCPServer:
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
         ) -> List[Dict[str, Any]]:
-            """Get todos with activation dates within specified number of days.
-            
-            Uses efficient AppleScript filtering with 'whose' clause for fast performance.
-            Includes todos scheduled to become active (including those with reminders).
-            
-            Args:
-                days: Number of days ahead to check (1-365, default: 30)
-                
-            Returns:
-                List of todos with activation dates within the specified range
-            """
+            """Get todos activating within specified days (1-365). Includes scheduled reminders."""
             try:
                 return await self.tools.get_todos_activating_in_days(days)
             except Exception as e:
@@ -870,19 +828,7 @@ class ThingsMCPServer:
             days: int = Field(30, description="Number of days ahead to check for upcoming todos", ge=1, le=365),
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos due OR activating within specified number of days.
-            
-            Combines results from due dates and activation dates, removing duplicates.
-            Uses efficient AppleScript filtering for optimal performance.
-            Perfect for "what's coming up in the next X days" queries.
-            
-            Args:
-                days: Number of days ahead to check (1-365, default: 30)
-                mode: Response optimization mode
-                
-            Returns:
-                Formatted response with todos due or activating within the range
-            """
+            """Get todos due or activating within specified days (1-365). Supports response modes."""
             try:
                 logger.info(f"Getting todos upcoming in {days} days")
                 todos = await self.tools.get_todos_upcoming_in_days(days)
@@ -917,16 +863,9 @@ class ThingsMCPServer:
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
-            include_items: bool = Field(False, description="If True, include full items list for each tag. If False, include only the count of todos for each tag")
+            include_items: bool = Field(False, description="Include items list (True) or just counts (False)")
         ) -> List[Dict[str, Any]]:
-            """Get all tags with either their items or item counts.
-            
-            Returns a list of tag dictionaries containing:
-            - id: Tag identifier
-            - name: Tag name
-            - item_count: Number of todos with this tag (when include_items=False)
-            - items: Full list of items with this tag (when include_items=True)
-            """
+            """Get all tags with item counts or full items. Use include_items=true for full item lists."""
             try:
                 return await self.tools.get_tags(include_items=include_items)
             except Exception as e:
@@ -937,7 +876,7 @@ class ThingsMCPServer:
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
         ) -> List[Dict[str, Any]]:
-            """Get items with a specific tag."""
+            """Get todos with a specific tag."""
             try:
                 return await self.tools.get_tagged_items(tag=tag)
             except Exception as e:
@@ -951,27 +890,7 @@ class ThingsMCPServer:
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None
         ) -> Dict[str, Any]:
-            """🔍 CONTEXT-OPTIMIZED todo search with INTELLIGENT response management.
-            
-            🎯 SMART FEATURES:
-            - Auto-selects optimal response size to prevent context exhaustion
-            - 5 progressive disclosure modes (auto/summary/minimal/standard/detailed/raw)
-            - Relevance-based ranking prioritizes matched content
-            - Built-in result limiting for large search results
-            
-            📊 PERFORMANCE OPTIMIZED:
-            - Handles large search results efficiently with smart defaults
-            - Dynamic field filtering reduces response size by 60-80%
-            - Estimated response size tracking prevents context overflow
-            
-            ⚡ AI ASSISTANT GUIDANCE:
-            - START: Use mode='auto' for unknown search result sizes
-            - LARGE RESULTS: Use mode='summary' first, then drill down
-            - SPECIFIC SEARCH: Use mode='minimal' to get IDs and essential fields
-            - DETAILED VIEW: Only request when you need full field data
-            
-            CONTEXT BUDGET: ~1KB per item (standard), ~50 bytes per item (summary)
-            """
+            """Search todos by query term. Supports limit (1-500) and response modes for context optimization."""
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
@@ -1024,32 +943,7 @@ class ThingsMCPServer:
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None
         ) -> Dict[str, Any]:
-            """🔍 CONTEXT-OPTIMIZED advanced search with INTELLIGENT response management.
-            
-            🎯 SMART FEATURES:
-            - Multi-criteria filtering with context-aware response optimization
-            - 5 progressive disclosure modes (auto/summary/minimal/standard/detailed/raw)
-            - Relevance-based ranking prioritizes filtered results
-            - Built-in result limiting for complex queries
-            
-            📊 PERFORMANCE OPTIMIZED:
-            - Handles complex filter combinations efficiently
-            - Dynamic field filtering reduces response size by 60-80%
-            - Estimated response size tracking prevents context overflow
-            
-            🔄 WORKFLOW EXAMPLES:
-            1. Status Review: status='incomplete', mode='summary' for overview
-            2. Tag Analysis: tag='work', mode='standard' for detailed view
-            3. Deadline Tracking: deadline filters with mode='minimal' for bulk ops
-            
-            ⚡ AI ASSISTANT GUIDANCE:
-            - COMPLEX FILTERS: Start with mode='auto' for adaptive response
-            - MULTIPLE CRITERIA: Use mode='summary' first to understand scope
-            - BULK OPERATIONS: Use mode='minimal' to get IDs and essential fields
-            - ANALYSIS: Use mode='detailed' only when you need complete data
-            
-            CONTEXT BUDGET: ~1KB per item (standard), ~50 bytes per item (summary)
-            """
+            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval."""
             try:
                 # Import datetime for validation
                 from datetime import datetime
@@ -1135,7 +1029,7 @@ class ThingsMCPServer:
         async def get_recent(
             period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
         ) -> List[Dict[str, Any]]:
-            """Get recently created items."""
+            """Get recently created items within a time period (e.g., '3d', '1w')."""
             try:
                 return await self.tools.get_recent(period=period)
             except Exception as e:
@@ -1148,7 +1042,7 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo"),
             tags: str = Field(..., description="Comma-separated tags to add")
         ) -> Dict[str, Any]:
-            """Add tags to a todo."""
+            """Add tags to a todo. Only existing tags can be applied."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else []
@@ -1268,21 +1162,7 @@ class ThingsMCPServer:
 
         @self.mcp.tool()
         async def get_server_capabilities() -> Dict[str, Any]:
-            """🎯 Get comprehensive server capabilities and feature discovery information.
-            
-            🔍 CONTEXT-OPTIMIZED: Returns structured capability information
-            📊 INTELLIGENT: Provides feature matrix and usage recommendations
-            ⚡ PERFORMANCE: Lightweight response for quick feature discovery
-            
-            Returns complete information about:
-            - Available features and their badges
-            - Context optimization settings  
-            - API coverage statistics
-            - Performance characteristics
-            - Usage recommendations
-            
-            Perfect for AI assistants to understand server capabilities and optimize their interactions.
-            """
+            """Get server capabilities, features, API coverage, and optimization settings. Returns structured information about available tools, response modes, and performance characteristics."""
             try:
                 capabilities = {
                     "server_info": {
@@ -1420,22 +1300,7 @@ class ThingsMCPServer:
         async def get_usage_recommendations(
             operation: Optional[str] = Field(None, description="Specific operation to get recommendations for (e.g., 'get_todos', 'bulk_move')")
         ) -> Dict[str, Any]:
-            """📊 Get personalized usage recommendations based on current state and operation.
-            
-            🎯 INTELLIGENT: Analyzes current data size and provides optimal parameters
-            ⚡ PERFORMANCE: Suggests best practices for efficient operations
-            🔍 CONTEXT-AWARE: Considers current context budget and usage patterns
-            
-            Args:
-                operation: Specific operation to get recommendations for
-                
-            Returns:
-                - Recommended parameters for operations
-                - Optimal workflow suggestions
-                - Performance tips tailored to current state
-                - Context usage estimates
-                - Error prevention guidance
-            """
+            """Get usage recommendations for efficient MCP operations. Optionally specify an operation name for targeted guidance."""
             try:
                 recommendations = {
                     "timestamp": self.applescript_manager._get_current_timestamp(),

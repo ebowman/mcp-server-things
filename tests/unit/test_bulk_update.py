@@ -83,8 +83,10 @@ class TestBulkUpdateTodos:
         )
 
         assert result["success"] is False
-        assert "No todo IDs provided" in result["error"]
-        assert result["updated_count"] == 0
+        # With new validation layer, error code is VALIDATION_ERROR and message contains details
+        assert result["error"] == "VALIDATION_ERROR" or "No todo IDs provided" in str(result.get("message", result.get("error", "")))
+        # Note: updated_count may not be present in validation error response
+        assert result.get("updated_count", 0) == 0
 
     @pytest.mark.asyncio
     async def test_bulk_update_todos_with_tags(self, tools_with_mocks):

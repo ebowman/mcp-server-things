@@ -267,10 +267,54 @@ class PureAppleScriptScheduler:
         """Escape a string for safe use in AppleScript."""
         if not text:
             return '""'
-        
+
         # Escape backslashes first, then quotes
         escaped = text.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"'
+
+    def _convert_to_boolean(self, value: Any) -> Optional[bool]:
+        """
+        BUG FIX #3 (Version 1.2.2): Convert various input formats to boolean.
+
+        Previously update_todo failed when passed string booleans like "true"/"false"
+        because AppleScript expected actual boolean values. This helper enables both
+        string and boolean parameters to work seamlessly.
+
+        See: BUG_REPORT.md - Bug #3: Status Update Parameters Not Accepted
+
+        Handles:
+        - Boolean values: True, False
+        - String values: "true", "True", "TRUE", "false", "False", "FALSE"
+        - None and empty strings return None
+
+        Args:
+            value: The value to convert
+
+        Returns:
+            True, False, or None if value is None/empty
+
+        Raises:
+            ValueError: If value cannot be converted to boolean
+        """
+        if value is None or value == '':
+            return None
+
+        # Already a boolean
+        if isinstance(value, bool):
+            return value
+
+        # String conversion
+        if isinstance(value, str):
+            value_lower = value.lower().strip()
+            if value_lower == 'true':
+                return True
+            elif value_lower == 'false':
+                return False
+            else:
+                raise ValueError(f"Invalid boolean string: '{value}'. Must be 'true' or 'false'")
+
+        # Fallback for any other type - use Python's truthiness
+        return bool(value)
 
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a new todo using AppleScript."""
@@ -398,7 +442,24 @@ class PureAppleScriptScheduler:
             deadline = kwargs.get('deadline', '')
             area = kwargs.get('area', '')
             project = kwargs.get('project', '')
+
+            # Convert status parameters from strings to booleans
+            # These can come in as "true"/"false" strings or actual booleans
             completed = kwargs.get('completed', None)
+            canceled = kwargs.get('canceled', None)
+
+            # Convert to proper boolean values
+            try:
+                if completed is not None:
+                    completed = self._convert_to_boolean(completed)
+                if canceled is not None:
+                    canceled = self._convert_to_boolean(canceled)
+            except ValueError as e:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": "Invalid boolean value for status parameter"
+                }
 
             # Start building the AppleScript
             script = f'''
@@ -422,7 +483,7 @@ class PureAppleScriptScheduler:
                 escaped_area = self._escape_applescript_string(area)
                 script += f'set area of targetTodo to area {escaped_area}\n                    '
 
-            # Update project if provided  
+            # Update project if provided
             if project:
                 escaped_project = self._escape_applescript_string(project)
                 script += f'set project of targetTodo to project {escaped_project}\n                    '
@@ -449,12 +510,17 @@ class PureAppleScriptScheduler:
                     set due date of targetTodo to deadlineDate
                     '''
 
-            # Update completion status if provided
-            if completed is not None:
+            # Update status based on completed/canceled parameters
+            # Note: In Things 3 AppleScript API, status can be: open, completed, or canceled
+            if canceled is not None and canceled:
+                # Set to canceled status
+                script += 'set status of targetTodo to canceled\n                    '
+            elif completed is not None:
+                # Set to completed or open
                 if completed:
-                    script += 'set completion date of targetTodo to (current date)\n                    '
+                    script += 'set status of targetTodo to completed\n                    '
                 else:
-                    script += 'set completion date of targetTodo to missing value\n                    '
+                    script += 'set status of targetTodo to open\n                    '
 
             script += '''
                     return "updated"
@@ -465,7 +531,7 @@ class PureAppleScriptScheduler:
             '''
 
             result = await self.applescript.execute_applescript(script)
-            
+
             if result.get("success"):
                 output = result.get("output", "").strip()
                 if output == "updated":
@@ -771,13 +837,23 @@ class PureAppleScriptScheduler:
             if result.get("success"):
                 output = result.get("output", "")
                 if isinstance(output, list):
+                    # BUG FIX #2 (Version 1.2.2): Handle empty list case
+                    # Previously could return None or inconsistent results when no todos found
+                    # See: BUG_REPORT.md - Bug #2: Empty Results in Time-Based Queries
+                    if not output:
+                        logger.info(f"No todos due in next {days} days")
+                        return []
+
                     todos = []
                     for item in output:
                         if isinstance(item, str) and item.startswith("ID:"):
                             todo_dict = self._parse_todo_info(item)
                             todos.append(todo_dict)
+
+                    logger.info(f"Found {len(todos)} todos due in next {days} days")
                     return todos
                 else:
+                    logger.info(f"No todos due in next {days} days (non-list output)")
                     return []
             else:
                 logger.error(f"Failed to get due todos: {result.get('output', 'Unknown error')}")
@@ -827,13 +903,21 @@ class PureAppleScriptScheduler:
             if result.get("success"):
                 output = result.get("output", "")
                 if isinstance(output, list):
+                    # Handle empty list case
+                    if not output:
+                        logger.info(f"No todos activating in next {days} days")
+                        return []
+
                     todos = []
                     for item in output:
                         if isinstance(item, str) and item.startswith("ID:"):
                             todo_dict = self._parse_todo_info(item)
                             todos.append(todo_dict)
+
+                    logger.info(f"Found {len(todos)} todos activating in next {days} days")
                     return todos
                 else:
+                    logger.info(f"No todos activating in next {days} days (non-list output)")
                     return []
             else:
                 logger.error(f"Failed to get activating todos: {result.get('output', 'Unknown error')}")
@@ -1186,13 +1270,21 @@ class PureAppleScriptScheduler:
             if result.get("success"):
                 output = result.get("output", "")
                 if isinstance(output, list):
+                    # Handle empty list case
+                    if not output:
+                        logger.info(f"No recent items found within {period}")
+                        return []
+
                     todos = []
                     for item in output:
                         if isinstance(item, str) and item.startswith("ID:"):
                             todo_dict = self._parse_todo_info(item)
                             todos.append(todo_dict)
+
+                    logger.info(f"Found {len(todos)} recent items within {period}")
                     return todos
                 else:
+                    logger.info(f"No recent items found within {period} (non-list output)")
                     return []
             else:
                 logger.error(f"Failed to get recent items: {result.get('output', 'Unknown error')}")

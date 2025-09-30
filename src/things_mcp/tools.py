@@ -17,6 +17,7 @@ from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
 from .response_optimizer import ResponseOptimizer, FieldOptimizationPolicy
+from .parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
 
 logger = logging.getLogger(__name__)
 
@@ -256,12 +257,28 @@ class ThingsTools:
     
     async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
         """Search todos directly in database with optional limit."""
+        try:
+            # Validate parameters
+            validated = ParameterValidator.validate_search_params(query, limit, mode=None)
+            query = validated['query']
+            limit = validated['limit']
+        except ValidationError as e:
+            logger.error(f"Validation error in search_todos: {e}")
+            return [create_validation_error_response(e)]
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._search_sync, query, limit)
     
     def _search_sync(self, query: str, limit: Optional[int] = None) -> List[Dict]:
         """Synchronous search implementation with limit support."""
         try:
+            # BUG FIX #1 (Version 1.2.2): Handle edge case where limit=0
+            # Previously treated 0 as falsy, returned all results instead of empty list
+            # See: BUG_REPORT.md - Bug #1: Zero Limit Returns All Results
+            if limit is not None and limit == 0:
+                logger.debug("Search called with limit=0, returning empty results")
+                return []
+
             # Use things.py search functionality if available
             if hasattr(things, 'search'):
                 results = things.search(query)
@@ -272,7 +289,7 @@ class ThingsTools:
                     all_todos = list(all_todos)
                 if isinstance(all_todos, dict):
                     all_todos = [all_todos]
-                
+
                 query_lower = query.lower()
                 results = []
                 for todo in all_todos:
@@ -280,20 +297,20 @@ class ThingsTools:
                     notes = todo.get('notes', '').lower()
                     if query_lower in title or query_lower in notes:
                         results.append(todo)
-                        # Apply limit during search for efficiency
+                        # Apply limit during search for efficiency (limit > 0 already checked above)
                         if limit and len(results) >= limit:
                             break
-            
+
             # Convert to list if needed
             if hasattr(results, '__iter__') and not isinstance(results, (list, dict)):
                 results = list(results)
             if isinstance(results, dict):
                 results = [results]
-            
-            # Apply limit if not already applied during search
-            if limit and len(results) > limit:
+
+            # Apply limit if not already applied during search (limit > 0 check is important)
+            if limit is not None and limit > 0 and len(results) > limit:
                 results = results[:limit]
-            
+
             return [self._convert_todo(todo) for todo in results]
         except Exception as e:
             logger.error(f"Error searching todos via things.py: {e}")
@@ -453,6 +470,14 @@ class ThingsTools:
     
     async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
         """Get completed items directly from database."""
+        try:
+            # Validate parameters
+            limit = ParameterValidator.validate_limit(limit, min_val=1, max_val=100, field_name='limit')
+            period = ParameterValidator.validate_period_format(period, field_name='period')
+        except ValidationError as e:
+            logger.error(f"Validation error in get_logbook: {e}")
+            return [create_validation_error_response(e)]
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_logbook_sync, limit, period)
     
@@ -477,25 +502,70 @@ class ThingsTools:
             logger.error(f"Error getting logbook via things.py: {e}")
             return []
     
-    async def get_trash(self) -> List[Dict]:
-        """Get trashed items directly from database."""
+    async def get_trash(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Get trashed items directly from database with pagination.
+
+        Args:
+            limit: Maximum number of items to return (default: 50, max: 100)
+            offset: Number of items to skip (default: 0)
+
+        Returns:
+            Dict containing:
+                - items: List of trashed todos
+                - total_count: Total number of items in trash
+                - limit: Applied limit
+                - offset: Applied offset
+                - has_more: Whether there are more items available
+        """
+        try:
+            # Validate parameters
+            limit = ParameterValidator.validate_limit(limit, min_val=1, max_val=100, field_name='limit')
+            offset = ParameterValidator.validate_offset(offset, min_val=0, field_name='offset')
+        except ValidationError as e:
+            logger.error(f"Validation error in get_trash: {e}")
+            return create_validation_error_response(e)
+
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_trash_sync)
-    
-    def _get_trash_sync(self) -> List[Dict]:
-        """Synchronous implementation."""
+        return await loop.run_in_executor(None, self._get_trash_sync, limit, offset)
+
+    def _get_trash_sync(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Synchronous implementation with pagination support."""
         try:
             trash_data = things.trash()
-            
+
             if hasattr(trash_data, '__iter__') and not isinstance(trash_data, (list, dict)):
                 trash_data = list(trash_data)
             if isinstance(trash_data, dict):
                 trash_data = [trash_data]
-            
-            return [self._convert_todo(todo) for todo in trash_data]
+
+            # Get total count
+            total_count = len(trash_data)
+
+            # Apply pagination
+            start_idx = offset
+            end_idx = offset + limit
+            paginated_data = trash_data[start_idx:end_idx]
+
+            # Calculate if there are more items
+            has_more = end_idx < total_count
+
+            return {
+                'items': [self._convert_todo(todo) for todo in paginated_data],
+                'total_count': total_count,
+                'limit': limit,
+                'offset': offset,
+                'has_more': has_more
+            }
         except Exception as e:
             logger.error(f"Error getting trash via things.py: {e}")
-            return []
+            return {
+                'items': [],
+                'total_count': 0,
+                'limit': limit,
+                'offset': offset,
+                'has_more': False,
+                'error': str(e)
+            }
     
     async def get_tagged_items(self, tag: str) -> List[Dict]:
         """Get items with a specific tag directly from database."""
@@ -559,10 +629,48 @@ class ThingsTools:
         """Escape a string for safe use in AppleScript."""
         if not text:
             return '""'
-        
+
         # Escape backslashes first, then quotes
         escaped = text.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"'
+
+    def _convert_to_boolean(self, value: Any) -> Optional[bool]:
+        """
+        Convert various input formats to boolean for status parameters.
+
+        Handles:
+        - Boolean values: True, False
+        - String values: "true", "True", "TRUE", "false", "False", "FALSE"
+        - None and empty strings return None
+
+        Args:
+            value: The value to convert
+
+        Returns:
+            True, False, or None if value is None/empty
+
+        Raises:
+            ValueError: If value cannot be converted to boolean
+        """
+        if value is None or value == '':
+            return None
+
+        # Already a boolean
+        if isinstance(value, bool):
+            return value
+
+        # String conversion
+        if isinstance(value, str):
+            value_lower = value.lower().strip()
+            if value_lower == 'true':
+                return True
+            elif value_lower == 'false':
+                return False
+            else:
+                raise ValueError(f"Invalid boolean string: '{value}'. Must be 'true' or 'false'")
+
+        # Fallback for any other type - use Python's truthiness
+        return bool(value)
     
     def _convert_iso_to_applescript_date(self, iso_date: str) -> str:
         """Convert ISO date (YYYY-MM-DD) to AppleScript property-based date construction."""
@@ -641,6 +749,20 @@ class ThingsTools:
     
     async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
         """Update a todo using AppleScript (write operation)."""
+        try:
+            # Validate todo ID
+            todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
+
+            # Validate update parameters
+            validated_params = ParameterValidator.validate_update_params(**kwargs)
+
+            # Merge validated params back into kwargs
+            kwargs.update(validated_params)
+
+        except ValidationError as e:
+            logger.error(f"Validation error in update_todo: {e}")
+            return create_validation_error_response(e)
+
         try:
             # Handle tag validation BEFORE updating the todo
             tags = kwargs.get('tags', [])
@@ -759,6 +881,12 @@ class ThingsTools:
     async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Add tags to a todo using AppleScript (write operation)."""
         try:
+            # BUG FIX #6 (Version 1.2.2): Handle both string and list input for tags
+            # If tags is a string (comma-separated), convert to list
+            # This provides defensive programming in case the function is called incorrectly
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",")] if tags else []
+
             # Validate tags first
             tag_validation = await self._validate_tags_with_policy(tags)
             
@@ -774,20 +902,42 @@ class ThingsTools:
                 }
             
             # Build AppleScript to add tags
+            # BUG FIX #7 (Version 1.2.3): Things 3 AppleScript API requires comma-separated string, NOT list
+            # The tag names property expects a single string with comma-separated tags
+            # Using a list like {"tag1", "tag2"} causes concatenation into "tag1tag2"
+
+            # Get current tags first
+            get_tags_script = f'''
+            tell application "Things3"
+                set targetTodo to to do id "{todo_id}"
+                return tag names of targetTodo
+            end tell
+            '''
+
+            current_tags_result = await self.applescript.execute_applescript(get_tags_script)
+            current_tags_str = current_tags_result.get('output', '').strip()
+
+            # Parse current tags (comma-separated string or empty)
+            current_tags = [t.strip() for t in current_tags_str.split(',') if t.strip()] if current_tags_str else []
+
+            # Combine current tags with new tags (avoiding duplicates)
+            all_tags = list(dict.fromkeys(current_tags + valid_tags))  # Preserve order, remove dupes
+
+            # Escape tags and create comma-separated string
+            escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in all_tags]
+            tag_string = ', '.join(escaped_tags)
+
+            logger.debug(f"add_tags: all_tags={all_tags}, escaped_tags={escaped_tags}, tag_string='{tag_string}'")
+
             script = f'''
             tell application "Things3"
                 set targetTodo to to do id "{todo_id}"
-            '''
-            
-            for tag in valid_tags:
-                escaped_tag = self._escape_applescript_string(tag).strip('"')
-                script += f'\n    set tag names of targetTodo to (tag names of targetTodo) & {{"{escaped_tag}"}}'
-            
-            script += '''
+                set tag names of targetTodo to "{tag_string}"
                 return "tags_added"
             end tell
             '''
-            
+
+            logger.debug(f"add_tags: Generated script:\n{script}")
             result = await self.applescript.execute_applescript(script)
             return {
                 "success": result.get('success', False),
@@ -805,30 +955,55 @@ class ThingsTools:
     async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Remove tags from a todo using AppleScript (write operation)."""
         try:
-            # Build AppleScript to remove tags
-            script = f'''
+            # BUG FIX #6 (Version 1.2.2): Handle both string and list input for tags
+            # If tags is a string (comma-separated), convert to list
+            # This provides defensive programming in case the function is called incorrectly
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",")] if tags else []
+
+            # BUG FIX #7 (Version 1.2.3): Things 3 AppleScript API requires comma-separated string, NOT list
+            # Get current tags as a comma-separated string
+            get_tags_script = f'''
             tell application "Things3"
                 set targetTodo to to do id "{todo_id}"
-                set currentTags to tag names of targetTodo
-            '''
-
-            for tag in tags:
-                escaped_tag = self._escape_applescript_string(tag).strip('"')
-                script += f'''
-                set newTags to {{}}
-                repeat with tagName in currentTags
-                    if tagName is not equal to "{escaped_tag}" then
-                        set newTags to newTags & tagName
-                    end if
-                end repeat
-                set tag names of targetTodo to newTags
-                set currentTags to newTags
-                '''
-
-            script += '''
-                return "tags_removed"
+                return tag names of targetTodo
             end tell
             '''
+
+            current_tags_result = await self.applescript.execute_applescript(get_tags_script)
+            current_tags_str = current_tags_result.get('output', '').strip()
+
+            # Parse current tags (comma-separated string or empty)
+            current_tags = [t.strip() for t in current_tags_str.split(',') if t.strip()] if current_tags_str else []
+
+            # Filter out tags to be removed (case-sensitive comparison)
+            tags_to_remove_set = set(tags)
+            remaining_tags = [tag for tag in current_tags if tag not in tags_to_remove_set]
+
+            # Escape tags and create comma-separated string
+            escaped_tags = [self._escape_applescript_string(tag).strip('"') for tag in remaining_tags]
+            tag_string = ', '.join(escaped_tags) if escaped_tags else ""
+
+            logger.debug(f"remove_tags: current={current_tags}, removing={tags}, remaining={remaining_tags}, tag_string='{tag_string}'")
+
+            # Set the new tag list (empty string if no tags remain)
+            if tag_string:
+                script = f'''
+                tell application "Things3"
+                    set targetTodo to to do id "{todo_id}"
+                    set tag names of targetTodo to "{tag_string}"
+                    return "tags_removed"
+                end tell
+                '''
+            else:
+                # Special case: removing all tags requires setting to empty string
+                script = f'''
+                tell application "Things3"
+                    set targetTodo to to do id "{todo_id}"
+                    set tag names of targetTodo to ""
+                    return "tags_removed"
+                end tell
+                '''
 
             result = await self.applescript.execute_applescript(script)
             return {
@@ -854,6 +1029,20 @@ class ThingsTools:
         Returns:
             Dict with success status, count of updated items, and any errors
         """
+        try:
+            # Validate todo IDs
+            todo_ids = ParameterValidator.validate_id_list(todo_ids, 'todo_ids')
+
+            # Validate update parameters
+            validated_params = ParameterValidator.validate_update_params(**kwargs)
+
+            # Merge validated params back into kwargs
+            kwargs.update(validated_params)
+
+        except ValidationError as e:
+            logger.error(f"Validation error in bulk_update_todos: {e}")
+            return create_validation_error_response(e)
+
         try:
             if not todo_ids:
                 return {
@@ -884,7 +1073,14 @@ class ThingsTools:
                     kwargs = dict(kwargs)
                     kwargs['tags'] = valid_tags
 
-            # Build a single AppleScript to update all todos
+            # BUG FIX #7 (Version 1.2.3): Extract 'when' parameter for separate scheduling
+            # Previously, bulk_update_todos tried to set activation date inline with simple date strings,
+            # which failed when combined with other field updates (especially tags).
+            # Now we handle 'when' scheduling separately using the reliable scheduler,
+            # just like update_todo does. This ensures consistent behavior and proper date handling.
+            when_value = kwargs.pop('when', None)
+
+            # Build a single AppleScript to update all todos (except 'when')
             script = 'tell application "Things3"\n'
             script += '    set successCount to 0\n'
             script += '    set errorMessages to {}\n'
@@ -894,13 +1090,20 @@ class ThingsTools:
                 script += f'        set targetTodo to to do id "{todo_id}"\n'
 
                 # Add update operations based on kwargs
-                if 'completed' in kwargs:
-                    completed_val = str(kwargs['completed']).lower()
-                    script += f'        set status of targetTodo to {"completed" if completed_val == "true" else "open"}\n'
-
-                if 'canceled' in kwargs:
-                    canceled_val = str(kwargs['canceled']).lower()
-                    script += f'        set status of targetTodo to {"canceled" if canceled_val == "true" else "open"}\n'
+                # Note: kwargs values are already validated and converted to proper booleans by ParameterValidator
+                # Handle status updates with proper precedence (canceled takes priority)
+                if 'canceled' in kwargs and kwargs['canceled'] is not None:
+                    # Canceled parameter provided
+                    if kwargs['canceled']:
+                        script += f'        set status of targetTodo to canceled\n'
+                    else:
+                        script += f'        set status of targetTodo to open\n'
+                elif 'completed' in kwargs and kwargs['completed'] is not None:
+                    # Only completed parameter provided (no canceled)
+                    if kwargs['completed']:
+                        script += f'        set status of targetTodo to completed\n'
+                    else:
+                        script += f'        set status of targetTodo to open\n'
 
                 if 'title' in kwargs:
                     escaped_title = self._escape_applescript_string(kwargs['title']).strip('"')
@@ -910,12 +1113,6 @@ class ThingsTools:
                     escaped_notes = self._escape_applescript_string(kwargs['notes']).strip('"')
                     script += f'        set notes of targetTodo to "{escaped_notes}"\n'
 
-                if 'when' in kwargs:
-                    when_value = kwargs['when']
-                    if when_value:
-                        as_date = self._convert_iso_to_applescript_date(when_value)
-                        script += f'        set activation date of targetTodo to date "{as_date}"\n'
-
                 if 'deadline' in kwargs:
                     deadline = kwargs['deadline']
                     if deadline:
@@ -923,9 +1120,10 @@ class ThingsTools:
                         script += f'        set due date of targetTodo to date "{as_date}"\n'
 
                 if 'tags' in kwargs and kwargs['tags']:
+                    # BUG FIX #7 (Version 1.2.3): Things 3 requires comma-separated string, NOT AppleScript list
                     escaped_tags = [self._escape_applescript_string(t).strip('"') for t in kwargs['tags']]
-                    tags_list = ', '.join([f'"{tag}"' for tag in escaped_tags])
-                    script += f'        set tag names of targetTodo to {{{tags_list}}}\n'
+                    tag_string = ', '.join(escaped_tags)
+                    script += f'        set tag names of targetTodo to "{tag_string}"\n'
 
                 script += '        set successCount to successCount + 1\n'
                 script += '    on error errMsg\n'
@@ -961,13 +1159,36 @@ class ThingsTools:
                 if 'errors' in output and success_count < len(todo_ids):
                     error_messages.append(f"{len(todo_ids) - success_count} todos failed to update")
 
+                # Handle 'when' scheduling separately for successfully updated todos
+                scheduling_results = []
+                if when_value and success_count > 0:
+                    logger.info(f"Scheduling {success_count} todos for: {when_value}")
+                    for todo_id in todo_ids:
+                        try:
+                            schedule_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when_value)
+                            if schedule_result.get('success'):
+                                scheduling_results.append(f"{todo_id}: scheduled")
+                            else:
+                                scheduling_results.append(f"{todo_id}: scheduling failed")
+                                logger.warning(f"Failed to schedule todo {todo_id}: {schedule_result}")
+                        except Exception as e:
+                            scheduling_results.append(f"{todo_id}: scheduling error")
+                            logger.error(f"Error scheduling todo {todo_id}: {e}")
+
+                result_message = f"Bulk update completed: {success_count}/{len(todo_ids)} todos updated"
+                if when_value:
+                    scheduled_count = len([r for r in scheduling_results if 'scheduled' in r and 'failed' not in r])
+                    result_message += f", {scheduled_count}/{success_count} scheduled"
+                if error_messages:
+                    result_message += f" ({', '.join(error_messages)})"
+
                 return {
                     "success": success_count > 0,
-                    "message": f"Bulk update completed: {success_count}/{len(todo_ids)} todos updated" +
-                              (f" ({', '.join(error_messages)})" if error_messages else ""),
+                    "message": result_message,
                     "updated_count": success_count,
                     "failed_count": len(todo_ids) - success_count,
                     "total_requested": len(todo_ids),
+                    "scheduling_info": scheduling_results if when_value else None,
                     "tag_info": tag_validation if tag_validation else None
                 }
             else:
@@ -992,29 +1213,57 @@ class ThingsTools:
     async def get_due_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos due within specified days - use AppleScript for now."""
         try:
-            return await self.reliable_scheduler.get_todos_due_in_days(days)
-        except Exception as e:
-            logger.error(f"Error getting todos due in {days} days: {e}")
-            return []
-    
-    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
-        """Get todos due within specified days - use AppleScript for now."""
+            # Validate days parameter
+            days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
+        except ValidationError as e:
+            logger.error(f"Validation error in get_due_in_days: {e}")
+            return [create_validation_error_response(e)]
+
         try:
             return await self.reliable_scheduler.get_todos_due_in_days(days)
         except Exception as e:
             logger.error(f"Error getting todos due in {days} days: {e}")
             return []
-    
+
+    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+        """Get todos due within specified days - use AppleScript for now."""
+        try:
+            # Validate days parameter
+            days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
+        except ValidationError as e:
+            logger.error(f"Validation error in get_todos_due_in_days: {e}")
+            return [create_validation_error_response(e)]
+
+        try:
+            return await self.reliable_scheduler.get_todos_due_in_days(days)
+        except Exception as e:
+            logger.error(f"Error getting todos due in {days} days: {e}")
+            return []
+
     async def get_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos activating within specified days - use AppleScript for now."""
+        try:
+            # Validate days parameter
+            days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
+        except ValidationError as e:
+            logger.error(f"Validation error in get_activating_in_days: {e}")
+            return [create_validation_error_response(e)]
+
         try:
             return await self.reliable_scheduler.get_todos_activating_in_days(days)
         except Exception as e:
             logger.error(f"Error getting todos activating in {days} days: {e}")
             return []
-    
+
     async def get_todos_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos activating within specified days - use AppleScript for now."""
+        try:
+            # Validate days parameter
+            days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
+        except ValidationError as e:
+            logger.error(f"Validation error in get_todos_activating_in_days: {e}")
+            return [create_validation_error_response(e)]
+
         try:
             return await self.reliable_scheduler.get_todos_activating_in_days(days)
         except Exception as e:
@@ -1023,6 +1272,13 @@ class ThingsTools:
     
     async def get_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos upcoming within specified days using things.py."""
+        try:
+            # Validate days parameter
+            days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
+        except ValidationError as e:
+            logger.error(f"Validation error in get_upcoming_in_days: {e}")
+            return [create_validation_error_response(e)]
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_upcoming_in_days_sync, days)
     
@@ -1110,11 +1366,22 @@ class ThingsTools:
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
         """Advanced search - delegate to AppleScript scheduler with limit support."""
         try:
+            # Validate advanced search parameters
+            validated_filters = ParameterValidator.validate_advanced_search_params(**filters)
+
+            # Merge validated params back into filters
+            filters.update(validated_filters)
+
+        except ValidationError as e:
+            logger.error(f"Validation error in search_advanced: {e}")
+            return [create_validation_error_response(e)]
+
+        try:
             # Convert 'tag' to 'tags' for PureAppleScriptScheduler compatibility
             if 'tag' in filters and filters['tag']:
                 filters['tags'] = [filters['tag']]  # Convert single tag to list
                 del filters['tag']  # Remove the singular key
-            
+
             return await self.reliable_scheduler.search_advanced(**filters)
         except Exception as e:
             logger.error(f"Error in advanced search: {e}")
