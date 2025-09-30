@@ -104,7 +104,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 ## Features
 
 ### Core Todo Operations
-- **Create**: Add todos with full metadata (tags, deadlines, projects, notes, reminders)
+- **Create**: Add todos with full metadata (tags, deadlines, projects, notes)
 - **Read**: Get todos by ID, project, or built-in lists (Today, Inbox, Upcoming, etc.)
 - **Update**: Modify existing todos with partial updates
 - **Delete**: Remove todos safely
@@ -126,9 +126,6 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Trash**: Deleted items
 
 ### Advanced Features
-- **Reminder Support**: Create todos with specific reminder times (e.g., "today@14:30")
-  - Uses hybrid approach: AppleScript for regular todos, URL scheme for reminders
-  - This works around AppleScript API limitation (cannot set reminder times)
 - **Tag Management**: Full tag support with AI creation control
 - **Date-Range Queries**: Get todos due/activating within specific timeframes
 - **URL Schemes**: Native Things 3 URL scheme integration
@@ -247,7 +244,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ### Todo Management
 - `get_todos(project_uuid?, include_items?)` - List todos
-- `add_todo(title, ...)` - Create new todo with optional reminder time
+- `add_todo(title, ...)` - Create new todo
 - `update_todo(id, ...)` - Update existing todo
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
 - `get_todo_by_id(todo_id)` - Get specific todo
