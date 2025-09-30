@@ -1399,6 +1399,27 @@ class ThingsTools:
     
     def _convert_todo(self, todo: Dict) -> Dict:
         """Convert things.py todo to our MCP format with optimization."""
+
+        # Get checklist items if present
+        checklist_items = []
+        if todo.get('checklist'):  # Boolean flag indicating checklist exists
+            import things
+            todo_uuid = todo.get('uuid', '')
+            if todo_uuid:
+                try:
+                    items = things.checklist_items(todo_uuid)
+                    checklist_items = [{'title': i['title'], 'status': i['status']} for i in items]
+                except Exception as e:
+                    logger.error(f"Error getting checklist items for {todo_uuid}: {e}")
+
+        # Get heading information if present
+        heading_info = None
+        if todo.get('heading'):
+            heading_info = {
+                'id': todo.get('heading'),
+                'title': todo.get('heading_title', '')
+            }
+
         converted = {
             'id': todo.get('uuid', ''),
             'name': todo.get('title', ''),
@@ -1412,8 +1433,8 @@ class ThingsTools:
             'completed': todo.get('stop_date'),
             'project': todo.get('project'),
             'area': todo.get('area'),
-            'heading': todo.get('heading'),
-            'checklist': todo.get('checklist_items', []),
+            'heading': heading_info,
+            'checklist': checklist_items,
             'has_reminder': bool(todo.get('reminder_time')),
             'reminder_time': todo.get('reminder_time'),
             'activation_date': todo.get('activation_date')

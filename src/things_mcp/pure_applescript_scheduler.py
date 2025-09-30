@@ -621,6 +621,16 @@ class PureAppleScriptScheduler:
                     set due date of newProject to deadlineDate
                     '''
 
+            # Add todos to project if provided
+            todos = kwargs.get('todos', [])
+            if todos:
+                for todo_title in todos:
+                    if todo_title.strip():  # Skip empty lines
+                        escaped_todo = self._escape_applescript_string(todo_title.strip())
+                        script += f'''
+                    set newTodoInProject to make new to do in newProject with properties {{name:{escaped_todo}}}
+                        '''
+
             # Get the project ID and return
             script += '''
                     return id of newProject

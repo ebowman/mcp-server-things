@@ -401,21 +401,28 @@ class TestChecklistItems:
     @pytest.mark.asyncio
     async def test_retrieve_checklist_items(self, tools_with_mock):
         """Test retrieving todos with checklist items."""
-        with patch('things.todos') as mock_todos:
+        with patch('things.todos') as mock_todos, \
+             patch('things.checklist_items') as mock_checklist:
+            # Mock the todo with checklist flag
             mock_todos.return_value = [{
                 "uuid": "todo-1",
                 "title": "Test Todo",
-                "checklist_items": [
-                    {"title": "Item 1", "status": "incomplete"},
-                    {"title": "Item 2", "status": "completed"}
-                ],
+                "checklist": True,  # Boolean flag indicating checklist exists
                 "status": "open"
             }]
+
+            # Mock the checklist_items function
+            mock_checklist.return_value = [
+                {"title": "Item 1", "status": "incomplete"},
+                {"title": "Item 2", "status": "completed"}
+            ]
 
             result = await tools_with_mock.get_todos()
 
             assert len(result) > 0
             assert "checklist" in result[0]
+            assert len(result[0]["checklist"]) == 2
+            assert result[0]["checklist"][0]["title"] == "Item 1"
 
 
 class TestURLAndMetadata:

@@ -274,7 +274,7 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def add_todo(
-            title: str = Field(..., description="Title of the todo"),
+            title: str = Field(..., min_length=1, description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
             tags: Optional[str] = Field(None, description="Comma-separated tags (only existing tags applied)"),
             when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
@@ -548,7 +548,7 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def add_project(
-            title: str = Field(..., description="Title of the project"),
+            title: str = Field(..., min_length=1, description="Title of the project"),
             notes: Optional[str] = Field(None, description="Notes for the project"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
             when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),

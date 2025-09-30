@@ -431,14 +431,15 @@ bulk_move_records(
 
 1. **Project todos parameter not functional**: The `todos` parameter in `add_project()` doesn't create child todos. Create project first, then add todos separately with `list_id` parameter.
 
-2. **Project content queries limited**: `get_todos(project_uuid=...)` has known issues. Use `search_todos()` or `search_advanced()` to find project tasks.
+2. **Project query status filter**: `get_todos(project_uuid=...)` only returns incomplete todos by default. Returns todos at all hierarchy levels (direct + under headings). To include completed todos, use `search_advanced(project=uuid, status=None)`.
 
-3. **Todo properties don't show project**: Queried todos may not include their parent project reference in properties.
+3. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
 
 **Workarounds:**
 - Create projects then add todos individually with `list_id`
-- Use `search_todos()` to find project-related tasks
-- Use tags or notes to track project relationships if needed
+- Use `get_projects(mode='minimal')` to get IDs, then query specific projects
+- Use `search_todos()` or `search_advanced()` to find project-related tasks
+- Never use `include_items=true` - causes context overflow
 
 ### Hierarchical Best Practices
 

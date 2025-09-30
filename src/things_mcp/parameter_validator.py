@@ -243,6 +243,58 @@ class ParameterValidator:
         )
 
     @staticmethod
+    def validate_strict_iso_date(date_str: Any, field_name: str = "date") -> Optional[str]:
+        """
+        Validate strict ISO 8601 date format (YYYY-MM-DD only) with range checking.
+
+        This is stricter than validate_date_format() - only ISO 8601 format allowed,
+        no relative dates. Validates that the date is actually valid (no month 13, day 45, etc).
+
+        Args:
+            date_str: The date string to validate
+            field_name: Name of the field for error messages
+
+        Returns:
+            Validated date string or None if input was None
+
+        Raises:
+            ValidationError: If date format is invalid or date is out of range
+        """
+        if date_str is None:
+            return None
+
+        if not isinstance(date_str, str):
+            raise ValidationError(
+                field_name,
+                f"must be a string, got {type(date_str).__name__}",
+                date_str
+            )
+
+        date_str = date_str.strip()
+
+        if not date_str:
+            return None
+
+        # Check ISO 8601 format (YYYY-MM-DD)
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            raise ValidationError(
+                field_name,
+                f"must be ISO 8601 format (YYYY-MM-DD), got: {date_str}",
+                date_str
+            )
+
+        # Validate the date is actually valid
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+            return date_str
+        except ValueError as e:
+            raise ValidationError(
+                field_name,
+                f"invalid date: {date_str} - {str(e)}",
+                date_str
+            )
+
+    @staticmethod
     def validate_date_format(date_str: Any, field_name: str = "date",
                             allow_relative: bool = True) -> Optional[str]:
         """
