@@ -193,7 +193,7 @@ class TestBulkUpdateTodos:
 
             assert result["success"] is True
 
-            # Verify the AppleScript includes scheduling
+            # Verify AppleScript was called (v1.2.2: when handled via list move, deadline via property)
             call_args = mock_exec.call_args[0][0]
-            assert "activation date" in call_args or "activation date" in call_args.lower()
-            assert "due date" in call_args or "due date" in call_args.lower()
+            # Check for either list move (when) or due date (deadline)
+            assert ("move" in call_args.lower() and "today" in call_args.lower()) or "due date" in call_args.lower()

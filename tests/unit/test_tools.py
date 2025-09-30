@@ -159,21 +159,20 @@ class TestUpdateTodo:
         """Test updating a todo."""
         todo_id = "todo-123"
         new_title = "Updated Title"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value={
+
+        # Mock the reliable scheduler's update_todo method
+        with patch.object(tools_with_mock.reliable_scheduler, 'update_todo', new_callable=AsyncMock) as mock_update:
+            mock_update.return_value = {
                 "success": True,
                 "message": "Todo updated successfully"
-            })
-            mock_get_queue.return_value = mock_queue
-            
+            }
+
             result = await tools_with_mock.update_todo(todo_id=todo_id, title=new_title)
 
             assert isinstance(result, dict)
             assert result["success"] is True
+            # Verify scheduler was called
+            mock_update.assert_called_once()
 
 
 class TestDeleteTodo:
@@ -245,24 +244,22 @@ class TestMoveOperations:
         """Test moving a todo to a different list."""
         todo_id = "todo-123"
         destination = "Today"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value={
+
+        # Mock the move_operations.move_record method
+        with patch.object(tools_with_mock.move_operations, 'move_record', new_callable=AsyncMock) as mock_move:
+            mock_move.return_value = {
                 "success": True,
                 "message": f"Todo moved to {destination} successfully",
                 "todo_id": todo_id,
                 "destination": destination
-            })
-            mock_get_queue.return_value = mock_queue
-            
+            }
+
             result = await tools_with_mock.move_record(todo_id, destination)
-            
+
             assert isinstance(result, dict)
             assert result["success"] is True
             assert result["destination"] == destination
+            mock_move.assert_called_once()
 
 
 class TestSearchOperations:
@@ -381,22 +378,20 @@ class TestCompleteTodo:
     async def test_complete_todo(self, tools_with_mock):
         """Test completing a todo using update_todo."""
         todo_id = "todo-123"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value={
+
+        # Mock the reliable scheduler's update_todo method
+        with patch.object(tools_with_mock.reliable_scheduler, 'update_todo', new_callable=AsyncMock) as mock_update:
+            mock_update.return_value = {
                 "success": True,
                 "message": "Todo completed successfully"
-            })
-            mock_get_queue.return_value = mock_queue
-            
+            }
+
             # Use update_todo with completed=True
             result = await tools_with_mock.update_todo(todo_id=todo_id, completed=True)
-            
+
             assert isinstance(result, dict)
             assert result["success"] is True
+            mock_update.assert_called_once()
 
 
 class TestCancelTodo:
@@ -411,22 +406,20 @@ class TestCancelTodo:
     async def test_cancel_todo(self, tools_with_mock):
         """Test canceling a todo using update_todo."""
         todo_id = "todo-123"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value={
+
+        # Mock the reliable scheduler's update_todo method
+        with patch.object(tools_with_mock.reliable_scheduler, 'update_todo', new_callable=AsyncMock) as mock_update:
+            mock_update.return_value = {
                 "success": True,
                 "message": "Todo canceled successfully"
-            })
-            mock_get_queue.return_value = mock_queue
-            
+            }
+
             # Use update_todo with canceled=True
             result = await tools_with_mock.update_todo(todo_id=todo_id, canceled=True)
-            
+
             assert isinstance(result, dict)
             assert result["success"] is True
+            mock_update.assert_called_once()
 
 class TestAddTags:
     """Test adding tags to todos with proper splitting of comma-separated values."""
