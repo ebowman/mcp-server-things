@@ -702,6 +702,58 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*
 - [ ] Published to PyPI
 - [ ] Verify version reporting: AI should report correct version when queried
 
+## Code Quality Improvements
+
+### Active Refactoring Plan
+
+**Status:** Planning Phase
+**Document:** `docs/REFACTORING_PLAN.md`
+
+A comprehensive 10-week, 8-phase refactoring plan has been created to improve code quality:
+
+**Current Issues:**
+- 5 bare `except:` blocks hiding errors
+- 19 functions >100 lines (largest: 214 lines)
+- 4 files >1,300 lines (largest: 1,657 lines)
+- 31 duplicate AppleScript invocations
+- Complex 193-line string parser
+
+**Target Improvements:**
+- Zero bare except blocks (specific exception types + logging)
+- All functions <100 lines (target: 80)
+- All files <1,000 lines (target: 500)
+- Consolidated AppleScript patterns via templates
+- State machine-based parser
+
+**Phased Approach:**
+1. **Phase 1 (Week 1):** Fix bare except blocks - LOW RISK
+2. **Phase 2 (Weeks 2-3):** Parser refactoring - HIGH RISK, feature-flagged
+3. **Phase 3 (Weeks 4-5):** Function decomposition - MEDIUM RISK
+4. **Phase 4 (Week 6):** File organization - MEDIUM RISK
+5. **Phase 5 (Week 7):** Consolidate AppleScript patterns - LOW RISK
+6. **Phase 6 (Week 8):** Error handling improvements - LOW RISK
+7. **Phase 7 (Week 9):** Documentation - LOW RISK
+8. **Phase 8 (Week 10):** Performance testing - LOW RISK
+
+**Constraints:**
+- ✅ 100% backwards compatibility (no breaking changes)
+- ✅ All 330+ tests must continue to pass
+- ✅ No performance regressions >10%
+- ✅ Incremental commits (each passes tests)
+
+**For Swarm Implementation:**
+- See `docs/REFACTORING_PLAN.md` for detailed task breakdown
+- Each phase has specific deliverables and validation steps
+- Parallel execution possible for Phase 1, 3, 4 tasks
+- Feature flags for high-risk changes (Phase 2)
+
+When implementing refactoring tasks, always:
+1. Read the detailed task specification in REFACTORING_PLAN.md
+2. Run tests before making changes
+3. Make minimal, focused changes
+4. Run full test suite after changes
+5. Commit only if all tests pass
+
 ## Important Reminders
 - Never hardcode authentication tokens
 - Keep root directory clean (use appropriate subdirectories)
