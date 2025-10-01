@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2025-10-01
+
+### Documentation
+- **USER_EXAMPLES.md complete rewrite** - Comprehensive tested workflows (935 lines)
+  - All examples verified with actual Things 3 MCP server operations
+  - GTD-focused workflows: inbox processing, weekly review, context switching
+  - Document/email parsing examples with real action item extraction
+  - Bulk operations: quarterly cleanup, quick wins sprints, multi-field updates
+  - Smart queries: stalled work detection, deadline dashboards, tag-based filtering
+  - Advanced automation: meeting preparation, time-blocked planning, energy-based scheduling
+  - Progressive learning path from simple to power user workflows
+  - Generic, non-personal data used throughout all examples
+  - Includes exact MCP function calls with parameters and expected results
+  - 15 major workflow categories with copy-paste conversation starters
+  - Troubleshooting guide and best practices for mode parameters
+  - Creative use cases: reading challenges, learning paths, habit tracking
+
+### Changed
+- **Test artifacts in .gitignore** - Added pytest.log, *.log, htmlcov/, .pytest_cache/
+  - Prevents test logs and coverage reports from being committed
+  - Cleaner git status for development workflow
+
 ## [1.2.3] - 2025-10-01
 
 ### Fixed
