@@ -177,7 +177,6 @@ The server uses environment variables for configuration. You can set these varia
 ```bash
 # Server identification
 THINGS_MCP_SERVER_NAME=things3-mcp-server
-THINGS_MCP_SERVER_VERSION=1.0.0
 
 # AppleScript execution
 THINGS_MCP_APPLESCRIPT_TIMEOUT=30.0       # Timeout in seconds (1-300)

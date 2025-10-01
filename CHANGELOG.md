@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] - 2025-10-01
+
+### Removed
+- **THINGS_MCP_SERVER_VERSION environment variable** - Removed unused configuration option
+  - Version is now automatically managed from package metadata (`__version__` in `__init__.py`)
+  - No need for manual version configuration
+  - Updated README.md to remove this configuration example
+
+### Documentation
+- **Release process** - Added comprehensive release process documentation to CLAUDE.md
+  - Step-by-step guide for version updates across all files
+  - Git tagging and GitHub release creation instructions
+  - PyPI publishing workflow
+  - Release checklist to ensure consistency
+  - Version consistency notes explaining where versions live
+
 ## [1.2.6] - 2025-10-01
 
 ### Fixed

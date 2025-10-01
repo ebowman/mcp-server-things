@@ -613,6 +613,95 @@ today = get_today(mode='standard', limit=20)
 - Run tests before committing
 - Update documentation for API changes
 
+## Release Process
+
+When creating a new release, follow these steps to ensure version consistency across all files:
+
+### 1. Update Version Numbers
+
+**Critical Files (MUST update):**
+
+```bash
+# 1. Update package version
+# File: pyproject.toml (line 7)
+version = "X.Y.Z"
+
+# 2. Update runtime version
+# File: src/things_mcp/__init__.py (line 3)
+__version__ = "X.Y.Z"
+
+# 3. Update CHANGELOG
+# File: CHANGELOG.md (top of file)
+## [X.Y.Z] - YYYY-MM-DD
+
+### Fixed
+- Bug fix description
+
+### Added
+- New feature description
+
+### Changed
+- Change description
+```
+
+### 2. Commit and Tag
+
+```bash
+# Run tests first
+pytest
+
+# Commit changes
+git add pyproject.toml src/things_mcp/__init__.py CHANGELOG.md
+git commit -m "Release vX.Y.Z - Brief description"
+
+# Push to GitHub
+git push origin main
+
+# Create and push tag
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+### 3. Create GitHub Release
+
+```bash
+# Create release with notes from CHANGELOG
+gh release create vX.Y.Z \
+  --title "vX.Y.Z - Release Title" \
+  --notes "$(sed -n '/## \[X.Y.Z\]/,/## \[/p' CHANGELOG.md | head -n -1)"
+```
+
+### 4. Publish to PyPI
+
+```bash
+# Build distribution packages
+python -m build
+
+# Upload to PyPI
+python -m twine upload dist/mcp_server_things-X.Y.Z*
+```
+
+### Version Consistency Notes
+
+- **pyproject.toml** - Package version for pip/PyPI
+- **src/things_mcp/__init__.py** - Runtime version (used by server.py)
+- **CHANGELOG.md** - Version history with dates
+- Version is automatically synced: `__version__` is imported by server.py and reported via `get_server_capabilities()`
+- No need to update version in documentation examples (README.md, CONTRIBUTING.md) - those are placeholders
+
+### Release Checklist
+
+- [ ] All tests pass (`pytest`)
+- [ ] Version updated in `pyproject.toml`
+- [ ] Version updated in `src/things_mcp/__init__.py`
+- [ ] CHANGELOG.md updated with date and changes
+- [ ] Committed with descriptive message
+- [ ] Pushed to GitHub
+- [ ] Git tag created and pushed
+- [ ] GitHub release created
+- [ ] Published to PyPI
+- [ ] Verify version reporting: AI should report correct version when queried
+
 ## Important Reminders
 - Never hardcode authentication tokens
 - Keep root directory clean (use appropriate subdirectories)
