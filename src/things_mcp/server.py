@@ -304,7 +304,7 @@ class ThingsMCPServer:
             heading: Optional[str] = Field(None, description="Heading to add under"),
             checklist_items: Optional[str] = Field(None, description="Newline-separated checklist items to add")
         ) -> Dict[str, Any]:
-            """Create a new todo. Supports reminders (when='today@14:30'), tags, projects, deadlines, and notes."""
+            """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
@@ -836,7 +836,7 @@ class ThingsMCPServer:
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
         ) -> List[Dict[str, Any]]:
-            """Get todos activating within specified days (1-365). Includes scheduled reminders."""
+            """Get todos activating within specified days (1-365)."""
             try:
                 return await self.tools.get_todos_activating_in_days(days)
             except Exception as e:
@@ -1202,14 +1202,6 @@ class ThingsMCPServer:
                             "budget_management": True,
                             "relevance_ranking": True
                         },
-                        "reminder_system": {
-                            "enabled": True,
-                            "badge": "📅 Reminder-Capable",
-                            "formats": ["today@14:30", "tomorrow@09:30", "YYYY-MM-DD@HH:MM"],
-                            "url_scheme_support": True,
-                            "notification_integration": True,
-                            "timezone_aware": True
-                        },
                         "bulk_operations": {
                             "enabled": True,
                             "badge": "🔄 Bulk-Capable", 
@@ -1249,7 +1241,7 @@ class ThingsMCPServer:
                         "workflow_operations": ["create", "read", "update", "delete", "move", "search"],
                         "list_operations": ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"],
                         "organization": ["projects", "areas", "tags", "headings"],
-                        "advanced_features": ["reminders", "bulk_ops", "context_optimization"]
+                        "advanced_features": ["bulk_ops", "context_optimization"]
                     },
                     "performance_characteristics": {
                         "context_budget_kb": round(self.context_manager.context_budget.total_budget / 1024, 1),
@@ -1398,7 +1390,6 @@ class ThingsMCPServer:
                         recommendations[operation] = {
                             "tag_strategy": "Use existing tags only" if not self.config.ai_can_create_tags else "Can create new tags",
                             "available_tags_count": tag_count,
-                            "reminder_format": "Use 'today@14:30' format for timed reminders",
                             "suggested_workflow": [
                                 "Check existing tags with get_tags()",
                                 "Create todo with existing tags",
