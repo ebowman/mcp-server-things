@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2025-10-01
+
+### Fixed
+- **Critical: bulk_update_todos tag handling** - Added extra defensive code to handle edge case where tags parameter might be passed as string instead of list
+  - If tags is a string, it's now automatically split by comma before processing
+  - Prevents individual characters from being treated as separate tags
+  - Fixes AppleScript error: "Can't make {\"E\", \"v\", \"a\", ...} into type text" (-1700)
+  - Added comprehensive unit tests to verify the fix
+  - BUG FIX #8: This adds an extra safety layer on top of server.py's string-to-list conversion
+
+### Added
+- **Test coverage** - Added `test_bulk_update_tags_string_bug.py` with 3 test cases
+  - Test single-tag string handling without splitting into characters
+  - Test comma-separated tag string splitting
+  - Test list format handling (correct format)
+
 ## [1.2.4] - 2025-10-01
 
 ### Documentation

@@ -1211,7 +1211,12 @@ class ThingsTools:
 
                 if 'tags' in kwargs and kwargs['tags']:
                     # BUG FIX #7 (Version 1.2.3): Things 3 requires comma-separated string, NOT AppleScript list
-                    escaped_tags = [self._escape_applescript_string(t).strip('"') for t in kwargs['tags']]
+                    # BUG FIX #8 (Version 1.2.5): Extra defensive - ensure tags is a list, not a string
+                    tags_value = kwargs['tags']
+                    if isinstance(tags_value, str):
+                        # If somehow a string was passed, split it by comma
+                        tags_value = [t.strip() for t in tags_value.split(",")] if tags_value else []
+                    escaped_tags = [self._escape_applescript_string(t).strip('"') for t in tags_value]
                     tag_string = ', '.join(escaped_tags)
                     script += f'        set tag names of targetTodo to "{tag_string}"\n'
 
