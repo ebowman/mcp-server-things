@@ -229,8 +229,8 @@ class ThingsMCPConfig(BaseSettings):
     )
 
     use_new_applescript_parser: bool = Field(
-        default=False,
-        description="Use new state machine parser for AppleScript output (experimental)"
+        default=True,
+        description="Use new state machine parser for AppleScript output (recommended, fixes date parsing bugs)"
     )
     
     # Things 3 specific configuration

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2025-10-01
+
+### Changed
+- **NEW: State machine AppleScript parser** - Default parser changed from legacy string manipulation to state machine (BREAKING: fixes bugs)
+  - New state machine parser is now the default (`use_new_applescript_parser=True`)
+  - Legacy parser deprecated with warning messages
+  - Set `use_new_applescript_parser=False` to temporarily use legacy parser
+  - Legacy parser will be removed in v2.0.0
+
+### Fixed
+- **Bug fix: completion_date parsing** - New parser correctly handles completion_date with commas
+  - Legacy parser left §COMMA§ placeholders (bug)
+  - New parser correctly parses dates: "Monday, January 15, 2024 at 2:30:00 PM"
+- **Bug fix: cancellation_date parsing** - New parser correctly handles cancellation_date with commas
+  - Same §COMMA§ placeholder bug fixed
+  - Dates now properly parsed to ISO format
+
+### Added
+- **Feature flag: use_new_applescript_parser** - Configuration option to control parser selection
+  - Default: true (new state machine parser)
+  - Set to false for legacy behavior (deprecated)
+- **State machine parser implementation** - Clean room implementation with proper state machine
+  - Handles quoted strings with commas and colons correctly
+  - Handles nested lists with braces properly
+  - Intelligent date field parsing
+  - No placeholder workarounds needed
+- **Comprehensive parser tests** - 62 new test cases added
+  - 44 unit tests for state machine parser
+  - 18 integration tests comparing old vs new parsers
+  - All tests validate parser equivalence
+
+### Deprecated
+- **Legacy string manipulation parser** - Will be removed in v2.0.0
+  - Warning logged on initialization if legacy parser is used
+  - Known bugs: completion_date and cancellation_date field parsing
+  - Recommend setting `use_new_applescript_parser=True`
+
 ## [1.2.7] - 2025-10-01
 
 ### Removed

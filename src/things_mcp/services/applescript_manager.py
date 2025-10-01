@@ -55,7 +55,12 @@ class AppleScriptManager:
             logger.info("AppleScript manager initialized with NEW state machine parser")
         else:
             self.parser = None
-            logger.info("AppleScript manager initialized with LEGACY string manipulation parser")
+            logger.warning(
+                "DEPRECATED: Using LEGACY string manipulation parser. "
+                "The legacy parser has known bugs with completion_date and cancellation_date fields. "
+                "Set use_new_applescript_parser=True to use the new state machine parser. "
+                "Legacy parser will be removed in v2.0.0."
+            )
 
         logger.info("AppleScript manager initialized - cache removed for hybrid implementation")
     
@@ -701,7 +706,11 @@ class AppleScriptManager:
                 # Fall through to legacy parser
 
         # Legacy parser implementation follows
-        logger.debug("Using LEGACY string manipulation parser")
+        logger.warning(
+            "DEPRECATED: Using legacy parser for this operation. "
+            "Consider enabling use_new_applescript_parser=True. "
+            "Legacy parser has known bugs with completion_date and cancellation_date fields."
+        )
         
         try:
             # Parse the output - special handling for tag_names which can contain commas
