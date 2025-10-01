@@ -12,12 +12,12 @@ These are example conversations you can have with Claude (or any AI with Things 
 
 ### Advanced Version
 > "Process my email inbox items with GTD methodology:
-> - Dentist appointment - add reminder for today at 2pm
-> - Q4 budget review - urgent, due Friday, remind me tomorrow morning
-> - Sarah's gift - party is Dec 15, remind me to shop this weekend
+> - Dentist appointment - schedule for today
+> - Q4 budget review - urgent, due Friday, schedule review for tomorrow
+> - Sarah's gift - party is Dec 15, schedule shopping for this weekend
 > - CRM research needs to be a project with research steps
-> - Call mom - today after work
-> 
+> - Call mom - schedule for today
+>
 > Tag work items appropriately and personal items as personal"
 
 ---
@@ -86,7 +86,7 @@ These are example conversations you can have with Claude (or any AI with Things 
 > - 4:30-5pm: Respond to messages
 > - 5-5:15pm: Plan tomorrow
 > 
-> Add 15-minute prep time before each meeting. Set reminders for transitions. Tag focus blocks with 'deep-work'."
+> Add 15-minute prep time before each meeting. Schedule transition tasks. Tag focus blocks with 'deep-work'."
 
 ---
 
@@ -139,10 +139,10 @@ These are example conversations you can have with Claude (or any AI with Things 
 ### Travel Planning
 > "I'm traveling to New York next Tuesday to Thursday. Please:
 > - Find all NYC-related tasks and move them to next week
-> - Create a packing reminder for Monday evening
+> - Add 'Pack for trip' scheduled for Monday
 > - Add 'Book airport parking' for Monday morning
 > - Tag everything 'nyc-trip'
-> - Set an 'expense report' reminder for Friday"
+> - Add 'Submit expense report' scheduled for Friday"
 
 ---
 
@@ -157,8 +157,8 @@ These are example conversations you can have with Claude (or any AI with Things 
 > - 25 min: Review and polish (11:00am)
 > - 15 min: Long break (11:25am)
 > - 25 min: Send for review (11:40am)
-> 
-> Add reminders for each transition"
+>
+> Schedule all tasks for today with checklist items for each transition"
 
 ---
 
@@ -204,8 +204,8 @@ These are example conversations you can have with Claude (or any AI with Things 
 
 ### Email to Task with Smart Parsing
 > "I got this email from my boss: 'Can you review the marketing proposal by Wednesday, set up a meeting with the design team next week, and make sure the Q4 report includes the latest metrics? Also, don't forget about the team lunch on Friday.'
-> 
-> Please parse this and create appropriate tasks with deadlines and reminders."
+>
+> Please parse this and create appropriate tasks with deadlines."
 
 ### Project Template Application
 > "Create a new client onboarding project for 'Acme Corp' using our standard template:
@@ -225,7 +225,7 @@ These are example conversations you can have with Claude (or any AI with Things 
 ### Book Reading Goal
 > "I want to read 12 books this year. Create a monthly recurring task to:
 > - Choose a new book (1st of each month)
-> - Set reading reminder (every evening at 9pm)
+> - Schedule daily reading time
 > - Write book summary (end of month)
 > Tag everything with 'reading-challenge-2024'"
 
