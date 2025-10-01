@@ -19,6 +19,7 @@ except ImportError:
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
@@ -1187,7 +1188,7 @@ class ThingsMCPServer:
                 capabilities = {
                     "server_info": {
                         "name": "Things 3 MCP Server",
-                        "version": "2.0",
+                        "version": __version__,
                         "platform": "macOS",
                         "framework": "FastMCP 2.0",
                         "total_tools": 27  # Updated count including new tools

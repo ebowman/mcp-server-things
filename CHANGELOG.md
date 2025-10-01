@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] - 2025-10-01
+
+### Fixed
+- **Version reporting** - Server now correctly reports actual package version (was hardcoded to "2.0")
+  - Added `__version__` variable to `src/things_mcp/__init__.py`
+  - Updated `get_server_capabilities()` to use dynamic `__version__` instead of hardcoded string
+  - When AI asks "what version is running?", it now correctly reports 1.2.6 instead of 2.0
+  - Version is automatically synced with pyproject.toml
+
+### Added
+- **Version management** - Single source of truth for version number
+  - `__version__` in package __init__.py
+  - Imported by server.py for runtime reporting
+  - Ensures pyproject.toml and runtime version always match
+
 ## [1.2.5] - 2025-10-01
 
 ### Fixed
