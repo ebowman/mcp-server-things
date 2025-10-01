@@ -145,9 +145,18 @@ class ThingsMCPServer:
             project_uuid: Optional[str] = None,
             include_items: Optional[bool] = None,
             mode: Optional[str] = None,
-            limit: Any = None
+            limit: Any = None,
+            status: Optional[str] = 'incomplete'
         ) -> Dict[str, Any]:
-            """Get todos with context-aware response optimization. Supports mode parameter (auto/summary/minimal/standard/detailed/raw) and optional project filtering. Use mode='auto' for adaptive responses."""
+            """Get todos with context-aware response optimization. Supports mode parameter (auto/summary/minimal/standard/detailed/raw) and optional project filtering. Use mode='auto' for adaptive responses.
+
+            Args:
+                project_uuid: Optional project UUID to filter by
+                include_items: Include checklist items
+                mode: Response mode (auto/summary/minimal/standard/detailed/raw)
+                limit: Maximum number of results to return (1-500)
+                status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
+            """
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
@@ -156,7 +165,15 @@ class ThingsMCPServer:
                         "error": "Invalid mode",
                         "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
                     }
-                
+
+                # Validate status parameter
+                if status is not None and status not in ["incomplete", "completed", "canceled"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid status",
+                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
+                    }
+
                 # Convert and validate limit parameter
                 actual_limit = None
                 if limit is not None:
@@ -168,7 +185,7 @@ class ThingsMCPServer:
                             actual_limit = int(limit)
                         else:
                             actual_limit = int(str(limit))
-                        
+
                         # Validate range
                         if actual_limit < 1 or actual_limit > 500:
                             return {
@@ -182,27 +199,30 @@ class ThingsMCPServer:
                             "error": "Invalid limit parameter",
                             "message": f"Limit must be a number between 1 and 500, got '{limit}'"
                         }
-                
+
                 # Prepare request parameters
                 request_params = {
                     'project_uuid': project_uuid,
                     'include_items': include_items,
                     'mode': mode,
-                    'limit': actual_limit
+                    'limit': actual_limit,
+                    'status': status
                 }
-                
+
                 # Apply smart defaults and optimization
                 optimized_params, was_modified = self.context_manager.optimize_request('get_todos', request_params)
-                
+
                 # Extract optimized parameters
                 final_include_items = optimized_params.get('include_items', False)
                 final_limit = optimized_params.get('limit')
+                final_status = optimized_params.get('status', 'incomplete')
                 response_mode = ResponseMode(optimized_params.get('mode', 'standard'))
-                
+
                 # Get raw data from tools layer
                 raw_data = await self.tools.get_todos(
-                    project_uuid=project_uuid, 
-                    include_items=final_include_items
+                    project_uuid=project_uuid,
+                    include_items=final_include_items,
+                    status=final_status
                 )
                 
                 # Apply limit if specified

@@ -427,18 +427,50 @@ bulk_move_records(
 | Someday | `"someday"` | `move_record(todo_id="123", destination_list="someday")` |
 | Project | `"project:{id}"` | `move_record(todo_id="123", destination_list="project:xyz")` |
 
+### Status Filtering
+
+The `get_todos()` function supports filtering by completion status:
+
+```python
+# Get incomplete todos (default behavior)
+get_todos(project_uuid="abc123")
+get_todos(project_uuid="abc123", status="incomplete")
+
+# Get ALL todos (completed + incomplete + canceled)
+get_todos(project_uuid="abc123", status=None)
+
+# Get only completed todos
+get_todos(project_uuid="abc123", status="completed")
+
+# Get only canceled todos
+get_todos(project_uuid="abc123", status="canceled")
+
+# Works without project filter too
+get_todos(status="completed")  # All completed todos
+get_todos(status=None)  # All todos regardless of status
+```
+
+**Status Parameter Options:**
+- `'incomplete'` (default) - Only active, uncompleted todos
+- `'completed'` - Only completed todos
+- `'canceled'` - Only canceled todos
+- `None` - All todos regardless of status
+
+This feature is useful for:
+- Reviewing completed work in a project
+- Analyzing canceled todos
+- Getting complete project history
+- Status-based reporting and analytics
+
 ### Known Limitations
 
 1. **Project todos parameter not functional**: The `todos` parameter in `add_project()` doesn't create child todos. Create project first, then add todos separately with `list_id` parameter.
 
-2. **Project query status filter**: `get_todos(project_uuid=...)` only returns incomplete todos by default. Returns todos at all hierarchy levels (direct + under headings). To include completed todos, use `search_advanced(project=uuid, status=None)`.
-
-3. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
+2. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
 
 **Workarounds:**
 - Create projects then add todos individually with `list_id`
 - Use `get_projects(mode='minimal')` to get IDs, then query specific projects
-- Use `search_todos()` or `search_advanced()` to find project-related tasks
 - Never use `include_items=true` - causes context overflow
 
 ### Hierarchical Best Practices

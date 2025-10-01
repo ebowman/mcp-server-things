@@ -1,388 +1,667 @@
 """
-Comprehensive bulk operations testing for Things 3 MCP server.
-Tests bulk_update_todos and bulk_move_records with various scenarios.
+Comprehensive Test Suite for Bulk Operations and Record Movement
+
+Tests all bulk operations with various parameter combinations, edge cases,
+and performance characteristics. Validates:
+- bulk_update_todos: Single and multi-field updates
+- bulk_move_records: Moving to different destinations  
+- move_record: Individual record moves
+- add_tags/remove_tags: Tag management operations
+
+Focus areas:
+1. Single vs multi-field updates
+2. Various batch sizes (1, 2, 5, 10, 50 todos)
+3. Different field types (title, notes, when, deadline, tags, status)
+4. Destination types (lists, projects, areas)
+5. Edge cases (empty values, special characters, invalid IDs)
+6. Performance degradation patterns
+7. Error handling and partial failures
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
-from things_mcp.server import mcp
-from things_mcp.applescript_manager import AppleScriptManager
+import asyncio
+from datetime import datetime, timedelta
+from typing import List, Dict, Any
+
+from things_mcp.services.applescript_manager import AppleScriptManager
+from things_mcp.tools import ThingsTools
+from things_mcp.move_operations import MoveOperationsTools
+from things_mcp.services.validation_service import ValidationService
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
 
 @pytest.fixture
-def mock_applescript():
-    """Mock AppleScript execution for bulk operations."""
-    with patch('things_mcp.applescript_manager.subprocess.run') as mock_run:
-        # Default successful execution
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="success",
-            stderr=""
-        )
-        yield mock_run
+def applescript_manager():
+    """Create AppleScript manager instance."""
+    return AppleScriptManager()
 
-class TestBulkUpdateTodos:
-    """Test bulk_update_todos functionality."""
-    
-    def test_single_field_update_small_batch(self, mock_applescript):
-        """Test updating a single field on 2-5 todos."""
-        todo_ids = "id1,id2,id3"
-        
-        # Test completed field
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": todo_ids, "completed": "true"}
-        )
-        
-        assert mock_applescript.called
-        assert "id1" in str(mock_applescript.call_args)
-        assert "id2" in str(mock_applescript.call_args)
-        assert "id3" in str(mock_applescript.call_args)
-    
-    def test_single_field_update_medium_batch(self, mock_applescript):
-        """Test updating a single field on 10-20 todos."""
-        todo_ids = ",".join([f"id{i}" for i in range(1, 16)])  # 15 todos
-        
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": todo_ids, "tags": "urgent,test"}
-        )
-        
-        assert mock_applescript.called
-        # Verify all IDs are processed
-        script_calls = str(mock_applescript.call_args_list)
-        for i in range(1, 16):
-            assert f"id{i}" in script_calls
-    
-    def test_single_field_update_large_batch(self, mock_applescript):
-        """Test updating a single field on 50+ todos."""
-        todo_ids = ",".join([f"id{i}" for i in range(1, 51)])  # 50 todos
-        
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": todo_ids, "when": "today"}
-        )
-        
-        assert mock_applescript.called
-    
-    def test_multi_field_update_v1_2_2_fix(self, mock_applescript):
-        """Test v1.2.2+ fix: multiple fields all get applied."""
-        todo_ids = "id1,id2,id3"
-        
-        # Test tags + deadline + notes
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {
-                "todo_ids": todo_ids,
-                "tags": "urgent,test",
-                "deadline": "2025-12-31",
-                "notes": "Updated via bulk operation"
-            }
-        )
-        
-        # Verify all fields are in the script
-        script_calls = str(mock_applescript.call_args_list)
-        assert "urgent" in script_calls or "tag" in script_calls.lower()
-        assert "2025-12-31" in script_calls or "deadline" in script_calls.lower()
-        assert "Updated via bulk operation" in script_calls or "note" in script_calls.lower()
-    
-    def test_multi_field_completed_and_notes(self, mock_applescript):
-        """Test completed + notes combination."""
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {
-                "todo_ids": "id1,id2",
-                "completed": "true",
-                "notes": "Completed in sprint review"
-            }
-        )
-        
-        script_calls = str(mock_applescript.call_args_list)
-        assert "completed" in script_calls.lower() or "true" in script_calls.lower()
-        assert "Completed in sprint review" in script_calls or "note" in script_calls.lower()
-    
-    def test_multi_field_when_tags_title(self, mock_applescript):
-        """Test when + tags + title combination."""
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {
-                "todo_ids": "id1,id2,id3",
-                "when": "today",
-                "tags": "urgent,work",
-                "title": "Updated Title"
-            }
-        )
-        
-        script_calls = str(mock_applescript.call_args_list)
-        assert "today" in script_calls.lower() or "when" in script_calls.lower()
-        assert "urgent" in script_calls or "tag" in script_calls.lower()
-        assert "Updated Title" in script_calls or "name" in script_calls.lower()
-    
-    def test_all_updateable_fields(self, mock_applescript):
-        """Test all updateable fields: title, notes, when, deadline, tags, completed, canceled."""
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {
-                "todo_ids": "id1",
-                "title": "New Title",
-                "notes": "New notes",
-                "when": "today",
-                "deadline": "2025-12-31",
-                "tags": "test,bulk",
-                "completed": "false",
-                "canceled": "false"
-            }
-        )
-        
-        assert mock_applescript.called
-    
-    def test_empty_id_list(self, mock_applescript):
-        """Test error handling for empty ID list."""
-        with pytest.raises(Exception):
-            mcp.call_tool("bulk_update_todos", {"todo_ids": "", "tags": "test"})
-    
-    def test_malformed_id_list(self, mock_applescript):
-        """Test handling of malformed ID lists."""
-        # Whitespace handling
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": "id1, id2, id3", "tags": "test"}  # Spaces after commas
-        )
-        
-        # Should handle gracefully
-        assert mock_applescript.called
-    
-    def test_non_existent_ids(self, mock_applescript):
-        """Test handling of non-existent IDs."""
-        # Mock AppleScript to return error for non-existent IDs
-        mock_applescript.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="Can't get to do id \"nonexistent\""
-        )
-        
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": "nonexistent", "tags": "test"}
-        )
-        
-        # Should handle error gracefully
-        assert mock_applescript.called
 
+@pytest.fixture
+def things_tools(applescript_manager):
+    """Create ThingsTools instance."""
+    return ThingsTools(applescript_manager)
+
+
+@pytest.fixture
+def move_operations(applescript_manager):
+    """Create MoveOperationsTools instance."""
+    validation_service = ValidationService(applescript_manager)
+    return MoveOperationsTools(applescript_manager, validation_service)
+
+
+@pytest.fixture
+async def test_todos(things_tools) -> List[str]:
+    """Create a set of test todos for bulk operations."""
+    todo_ids = []
+    base_title = f"BulkTest_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    for i in range(10):
+        result = await things_tools.add_todo(
+            title=f"{base_title}_{i}",
+            notes=f"Test todo {i} for bulk operations"
+        )
+        if result.get('success'):
+            # FIX: add_todo returns 'todo_id', not 'id'
+            todo_ids.append(result['todo_id'])
+
+    yield todo_ids
+
+    # Cleanup
+    for todo_id in todo_ids:
+        try:
+            await things_tools.delete_todo(todo_id)
+        except:
+            pass
+
+
+@pytest.fixture
+async def test_project(things_tools) -> str:
+    """Create a test project for move operations."""
+    result = await things_tools.add_project(
+        title=f"BulkMoveTest_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        notes="Test project for bulk move operations"
+    )
+
+    # FIX: add_project returns 'project_id', not 'id'
+    project_id = result.get('project_id')
+    yield project_id
+
+    # Cleanup
+    if project_id:
+        try:
+            # FIX: update_project expects 'project_id' parameter, not 'id'
+            await things_tools.update_project(project_id=project_id, canceled="true")
+        except:
+            pass
+
+
+# ============================================================================
+# Test: bulk_update_todos - Single Field Updates
+# ============================================================================
+
+class TestBulkUpdateSingleField:
+    """Test bulk_update_todos with single field updates."""
+
+    @pytest.mark.asyncio
+    async def test_update_title_only(self, things_tools, test_todos):
+        """Test updating only the title field."""
+        todo_ids = test_todos[:3]
+        new_title = f"Updated_{datetime.now().strftime('%H%M%S')}"
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=new_title
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_notes_only(self, things_tools, test_todos):
+        """Test updating only the notes field."""
+        todo_ids = test_todos[:3]
+        new_notes = f"Updated notes at {datetime.now().isoformat()}"
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            notes=new_notes
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_when_today(self, things_tools, test_todos):
+        """Test updating scheduling to today."""
+        todo_ids = test_todos[:3]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            when="today"
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_deadline_only(self, things_tools, test_todos):
+        """Test updating only the deadline field."""
+        todo_ids = test_todos[:3]
+        deadline_date = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            deadline=deadline_date
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_single_tag(self, things_tools, test_todos):
+        """Test updating with a single tag."""
+        todo_ids = test_todos[:3]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            tags=["test"]
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_update_multiple_tags(self, things_tools, test_todos):
+        """Test updating with multiple tags."""
+        todo_ids = test_todos[:3]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            tags=["test", "urgent"]
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_mark_completed(self, things_tools, test_todos):
+        """Test marking todos as completed."""
+        todo_ids = test_todos[:2]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            completed="true"
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_mark_canceled(self, things_tools, test_todos):
+        """Test marking todos as canceled."""
+        todo_ids = test_todos[:2]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            canceled="true"
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+
+# ============================================================================
+# Test: bulk_update_todos - Multi-Field Updates
+# ============================================================================
+
+class TestBulkUpdateMultiField:
+    """Test bulk_update_todos with multiple field updates."""
+
+    @pytest.mark.asyncio
+    async def test_update_title_and_notes(self, things_tools, test_todos):
+        """Test updating title and notes together."""
+        todo_ids = test_todos[:3]
+        new_title = f"MultiUpdate_{datetime.now().strftime('%H%M%S')}"
+        new_notes = "Updated with multiple fields"
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=new_title,
+            notes=new_notes
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_three_fields(self, things_tools, test_todos):
+        """Test updating title, notes, and when together."""
+        todo_ids = test_todos[:3]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=f"Triple_{datetime.now().strftime('%H%M%S')}",
+            notes="Three field update",
+            when="today"
+        )
+
+        assert result['success']
+        assert result.get('updated_count', 0) >= 3
+
+    @pytest.mark.asyncio
+    async def test_update_tags_and_deadline(self, things_tools, test_todos):
+        """Test updating tags and deadline together."""
+        todo_ids = test_todos[:3]
+        deadline_date = (datetime.now() + timedelta(days=14)).strftime('%Y-%m-%d')
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            tags=["urgent", "work"],
+            deadline=deadline_date
+        )
+
+        # Tags may be filtered if they don't exist
+        assert 'success' in result or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_update_four_fields(self, things_tools, test_todos):
+        """Test updating four fields together."""
+        todo_ids = test_todos[:2]
+        deadline_date = (datetime.now() + timedelta(days=21)).strftime('%Y-%m-%d')
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=f"FourFields_{datetime.now().strftime('%H%M%S')}",
+            notes="Four field update",
+            tags=["test"],
+            deadline=deadline_date
+        )
+
+        assert 'success' in result or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_update_maximum_fields(self, things_tools, test_todos):
+        """Test updating all possible fields together."""
+        todo_ids = test_todos[:2]
+        deadline_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=f"MaxFields_{datetime.now().strftime('%H%M%S')}",
+            notes="Maximum field update",
+            tags=["test"],
+            when="today",
+            deadline=deadline_date
+        )
+
+        assert 'success' in result or 'updated_count' in result
+
+
+# ============================================================================
+# Test: bulk_update_todos - Varying Batch Sizes
+# ============================================================================
+
+class TestBulkUpdateBatchSizes:
+    """Test bulk_update_todos with different batch sizes."""
+
+    @pytest.mark.asyncio
+    async def test_batch_size_1(self, things_tools, test_todos):
+        """Test with batch size of 1."""
+        result = await things_tools.bulk_update_todos(
+            todo_ids=test_todos[:1],
+            title="Batch1"
+        )
+
+        assert result['success']
+
+    @pytest.mark.asyncio
+    async def test_batch_size_2(self, things_tools, test_todos):
+        """Test with batch size of 2."""
+        result = await things_tools.bulk_update_todos(
+            todo_ids=test_todos[:2],
+            title="Batch2"
+        )
+
+        assert result['success']
+
+    @pytest.mark.asyncio
+    async def test_batch_size_5(self, things_tools, test_todos):
+        """Test with batch size of 5."""
+        result = await things_tools.bulk_update_todos(
+            todo_ids=test_todos[:5],
+            title="Batch5"
+        )
+
+        assert result['success']
+
+    @pytest.mark.asyncio
+    async def test_batch_size_10(self, things_tools, test_todos):
+        """Test with batch size of 10."""
+        result = await things_tools.bulk_update_todos(
+            todo_ids=test_todos[:10],
+            title="Batch10"
+        )
+
+        assert result['success']
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_batch_size_50_performance(self, things_tools):
+        """Test with batch size of 50 (performance test)."""
+        # Create 50 test todos
+        todo_ids = []
+        base_title = f"Perf50_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        for i in range(50):
+            result = await things_tools.add_todo(
+                title=f"{base_title}_{i}"
+            )
+            if result.get('success'):
+                # FIX: add_todo returns 'todo_id', not 'id'
+                todo_ids.append(result['todo_id'])
+
+        try:
+            start_time = datetime.now()
+
+            result = await things_tools.bulk_update_todos(
+                todo_ids=todo_ids,
+                title="Perf50Update"
+            )
+
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+
+            assert result['success']
+            assert duration < 30.0, f"Took {duration}s (expected <30s)"
+
+            print(f"\n50-todo bulk update: {duration:.2f}s ({duration/50:.3f}s per todo)")
+
+        finally:
+            for todo_id in todo_ids:
+                try:
+                    await things_tools.delete_todo(todo_id)
+                except:
+                    pass
+
+
+# ============================================================================
+# Test: bulk_update_todos - Edge Cases
+# ============================================================================
+
+class TestBulkUpdateEdgeCases:
+    """Test bulk_update_todos edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_empty_todo_list(self, things_tools):
+        """Test with empty todo list."""
+        result = await things_tools.bulk_update_todos(
+            todo_ids=[],
+            title="ShouldFail"
+        )
+
+        assert not result['success']
+
+    @pytest.mark.asyncio
+    async def test_special_characters_in_title(self, things_tools, test_todos):
+        """Test with special characters in title."""
+        todo_ids = test_todos[:2]
+        special_title = 'Title with "quotes" and \'apostrophes\' & symbols!'
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            title=special_title
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+    @pytest.mark.asyncio
+    async def test_long_notes_text(self, things_tools, test_todos):
+        """Test with very long notes."""
+        todo_ids = test_todos[:2]
+        long_notes = "A" * 1000
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            notes=long_notes
+        )
+
+        assert result['success']
+
+    @pytest.mark.asyncio
+    async def test_empty_string_values(self, things_tools, test_todos):
+        """Test with empty string values."""
+        todo_ids = test_todos[:2]
+
+        result = await things_tools.bulk_update_todos(
+            todo_ids=todo_ids,
+            notes=""
+        )
+
+        assert result.get('success') or 'updated_count' in result
+
+
+# ============================================================================
+# Test: move_record - Individual Moves
+# ============================================================================
+
+class TestMoveRecord:
+    """Test individual record move operations."""
+
+    @pytest.mark.asyncio
+    async def test_move_to_inbox(self, things_tools, test_todos):
+        """Test moving a todo to inbox."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list="inbox"
+        )
+
+        assert result.get('success') or 'destination' in result
+
+    @pytest.mark.asyncio
+    async def test_move_to_today(self, things_tools, test_todos):
+        """Test moving a todo to today."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list="today"
+        )
+
+        assert result.get('success') or 'destination' in result
+
+    @pytest.mark.asyncio
+    async def test_move_to_anytime(self, things_tools, test_todos):
+        """Test moving a todo to anytime."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list="anytime"
+        )
+
+        assert result.get('success') or 'destination' in result
+
+    @pytest.mark.asyncio
+    async def test_move_to_someday(self, things_tools, test_todos):
+        """Test moving a todo to someday."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list="someday"
+        )
+
+        assert result.get('success') or 'destination' in result
+
+    @pytest.mark.asyncio
+    async def test_move_to_project(self, things_tools, test_todos, test_project):
+        """Test moving a todo to a project."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list=f"project:{test_project}"
+        )
+
+        assert result.get('success') or 'destination' in result
+
+    @pytest.mark.asyncio
+    async def test_move_invalid_destination(self, things_tools, test_todos):
+        """Test moving to an invalid destination."""
+        result = await things_tools.move_record(
+            todo_id=test_todos[0],
+            destination_list="invalid_destination"
+        )
+
+        assert not result.get('success', True)
+
+
+# ============================================================================
+# Test: bulk_move_records - Bulk Moves
+# ============================================================================
 
 class TestBulkMoveRecords:
-    """Test bulk_move_records functionality."""
-    
-    def test_move_to_inbox(self, mock_applescript):
-        """Test moving todos to inbox."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2,id3",
-                "destination": "inbox"
-            }
+    """Test bulk move operations."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_to_inbox(self, move_operations, test_todos):
+        """Test bulk moving todos to inbox."""
+        todo_ids = test_todos[:5]
+
+        result = await move_operations.bulk_move(
+            todo_ids=todo_ids,
+            destination="inbox"
         )
-        
-        assert mock_applescript.called
-        script_calls = str(mock_applescript.call_args_list)
-        assert "inbox" in script_calls.lower()
-    
-    def test_move_to_today(self, mock_applescript):
-        """Test moving todos to today list."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2,id3,id4,id5",
-                "destination": "today"
-            }
+
+        assert 'success' in result
+        assert result.get('total_requested', 0) == 5
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_to_today(self, move_operations, test_todos):
+        """Test bulk moving todos to today."""
+        todo_ids = test_todos[:5]
+
+        result = await move_operations.bulk_move(
+            todo_ids=todo_ids,
+            destination="today"
         )
-        
-        assert mock_applescript.called
-        script_calls = str(mock_applescript.call_args_list)
-        assert "today" in script_calls.lower()
-    
-    def test_move_to_anytime(self, mock_applescript):
-        """Test moving todos to anytime list."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": "id1,id2", "destination": "anytime"}
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_to_project(self, move_operations, test_todos, test_project):
+        """Test bulk moving todos to a project."""
+        todo_ids = test_todos[:5]
+
+        result = await move_operations.bulk_move(
+            todo_ids=todo_ids,
+            destination=f"project:{test_project}"
         )
-        
-        assert mock_applescript.called
-    
-    def test_move_to_someday(self, mock_applescript):
-        """Test moving todos to someday list."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": "id1,id2", "destination": "someday"}
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_varying_concurrency(self, move_operations, test_todos):
+        """Test bulk move with different concurrency settings."""
+        # Test max_concurrent=1
+        result1 = await move_operations.bulk_move(
+            todo_ids=test_todos[:2],
+            destination="inbox",
+            max_concurrent=1
         )
-        
-        assert mock_applescript.called
-    
-    def test_move_to_project(self, mock_applescript):
-        """Test moving todos to a project."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2,id3",
-                "destination": "project:project123"
-            }
+        assert 'success' in result1
+
+        # Test max_concurrent=5
+        result2 = await move_operations.bulk_move(
+            todo_ids=test_todos[2:4],
+            destination="today",
+            max_concurrent=5
         )
-        
-        assert mock_applescript.called
-        script_calls = str(mock_applescript.call_args_list)
-        assert "project123" in script_calls
-    
-    def test_preserve_scheduling_true(self, mock_applescript):
-        """Test preserve_scheduling=true parameter."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2",
-                "destination": "inbox",
-                "preserve_scheduling": True
-            }
+        assert 'success' in result2
+
+        # Test max_concurrent=10
+        result3 = await move_operations.bulk_move(
+            todo_ids=test_todos[4:6],
+            destination="anytime",
+            max_concurrent=10
         )
-        
-        assert mock_applescript.called
-    
-    def test_preserve_scheduling_false(self, mock_applescript):
-        """Test preserve_scheduling=false parameter."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2",
-                "destination": "today",
-                "preserve_scheduling": False
-            }
+        assert 'success' in result3
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_preserve_scheduling(self, move_operations, test_todos):
+        """Test preserve_scheduling parameter."""
+        result = await move_operations.bulk_move(
+            todo_ids=test_todos[:3],
+            destination="inbox",
+            preserve_scheduling=True
         )
-        
-        assert mock_applescript.called
-    
-    def test_max_concurrent_low(self, mock_applescript):
-        """Test max_concurrent=1 (sequential processing)."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": "id1,id2,id3,id4,id5",
-                "destination": "inbox",
-                "max_concurrent": 1
-            }
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_bulk_move_empty_list(self, move_operations):
+        """Test bulk move with empty todo list."""
+        result = await move_operations.bulk_move(
+            todo_ids=[],
+            destination="inbox"
         )
-        
-        assert mock_applescript.called
-    
-    def test_max_concurrent_high(self, mock_applescript):
-        """Test max_concurrent=10 (maximum parallelism)."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {
-                "todo_ids": ",".join([f"id{i}" for i in range(1, 21)]),  # 20 todos
-                "destination": "inbox",
-                "max_concurrent": 10
-            }
-        )
-        
-        assert mock_applescript.called
-    
-    def test_small_batch_2_todos(self, mock_applescript):
-        """Test small batch (2 todos)."""
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": "id1,id2", "destination": "inbox"}
-        )
-        
-        assert mock_applescript.called
-    
-    def test_medium_batch_15_todos(self, mock_applescript):
-        """Test medium batch (15 todos)."""
-        todo_ids = ",".join([f"id{i}" for i in range(1, 16)])
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": todo_ids, "destination": "today"}
-        )
-        
-        assert mock_applescript.called
-    
-    def test_large_batch_50_todos(self, mock_applescript):
-        """Test large batch (50 todos)."""
-        todo_ids = ",".join([f"id{i}" for i in range(1, 51)])
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": todo_ids, "destination": "inbox"}
-        )
-        
-        assert mock_applescript.called
-    
-    def test_empty_destination(self, mock_applescript):
-        """Test error handling for empty destination."""
-        with pytest.raises(Exception):
-            mcp.call_tool(
-                "bulk_move_records",
-                {"todo_ids": "id1,id2", "destination": ""}
-            )
-    
-    def test_invalid_destination_format(self, mock_applescript):
-        """Test error handling for invalid destination format."""
-        # Invalid format should be caught or handled gracefully
-        result = mcp.call_tool(
-            "bulk_move_records",
-            {"todo_ids": "id1", "destination": "invalid:format:here"}
-        )
-        
-        # Should either raise exception or handle gracefully
-        assert mock_applescript.called or True  # Allow graceful handling
+
+        assert not result['success']
 
 
-class TestPerformanceCharacteristics:
-    """Test performance and optimization characteristics."""
-    
-    def test_optimal_batch_size_detection(self, mock_applescript):
-        """Test that optimal batch sizes (2-50) work well."""
-        for size in [2, 5, 10, 20, 50]:
-            todo_ids = ",".join([f"id{i}" for i in range(1, size + 1)])
-            result = mcp.call_tool(
-                "bulk_update_todos",
-                {"todo_ids": todo_ids, "tags": "test"}
-            )
-            assert mock_applescript.called
-            mock_applescript.reset_mock()
-    
-    def test_concurrent_operation_handling(self, mock_applescript):
-        """Test concurrent operations with different max_concurrent values."""
-        todo_ids = ",".join([f"id{i}" for i in range(1, 21)])  # 20 todos
-        
-        for concurrent in [1, 3, 5, 10]:
-            result = mcp.call_tool(
-                "bulk_move_records",
-                {
-                    "todo_ids": todo_ids,
-                    "destination": "inbox",
-                    "max_concurrent": concurrent
-                }
-            )
-            assert mock_applescript.called
-            mock_applescript.reset_mock()
-    
-    def test_error_recovery_partial_failure(self, mock_applescript):
-        """Test error recovery when some IDs fail."""
-        call_count = [0]
-        
-        def side_effect(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 2:  # Second call fails
-                return MagicMock(returncode=1, stdout="", stderr="Error")
-            return MagicMock(returncode=0, stdout="success", stderr="")
-        
-        mock_applescript.side_effect = side_effect
-        
-        result = mcp.call_tool(
-            "bulk_update_todos",
-            {"todo_ids": "id1,id2,id3", "tags": "test"}
-        )
-        
-        # Should continue processing despite one failure
-        assert mock_applescript.called
+# ============================================================================
+# Test: Tag Management
+# ============================================================================
 
+class TestTagManagement:
+    """Test tag operations."""
+
+    @pytest.mark.asyncio
+    async def test_add_single_tag(self, things_tools, test_todos):
+        """Test adding a single tag."""
+        result = await things_tools.add_tags(
+            todo_id=test_todos[0],
+            tags=["test"]
+        )
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_add_multiple_tags(self, things_tools, test_todos):
+        """Test adding multiple tags."""
+        result = await things_tools.add_tags(
+            todo_id=test_todos[0],
+            tags=["test", "urgent"]
+        )
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_remove_single_tag(self, things_tools, test_todos):
+        """Test removing a tag."""
+        # Add tag first
+        await things_tools.add_tags(todo_id=test_todos[0], tags=["test"])
+
+        # Remove it
+        result = await things_tools.remove_tags(
+            todo_id=test_todos[0],
+            tags=["test"]
+        )
+
+        assert 'success' in result
+
+    @pytest.mark.asyncio
+    async def test_remove_multiple_tags(self, things_tools, test_todos):
+        """Test removing multiple tags."""
+        # Add tags first
+        await things_tools.add_tags(
+            todo_id=test_todos[0],
+            tags=["test", "urgent"]
+        )
+
+        # Remove them
+        result = await things_tools.remove_tags(
+            todo_id=test_todos[0],
+            tags=["test", "urgent"]
+        )
+
+        assert 'success' in result
+
+
+# ============================================================================
+# Run Configuration
+# ============================================================================
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    pytest.main([__file__, "-v", "-s"])

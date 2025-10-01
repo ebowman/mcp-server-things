@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2025-10-01
+
+### Fixed
+- **Status filtering enhancements** - Improved `get_todos()` status parameter handling
+  - Fixed status filtering logic to properly use AppleScript status property values
+  - Automatically includes Logbook when searching for completed or canceled todos
+  - Properly maps between MCP status values ('incomplete', 'completed', 'canceled') and AppleScript ('open', 'completed', 'canceled')
+- **Project todo assignment** - Fixed `list_id` parameter handling in `add_todo()`
+  - Now correctly uses `project id "UUID"` syntax to assign todos to projects
+  - Handles both `project` and `list_id` parameters for backward compatibility
+- **Project query reliability** - Implemented hybrid approach for project-filtered queries
+  - Uses AppleScript for project queries to avoid SQLite database sync timing issues
+  - Ensures queries return immediately accurate results after AppleScript writes
+  - Falls back to things.py database queries when AppleScript unavailable
+
+### Added
+- **Enhanced test coverage** - Added 4 comprehensive unit test suites
+  - `test_tag_management_comprehensive.py` - 29 tests for all tag operations
+  - `test_status_filter.py` - Tests for status filtering edge cases
+  - `test_search_advanced_status_filter.py` - Advanced search status tests
+  - `test_delete_validation.py` - Delete operation validation tests
+  - All tests passing (327 total unit tests)
+
+### Documentation
+- **CLAUDE.md enhancements** - Comprehensive updates to AI assistant instructions
+  - Added detailed status filtering documentation with examples
+  - Documented project/area hierarchical organization best practices
+  - Enhanced common pitfalls section with tag management guides
+  - Added multi-field bulk update usage examples
+- **Repository cleanup** - Removed 87 temporary analysis and test report files
+  - Cleaned up docs/ directory (removed temporary FIX_STRATEGY files)
+  - Removed diagnostic test scripts and log files
+  - Improved repository organization and maintainability
+
+### Changed
+- Status parameter now defaults to 'incomplete' for `get_todos()` (explicit default)
+- Project queries optimized for real-time accuracy using application state
+- Improved error messages for validation failures
+
 ## [1.2.2] - 2025-09-30
 
 ### Fixed

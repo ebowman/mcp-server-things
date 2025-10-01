@@ -325,7 +325,9 @@ class PureAppleScriptScheduler:
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', '')
             area = kwargs.get('area', '')
-            project = kwargs.get('project', '')
+            # BUG FIX: Handle both 'project' and 'list_id' parameters
+            # The MCP API uses 'list_id' to specify project/area assignment
+            project = kwargs.get('project', '') or kwargs.get('list_id', '')
             checklist = kwargs.get('checklist', [])
 
             # Escape strings for AppleScript
@@ -348,10 +350,11 @@ class PureAppleScriptScheduler:
                 escaped_area = self._escape_applescript_string(area)
                 script += f'set area of newTodo to area {escaped_area}\n                    '
 
-            # Add to project if specified  
+            # Add to project if specified
             if project:
-                escaped_project = self._escape_applescript_string(project)
-                script += f'set project of newTodo to project {escaped_project}\n                    '
+                # BUG FIX: Use 'project id "UUID"' syntax to reference project by ID
+                # Not escaped_project because it's a UUID, not a name
+                script += f'set project of newTodo to project id "{project}"\n                    '
 
             # Add tags if provided
             if tags:
@@ -1054,8 +1057,13 @@ class PureAppleScriptScheduler:
             area = filters.get('area', '')
             project = filters.get('project', '')
             list_name = filters.get('list', '')
-            completed = filters.get('completed', None)
+            status = filters.get('status', None)
             limit = filters.get('limit', None)
+
+            # BUG FIX: Map status parameter to AppleScript status values
+            # The status parameter uses: 'incomplete', 'completed', 'canceled', or None
+            # AppleScript status property has values: open, completed, canceled
+            # We need to filter based on the actual status property, not completion date alone
 
             # Build AppleScript to search todos
             script = '''
@@ -1066,16 +1074,23 @@ class PureAppleScriptScheduler:
             '''
 
             # Add todos from specified list or all lists
+            # BUG FIX: Include Logbook when searching for completed/canceled todos
             if list_name:
                 script += f'set allTodos to to dos of list "{list_name}"\n'
             else:
+                # Include active lists
                 script += '''
                     set allTodos to allTodos & (to dos of list "Today")
-                    set allTodos to allTodos & (to dos of list "Upcoming") 
+                    set allTodos to allTodos & (to dos of list "Upcoming")
                     set allTodos to allTodos & (to dos of list "Anytime")
                     set allTodos to allTodos & (to dos of list "Someday")
                     set allTodos to allTodos & (to dos of list "Inbox")
                 '''
+                # Also include Logbook if searching for completed or canceled todos
+                if status and status.lower() in ['completed', 'canceled']:
+                    script += '''
+                    set allTodos to allTodos & (to dos of list "Logbook")
+                    '''
 
             script += '''
                     set resultList to {}
@@ -1150,17 +1165,30 @@ class PureAppleScriptScheduler:
                         end try
                 '''
 
-            # Add completion status filter
-            if completed is not None:
-                if completed:
+            # Add status filter - properly map status values to AppleScript status property
+            if status is not None:
+                # Map our status values to AppleScript status values
+                # 'incomplete' or 'open' -> 'open' in AppleScript
+                # 'completed' -> 'completed' in AppleScript
+                # 'canceled' -> 'canceled' in AppleScript
+                if status.lower() in ['incomplete', 'open']:
+                    # Filter for open/incomplete todos
                     script += '''
-                        if completion date of aTodo is missing value then
+                        if status of aTodo is not equal to open then
                             set todoMatches to false
                         end if
                     '''
-                else:
+                elif status.lower() == 'completed':
+                    # Filter for completed todos
                     script += '''
-                        if completion date of aTodo is not missing value then
+                        if status of aTodo is not equal to completed then
+                            set todoMatches to false
+                        end if
+                    '''
+                elif status.lower() == 'canceled':
+                    # Filter for canceled todos
+                    script += '''
+                        if status of aTodo is not equal to canceled then
                             set todoMatches to false
                         end if
                     '''
@@ -1176,6 +1204,9 @@ class PureAppleScriptScheduler:
                                 end try
                                 try
                                     set todoInfo to todoInfo & "|TAGS:" & (tag names of aTodo as string)
+                                end try
+                                try
+                                    set todoInfo to todoInfo & "|STATUS:" & (status of aTodo as string)
                                 end try
                                 set resultList to resultList & todoInfo
                                 set resultCount to resultCount + 1
@@ -1312,6 +1343,7 @@ class PureAppleScriptScheduler:
             'title': '',
             'notes': '',
             'tags': [],
+            'status': 'open',  # Default status
             'deadline': '',
             'activation_date': '',
             'completion_date': ''
@@ -1334,6 +1366,10 @@ class PureAppleScriptScheduler:
                     if value and value != '{}':
                         tag_string = value.strip('{}')
                         todo_dict['tags'] = [tag.strip() for tag in tag_string.split(',') if tag.strip()]
+                elif key == 'STATUS':
+                    # AppleScript returns status as 'open', 'completed', or 'canceled'
+                    # Store it as-is for now
+                    todo_dict['status'] = value.lower()
                 elif key == 'DEADLINE':
                     todo_dict['deadline'] = value
                 elif key == 'ACTIVATION':

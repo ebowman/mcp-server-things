@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
 # Import things.py for direct database access
@@ -60,33 +60,120 @@ class ThingsTools:
     
     # ========== READ OPERATIONS (things.py) ==========
     
-    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None) -> List[Dict]:
-        """Get todos directly from database via things.py."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items)
-    
-    def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None) -> List[Dict]:
-        """Synchronous implementation of get_todos using things.py."""
-        try:
-            if project_uuid:
-                # Get todos for a specific project
-                todos_data = things.todos(project=project_uuid)
-            else:
-                # Get all todos
-                todos_data = things.todos()
-            
-            # Convert to list if it's a generator/iterator
-            if hasattr(todos_data, '__iter__') and not isinstance(todos_data, (list, dict)):
-                todos_data = list(todos_data)
-            
-            # Handle case where things.py returns a single dict instead of list
-            if isinstance(todos_data, dict):
-                todos_data = [todos_data]
-            
-            return [self._convert_todo(todo) for todo in todos_data]
-        except Exception as e:
-            logger.error(f"Error getting todos via things.py: {e}")
-            return []
+    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> List[Dict]:
+        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise.
+
+        BUG FIX: When querying by project_uuid, use AppleScript to avoid sync timing issues.
+        The SQLite database may not have synced after AppleScript writes, so we query
+        the application state directly which reflects changes immediately.
+
+        Args:
+            project_uuid: Optional project UUID to filter by
+            include_items: Include checklist items
+            status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
+        """
+        # BUG FIX: Use AppleScript for project queries to avoid database sync timing issues
+        if project_uuid:
+            try:
+                # Query the application state directly (always current)
+                applescript_todos = await self.applescript.get_todos(project_uuid=project_uuid)
+
+                # Convert AppleScript format to MCP format
+                result = []
+                for todo in applescript_todos:
+                    # Apply status filtering if needed
+                    # BUG FIX: AppleScript returns 'open', but things.py uses 'incomplete'
+                    # Map between the two: 'open' -> 'incomplete'
+                    todo_status = todo.get('status', 'open').lower()
+                    if todo_status == 'open':
+                        todo_status = 'incomplete'  # Normalize to things.py format
+
+                    if status is None or todo_status == status:
+                        converted = self._convert_applescript_todo(todo)
+                        result.append(converted)
+
+                logger.debug(f"Retrieved {len(result)} todos for project {project_uuid} via AppleScript (filtered by status={status})")
+                return result
+            except Exception as e:
+                logger.error(f"AppleScript query failed for project {project_uuid}, falling back to things.py: {e}")
+                # Fall back to things.py
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
+        else:
+            # No project filter - use things.py (fast database query)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
+
+    def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> List[Dict]:
+        """Synchronous implementation of get_todos using things.py with sync verification.
+
+        BUG FIX: When querying by project_uuid immediately after creation,
+        the SQLite database may not have synced yet. This method adds retry
+        logic with exponential backoff to handle the timing gap.
+
+        Args:
+            project_uuid: Optional project UUID to filter by
+            include_items: Include checklist items
+            status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
+        """
+        import time
+
+        max_retries = 3
+        retry_delays = [0.1, 0.3, 0.7]  # Exponential backoff in seconds
+
+        for attempt in range(max_retries):
+            try:
+                if project_uuid:
+                    # Get todos for a specific project
+                    todos_data = things.todos(project=project_uuid, status=status)
+                else:
+                    # Get all todos
+                    todos_data = things.todos(status=status)
+
+                # Convert to list if it's a generator/iterator
+                if hasattr(todos_data, '__iter__') and not isinstance(todos_data, (list, dict)):
+                    todos_data = list(todos_data)
+
+                # Handle case where things.py returns a single dict instead of list
+                if isinstance(todos_data, dict):
+                    todos_data = [todos_data]
+
+                # BUG FIX: If querying a specific project and got 0 results,
+                # verify the project exists before giving up
+                if project_uuid and len(todos_data) == 0 and attempt < max_retries - 1:
+                    # Verify project exists
+                    projects_data = things.projects()
+                    if hasattr(projects_data, '__iter__') and not isinstance(projects_data, (list, dict)):
+                        projects_data = list(projects_data)
+                    if isinstance(projects_data, dict):
+                        projects_data = [projects_data]
+
+                    project_exists = any(p.get('uuid') == project_uuid for p in projects_data)
+
+                    if project_exists:
+                        # Project exists but has no todos in DB yet - might be a sync issue
+                        # Wait and retry
+                        delay = retry_delays[attempt]
+                        logger.debug(f"Project {project_uuid} exists but has 0 todos, retrying after {delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # Project doesn't exist - return empty immediately
+                        logger.warning(f"Project {project_uuid} not found in database")
+                        return []
+
+                # Success - return results
+                return [self._convert_todo(todo) for todo in todos_data]
+
+            except Exception as e:
+                logger.error(f"Error getting todos via things.py (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delays[attempt])
+                else:
+                    return []
+
+        # All retries exhausted
+        return []
     
     async def get_projects(self, include_items: bool = False) -> List[Dict]:
         """Get all projects directly from database."""
@@ -804,6 +891,9 @@ class ThingsTools:
     async def delete_todo(self, todo_id: str) -> Dict[str, Any]:
         """Delete a todo using AppleScript (write operation)."""
         try:
+            # Validate todo ID
+            todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
+
             script = f'''
             tell application "Things3"
                 set targetTodo to to do id "{todo_id}"
@@ -1270,8 +1360,16 @@ class ThingsTools:
             logger.error(f"Error getting todos activating in {days} days: {e}")
             return []
     
-    async def get_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
-        """Get todos upcoming within specified days using things.py."""
+    async def get_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        """Get todos upcoming within specified days using things.py.
+
+        Args:
+            days: Number of days to look ahead (1-365)
+            mode: Optional response mode (ignored at tools layer, handled by server layer)
+
+        Returns:
+            List of todos (mode parameter is for server-layer compatibility only)
+        """
         try:
             # Validate days parameter
             days = ParameterValidator.validate_days(days, min_val=1, max_val=365)
@@ -1359,9 +1457,9 @@ class ThingsTools:
             logger.error(f"Error getting upcoming todos in {days} days: {e}", exc_info=True)
             return []
     
-    async def get_todos_upcoming_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
         """Alias for get_upcoming_in_days for compatibility."""
-        return await self.get_upcoming_in_days(days)
+        return await self.get_upcoming_in_days(days, mode)
     
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
         """Advanced search - delegate to AppleScript scheduler with limit support."""
@@ -1397,6 +1495,34 @@ class ThingsTools:
     
     # ========== CONVERSION HELPERS ==========
     
+    def _convert_applescript_todo(self, todo: Dict) -> Dict:
+        """Convert AppleScript todo format to our MCP format.
+
+        AppleScript returns different field names than things.py, so we need
+        to map them correctly.
+        """
+        converted = {
+            'id': todo.get('id', ''),
+            'name': todo.get('name', ''),
+            'notes': todo.get('notes'),
+            'status': todo.get('status', 'open'),
+            'tag_names': todo.get('tags', []),  # AppleScript uses 'tags'
+            'created': todo.get('creation_date'),
+            'modified': todo.get('modification_date'),
+            'when': todo.get('activation_date'),
+            'deadline': todo.get('due_date'),
+            'completed': None,  # AppleScript doesn't return completion date easily
+            'project': todo.get('project'),
+            'area': todo.get('area'),
+            'heading': None,  # Not easily available via AppleScript
+            'checklist': [],  # Not included in basic AppleScript query
+            'has_reminder': todo.get('has_reminder', False),
+            'reminder_time': todo.get('reminder_time'),
+            'activation_date': todo.get('activation_date')
+        }
+        # Apply optimization to remove duplicates and empty fields
+        return self.response_optimizer.optimize_todo(converted)
+
     def _convert_todo(self, todo: Dict) -> Dict:
         """Convert things.py todo to our MCP format with optimization."""
 
