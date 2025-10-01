@@ -217,15 +217,20 @@ class ThingsMCPConfig(BaseSettings):
         default=False,
         description="Enable experimental features"
     )
-    
+
     enable_analytics: bool = Field(
         default=True,
         description="Enable analytics and statistics collection"
     )
-    
+
     enable_health_checks: bool = Field(
         default=True,
         description="Enable health check endpoints"
+    )
+
+    use_new_applescript_parser: bool = Field(
+        default=False,
+        description="Use new state machine parser for AppleScript output (experimental)"
     )
     
     # Things 3 specific configuration

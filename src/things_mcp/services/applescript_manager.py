@@ -14,6 +14,8 @@ import dateparser
 
 # Cache removed for hybrid implementation
 from ..locale_aware_dates import locale_handler
+from ..config import ThingsMCPConfig
+from .applescript.parser import AppleScriptParser
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +36,27 @@ class AppleScriptManager:
     # This ensures only one AppleScript command executes at a time across the entire process
     _applescript_lock = asyncio.Lock()
     
-    def __init__(self, timeout: int = 45, retry_count: int = 3):
+    def __init__(self, timeout: int = 45, retry_count: int = 3, config: Optional[ThingsMCPConfig] = None):
         """Initialize the AppleScript manager.
-        
+
         Args:
             timeout: Command timeout in seconds
             retry_count: Number of retries for failed commands
+            config: Optional configuration object for feature flags
         """
         self.timeout = timeout
         self.retry_count = retry_count
+        self.config = config or ThingsMCPConfig()
         self.auth_token = self._load_auth_token()
+
+        # Initialize parser based on config
+        if self.config.use_new_applescript_parser:
+            self.parser = AppleScriptParser()
+            logger.info("AppleScript manager initialized with NEW state machine parser")
+        else:
+            self.parser = None
+            logger.info("AppleScript manager initialized with LEGACY string manipulation parser")
+
         logger.info("AppleScript manager initialized - cache removed for hybrid implementation")
     
     def _load_auth_token(self) -> Optional[str]:
@@ -650,10 +663,12 @@ class AppleScriptManager:
     
     def _parse_applescript_list(self, output: str) -> List[Dict[str, Any]]:
         """Parse AppleScript list output into Python dictionaries.
-        
+
         Parses AppleScript record format like:
         id:todo1, name:First Todo, notes:Notes 1, status:open, id:todo2, name:Second Todo, notes:Notes 2, status:completed
-        
+
+        Uses either the new state machine parser (if enabled) or the legacy string manipulation parser.
+
         Raises:
             ValueError: If the output is empty or cannot be parsed
             Exception: For other parsing errors
@@ -661,8 +676,32 @@ class AppleScriptManager:
         if not output or not output.strip():
             logger.warning("AppleScript returned empty output")
             return []  # Return empty list for empty output, don't raise error
-            
+
         logger.debug(f"AppleScript output to parse: {output}")
+
+        # Use new parser if configured
+        if self.parser is not None:
+            try:
+                logger.debug("Using NEW state machine parser")
+                records = self.parser.parse(output)
+
+                # Convert tag_names to tags for compatibility
+                for record in records:
+                    if 'tag_names' in record:
+                        record['tags'] = record.pop('tag_names')
+
+                # Add reminder detection fields to all records
+                for record in records:
+                    self._enhance_record_with_reminder_info(record)
+
+                logger.debug(f"Parsed {len(records)} records using new parser")
+                return records
+            except Exception as e:
+                logger.error(f"New parser failed: {e}. Falling back to legacy parser.")
+                # Fall through to legacy parser
+
+        # Legacy parser implementation follows
+        logger.debug("Using LEGACY string manipulation parser")
         
         try:
             # Parse the output - special handling for tag_names which can contain commas
