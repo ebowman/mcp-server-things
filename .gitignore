@@ -56,3 +56,9 @@ build/
 .DS_Store
 .DS_Store
 .coverage
+
+# Test artifacts
+pytest.log
+*.log
+htmlcov/
+.pytest_cache/
