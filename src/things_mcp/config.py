@@ -6,6 +6,7 @@ file-based configuration, and sensible defaults.
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
@@ -280,8 +281,10 @@ class ThingsMCPConfig(BaseSettings):
                 try:
                     import json
                     return json.loads(v)
-                except:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to parse JSON value for allowed_hosts: {v[:100]}... Error: {e}")
+                    pass  # Fall through to comma-separated parsing
             # Otherwise, split comma-separated string
             return [host.strip() for host in v.split(',') if host.strip()]
         if isinstance(v, list):

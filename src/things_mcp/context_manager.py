@@ -542,7 +542,8 @@ class ContextAwareResponseManager:
                     days_ago = (datetime.now(mod_date.tzinfo) - mod_date).days
                     if days_ago <= 7:
                         score += 25
-                except:
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.debug(f"Could not parse modification_date for scoring: {item.get('modification_date')} - {e}")
                     pass
             
             # Items with reminders are higher priority
@@ -555,7 +556,8 @@ class ContextAwareResponseManager:
                     due_date = datetime.strptime(item['due_date'], '%Y-%m-%d').date()
                     if due_date < date.today():
                         score += 200  # Highest priority
-                except:
+                except (ValueError, KeyError) as e:
+                    logger.debug(f"Could not parse due_date for scoring: {item.get('due_date')} - {e}")
                     pass
             
             return score

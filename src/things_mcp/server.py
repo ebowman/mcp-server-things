@@ -1385,7 +1385,8 @@ class ThingsMCPServer:
                         try:
                             existing_tags = await self.tools.get_tags(False)
                             tag_count = len(existing_tags)
-                        except:
+                        except Exception as e:
+                            logger.warning(f"Failed to retrieve existing tags for recommendations: {e}")
                             tag_count = 0
                         
                         recommendations[operation] = {

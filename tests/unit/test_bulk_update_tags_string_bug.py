@@ -1,7 +1,7 @@
 """Test for bulk_update_todos tag string handling bug fix."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from src.things_mcp.tools import ThingsTools
+from things_mcp.tools import ThingsTools
 
 
 class MockAppleScriptManager:
