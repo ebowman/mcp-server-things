@@ -324,46 +324,61 @@ class TestGetTags:
     
     @pytest.mark.asyncio
     async def test_get_tags_with_items(self, tools_with_mock):
-        """Test getting all tags with items included.
+        """Test getting all tags with items included."""
+        with patch('things_mcp.tools_helpers.read_operations.things') as mock_things:
+            # Mock things.tags() to return sample tags
+            mock_things.tags.return_value = [
+                {'title': 'Work', 'shortcut': 'w'},
+                {'title': 'Personal', 'shortcut': 'p'}
+            ]
+            # Mock things.todos() to return sample todos for tags
+            mock_things.todos.return_value = [
+                {'uuid': '1', 'title': 'Sample Todo', 'status': 'open'}
+            ]
 
-        NOTE: This test currently calls real Things 3 database due to mocking limitations.
-        The test verifies that get_tags returns a list with expected structure.
-        """
-        result = await tools_with_mock.get_tags(include_items=True)
+            result = await tools_with_mock.get_tags(include_items=True)
 
-        # Verify structure regardless of actual tag count
-        assert isinstance(result, list)
-        assert len(result) > 0, "Should return at least one tag"
+            # Verify structure
+            assert isinstance(result, list)
+            assert len(result) == 2
 
-        # Verify first tag has expected structure
-        first_tag = result[0]
-        assert "title" in first_tag  # things.py returns 'title' not 'name'
-        assert "todos" in first_tag or "items" in first_tag  # Can be either field name
-        # Verify items/todos is a list
-        items_field = first_tag.get("todos") or first_tag.get("items")
-        assert isinstance(items_field, list)
+            # Verify first tag has expected structure
+            first_tag = result[0]
+            assert "title" in first_tag
+            assert "todos" in first_tag
+            # Verify todos is a list
+            assert isinstance(first_tag["todos"], list)
     
     @pytest.mark.asyncio
     async def test_get_tags_with_counts(self, tools_with_mock):
-        """Test getting all tags with item counts instead of items.
+        """Test getting all tags with item counts instead of items."""
+        with patch('things_mcp.tools_helpers.read_operations.things') as mock_things:
+            # Mock things.tags() to return sample tags
+            mock_things.tags.return_value = [
+                {'title': 'Work', 'shortcut': 'w'},
+                {'title': 'Personal', 'shortcut': 'p'}
+            ]
+            # Mock things.todos() to return 3 todos for count
+            mock_things.todos.return_value = [
+                {'uuid': '1', 'title': 'Todo 1', 'status': 'open'},
+                {'uuid': '2', 'title': 'Todo 2', 'status': 'open'},
+                {'uuid': '3', 'title': 'Todo 3', 'status': 'open'}
+            ]
 
-        NOTE: This test currently calls real Things 3 database due to mocking limitations.
-        The test verifies that get_tags returns a list with expected structure.
-        """
-        result = await tools_with_mock.get_tags(include_items=False)
+            result = await tools_with_mock.get_tags(include_items=False)
 
-        # Verify structure regardless of actual tag count
-        assert isinstance(result, list)
-        assert len(result) > 0, "Should return at least one tag"
+            # Verify structure
+            assert isinstance(result, list)
+            assert len(result) == 2
 
-        # Verify first tag has expected structure for count-only mode
-        first_tag = result[0]
-        assert "title" in first_tag  # things.py returns 'title' not 'name'
-        # Note: count field should be present
-        assert "count" in first_tag
-        assert isinstance(first_tag["count"], int)
-        # Should not have todos/items field in count-only mode
-        assert "todos" not in first_tag or first_tag["todos"] == []
+            # Verify first tag has expected structure for count-only mode
+            first_tag = result[0]
+            assert "title" in first_tag
+            assert "count" in first_tag
+            assert isinstance(first_tag["count"], int)
+            assert first_tag["count"] == 3
+            # Should not have todos field in count-only mode
+            assert "todos" not in first_tag
 
 
 class TestCompleteTodo:
