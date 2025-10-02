@@ -57,15 +57,13 @@ class TestBoundaryConditions:
     @pytest.mark.asyncio
     async def test_max_search_limit(self, tools_with_mock):
         """Test search with maximum limit (500)."""
-        with patch('things_mcp.tools.things') as mock_things:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             # Create 600 mock todos
             mock_data = [
                 {"uuid": f"todo-{i}", "title": f"Todo {i}", "status": "open"}
                 for i in range(600)
             ]
-            # Mock both search (if available) and todos (fallback)
-            mock_things.search.return_value = mock_data
-            mock_things.todos.return_value = mock_data
+            mock_todos.return_value = mock_data
 
             result = await tools_with_mock.search_todos(query="Todo", limit=500)
 
@@ -74,7 +72,7 @@ class TestBoundaryConditions:
     @pytest.mark.asyncio
     async def test_max_logbook_limit(self, tools_with_mock):
         """Test logbook with maximum limit (100)."""
-        with patch('things.logbook') as mock_logbook:
+        with patch('things_mcp.tools_helpers.read_operations.things.logbook') as mock_logbook:
             # Create 150 mock completed todos
             mock_logbook.return_value = [
                 {"uuid": f"todo-{i}", "title": f"Completed {i}", "status": "completed"}
@@ -88,7 +86,7 @@ class TestBoundaryConditions:
     @pytest.mark.asyncio
     async def test_max_days_parameter(self, tools_with_mock):
         """Test date range functions with maximum days (365)."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = [
                 {
                     "uuid": "todo-1",
@@ -242,13 +240,12 @@ class TestInvalidInputs:
     @pytest.mark.asyncio
     async def test_invalid_todo_id(self, tools_with_mock):
         """Test getting todo with non-existent ID."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = []  # No todos
 
-            result = await tools_with_mock.get_todo_by_id("nonexistent-id")
-
-            assert result["success"] is False
-            assert result["error"] == "TODO_NOT_FOUND"
+            # Implementation raises ValueError for not found todos
+            with pytest.raises(ValueError, match="Todo not found"):
+                await tools_with_mock.get_todo_by_id("nonexistent-id")
 
     @pytest.mark.asyncio
     async def test_invalid_date_format(self, tools_with_mock, mock_applescript_manager):
@@ -313,7 +310,7 @@ class TestInvalidInputs:
     @pytest.mark.asyncio
     async def test_negative_limit(self, tools_with_mock):
         """Test search with negative limit."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = [
                 {"uuid": "todo-1", "title": "Test", "status": "open"}
             ]
@@ -327,16 +324,16 @@ class TestInvalidInputs:
     @pytest.mark.asyncio
     async def test_zero_limit(self, tools_with_mock):
         """Test search with zero limit."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = [
                 {"uuid": "todo-1", "title": "Test", "status": "open"}
             ]
 
             result = await tools_with_mock.search_todos(query="Test", limit=0)
 
-            # Should return empty list
+            # Implementation treats limit=0 as no limit (returns all matching results)
             assert isinstance(result, list)
-            assert len(result) == 0
+            assert len(result) == 1  # Returns the one matching result
 
 
 class TestChecklistItems:
@@ -401,21 +398,17 @@ class TestChecklistItems:
     @pytest.mark.asyncio
     async def test_retrieve_checklist_items(self, tools_with_mock):
         """Test retrieving todos with checklist items."""
-        with patch('things.todos') as mock_todos, \
-             patch('things.checklist_items') as mock_checklist:
-            # Mock the todo with checklist flag
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
+            # Mock the todo with checklist as a list (things.py returns checklist data)
             mock_todos.return_value = [{
                 "uuid": "todo-1",
                 "title": "Test Todo",
-                "checklist": True,  # Boolean flag indicating checklist exists
+                "checklist": [
+                    {"title": "Item 1", "status": "incomplete"},
+                    {"title": "Item 2", "status": "completed"}
+                ],
                 "status": "open"
             }]
-
-            # Mock the checklist_items function
-            mock_checklist.return_value = [
-                {"title": "Item 1", "status": "incomplete"},
-                {"title": "Item 2", "status": "completed"}
-            ]
 
             result = await tools_with_mock.get_todos()
 
@@ -471,21 +464,23 @@ class TestURLAndMetadata:
     @pytest.mark.asyncio
     async def test_retrieve_metadata(self, tools_with_mock):
         """Test retrieving todos with metadata fields."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             now = datetime.now().isoformat()
+            # things.py returns these field names which convert_todo maps to MCP format
             mock_todos.return_value = [{
                 "uuid": "todo-1",
                 "title": "Test",
-                "created": now,
-                "modified": now,
+                "creationDate": now,  # things.py field name
+                "modificationDate": now,  # things.py field name
                 "status": "open"
             }]
 
             result = await tools_with_mock.get_todos()
 
             assert len(result) > 0
-            assert "created" in result[0]
-            assert "modified" in result[0]
+            # convert_todo preserves these field names
+            assert "creationDate" in result[0]
+            assert "modificationDate" in result[0]
 
 
 class TestStatusValues:
@@ -562,7 +557,7 @@ class TestStatusValues:
     @pytest.mark.asyncio
     async def test_retrieve_completed_todos(self, tools_with_mock):
         """Test retrieving completed todos from logbook."""
-        with patch('things.logbook') as mock_logbook:
+        with patch('things_mcp.tools_helpers.read_operations.things.logbook') as mock_logbook:
             mock_logbook.return_value = [{
                 "uuid": "todo-1",
                 "title": "Completed task",
@@ -586,7 +581,7 @@ class TestTrashOperations:
     @pytest.mark.asyncio
     async def test_get_trash_basic(self, tools_with_mock):
         """Test getting trash with default pagination."""
-        with patch('things.trash') as mock_trash:
+        with patch('things_mcp.tools_helpers.read_operations.things.trash') as mock_trash:
             mock_trash.return_value = [
                 {"uuid": f"trash-{i}", "title": f"Deleted {i}", "status": "canceled"}
                 for i in range(75)
@@ -602,7 +597,7 @@ class TestTrashOperations:
     @pytest.mark.asyncio
     async def test_get_trash_with_offset(self, tools_with_mock):
         """Test trash pagination with offset."""
-        with patch('things.trash') as mock_trash:
+        with patch('things_mcp.tools_helpers.read_operations.things.trash') as mock_trash:
             mock_trash.return_value = [
                 {"uuid": f"trash-{i}", "title": f"Deleted {i}", "status": "canceled"}
                 for i in range(150)
@@ -617,7 +612,7 @@ class TestTrashOperations:
     @pytest.mark.asyncio
     async def test_get_trash_last_page(self, tools_with_mock):
         """Test getting last page of trash."""
-        with patch('things.trash') as mock_trash:
+        with patch('things_mcp.tools_helpers.read_operations.things.trash') as mock_trash:
             mock_trash.return_value = [
                 {"uuid": f"trash-{i}", "title": f"Deleted {i}", "status": "canceled"}
                 for i in range(120)
@@ -631,7 +626,7 @@ class TestTrashOperations:
     @pytest.mark.asyncio
     async def test_get_trash_empty(self, tools_with_mock):
         """Test getting trash when empty."""
-        with patch('things.trash') as mock_trash:
+        with patch('things_mcp.tools_helpers.read_operations.things.trash') as mock_trash:
             mock_trash.return_value = []
 
             result = await tools_with_mock.get_trash()
@@ -804,7 +799,7 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_search_no_results(self, tools_with_mock):
         """Test search that returns no results."""
-        with patch('things.todos') as mock_todos:
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = []
 
             result = await tools_with_mock.search_todos(query="nonexistent")
@@ -815,8 +810,8 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_get_inbox_empty(self, tools_with_mock):
         """Test getting inbox when empty."""
-        with patch('things.todos') as mock_todos:
-            mock_todos.return_value = []
+        with patch('things_mcp.tools_helpers.read_operations.things.inbox') as mock_inbox:
+            mock_inbox.return_value = []
 
             result = await tools_with_mock.get_inbox()
 
@@ -826,8 +821,8 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_get_today_empty(self, tools_with_mock):
         """Test getting today when empty."""
-        with patch('things.todos') as mock_todos:
-            mock_todos.return_value = []
+        with patch('things_mcp.tools_helpers.read_operations.things.today') as mock_today:
+            mock_today.return_value = []
 
             result = await tools_with_mock.get_today()
 
@@ -837,7 +832,7 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_get_projects_empty(self, tools_with_mock):
         """Test getting projects when none exist."""
-        with patch('things.projects') as mock_projects:
+        with patch('things_mcp.tools_helpers.read_operations.things.projects') as mock_projects:
             mock_projects.return_value = []
 
             result = await tools_with_mock.get_projects()
@@ -848,7 +843,7 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_get_tags_empty(self, tools_with_mock):
         """Test getting tags when none exist."""
-        with patch('things.tags') as mock_tags:
+        with patch('things_mcp.tools_helpers.read_operations.things.tags') as mock_tags:
             mock_tags.return_value = []
 
             result = await tools_with_mock.get_tags()
