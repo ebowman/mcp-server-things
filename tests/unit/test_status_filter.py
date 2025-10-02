@@ -8,7 +8,7 @@ from things_mcp.tools import ThingsTools
 @pytest.fixture
 def mock_things():
     """Mock the things module."""
-    with patch('things_mcp.tools.things') as mock:
+    with patch('things_mcp.tools_helpers.read_operations.things') as mock:
         yield mock
 
 

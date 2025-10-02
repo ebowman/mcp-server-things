@@ -174,7 +174,7 @@ class TestSearchAdvancedStatusFilter:
         """Test that _parse_todo_info correctly extracts status."""
         info_string = "ID:abc123|TITLE:Test Todo|STATUS:completed|NOTES:Test notes"
 
-        result = scheduler._parse_todo_info(info_string)
+        result = scheduler.search_ops._parse_todo_info(info_string)
 
         assert result['id'] == 'abc123'
         assert result['title'] == 'Test Todo'
@@ -186,7 +186,7 @@ class TestSearchAdvancedStatusFilter:
         """Test that _parse_todo_info defaults to 'open' status if not provided."""
         info_string = "ID:abc123|TITLE:Test Todo"
 
-        result = scheduler._parse_todo_info(info_string)
+        result = scheduler.search_ops._parse_todo_info(info_string)
 
         assert result['status'] == 'open'  # Default when status not in response
 

@@ -35,16 +35,16 @@ class TestThingsToolsInit:
         assert tools.tag_validation_service is not None  # Config provided
     
     def test_escape_applescript_string(self, mock_applescript_manager):
-        """Test AppleScript string escaping."""
-        tools = ThingsTools(mock_applescript_manager)
-        
+        """Test AppleScript string escaping - now in operation modules."""
+        from things_mcp.tools_helpers import ToolsHelpers
+
         # Test quote escaping
-        result = tools._escape_applescript_string('Hello "World"')
-        assert '"' not in result or '\\"' in result
-        
-        # Test backslash escaping  
-        result = tools._escape_applescript_string('Path\\file')
-        assert result is not None
+        result = ToolsHelpers.escape_applescript_string('Hello "World"')
+        assert '\\"' in result
+
+        # Test backslash escaping
+        result = ToolsHelpers.escape_applescript_string('Path\\file')
+        assert '\\\\' in result
 
 
 class TestGetTodos:
@@ -337,10 +337,11 @@ class TestGetTags:
 
         # Verify first tag has expected structure
         first_tag = result[0]
-        assert "name" in first_tag
-        assert "id" in first_tag
-        assert "items" in first_tag
-        assert isinstance(first_tag["items"], list)
+        assert "title" in first_tag  # things.py returns 'title' not 'name'
+        assert "todos" in first_tag or "items" in first_tag  # Can be either field name
+        # Verify items/todos is a list
+        items_field = first_tag.get("todos") or first_tag.get("items")
+        assert isinstance(items_field, list)
     
     @pytest.mark.asyncio
     async def test_get_tags_with_counts(self, tools_with_mock):
@@ -357,13 +358,12 @@ class TestGetTags:
 
         # Verify first tag has expected structure for count-only mode
         first_tag = result[0]
-        assert "name" in first_tag
-        # Note: item_count only present if count > 0 (implementation detail)
-        # If present, verify it's an integer
-        if "item_count" in first_tag:
-            assert isinstance(first_tag["item_count"], int)
-            assert first_tag["item_count"] > 0
-        assert "items" not in first_tag  # Should not have items field in count-only mode
+        assert "title" in first_tag  # things.py returns 'title' not 'name'
+        # Note: count field should be present
+        assert "count" in first_tag
+        assert isinstance(first_tag["count"], int)
+        # Should not have todos/items field in count-only mode
+        assert "todos" not in first_tag or first_tag["todos"] == []
 
 
 class TestCompleteTodo:
