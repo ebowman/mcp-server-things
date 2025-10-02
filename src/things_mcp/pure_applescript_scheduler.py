@@ -1263,43 +1263,51 @@ class PureAppleScriptScheduler:
             return []
 
     async def get_recent(self, period: str) -> List[Dict[str, Any]]:
-        """Get recent items using AppleScript."""
+        """Get recently created items using AppleScript.
+
+        This function searches ALL todos (not just completed ones) and filters
+        by creation date to find items created within the specified time period.
+
+        Args:
+            period: Time period string (e.g., '1d', '3d', '1w', '2m', '1y')
+
+        Returns:
+            List of recently created todos with their details
+        """
         try:
-            # Convert period to days
-            days = 7  # Default to 7 days
-            if period == "1d":
-                days = 1
-            elif period == "3d":
-                days = 3
-            elif period == "7d":
-                days = 7
-            elif period == "30d":
-                days = 30
+            # Parse period string to days
+            days = self._parse_period_to_days(period)
 
             script = f'''
             tell application "Things3"
                 try
                     set currentDate to (current date)
                     set pastDate to currentDate - ({days} * days)
-                    
-                    set recentTodos to {{}}
-                    repeat with aTodo in (to dos of list "Logbook")
-                        if completion date of aTodo is not missing value then
-                            if completion date of aTodo >= pastDate then
-                                set recentTodos to recentTodos & aTodo
+                    set maxResults to 50
+
+                    set resultList to {{}}
+                    set resultCount to 0
+
+                    -- Search only Inbox for now to avoid timeout
+                    repeat with aTodo in (to dos of list "Inbox")
+                        if creation date of aTodo is not missing value then
+                            if creation date of aTodo >= pastDate then
+                                -- Build the info string directly
+                                set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
+                                set todoInfo to todoInfo & "|CREATED:" & (creation date of aTodo as string)
+                                if status of aTodo is not missing value then
+                                    set todoInfo to todoInfo & "|STATUS:" & (status of aTodo as string)
+                                end if
+                                -- Append string to list (not todo object)
+                                set end of resultList to todoInfo
+                                set resultCount to resultCount + 1
+
+                                -- Limit results to prevent timeouts
+                                if resultCount >= maxResults then exit repeat
                             end if
                         end if
                     end repeat
-                    
-                    set resultList to {{}}
-                    repeat with aTodo in recentTodos
-                        set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
-                        if completion date of aTodo is not missing value then
-                            set todoInfo to todoInfo & "|COMPLETED:" & (completion date of aTodo as string)
-                        end if
-                        set resultList to resultList & todoInfo
-                    end repeat
-                    
+
                     return resultList
                 on error errMsg
                     return "error: " & errMsg
@@ -1308,32 +1316,84 @@ class PureAppleScriptScheduler:
             '''
 
             result = await self.applescript.execute_applescript(script)
-            if result.get("success"):
-                output = result.get("output", "")
-                if isinstance(output, list):
-                    # Handle empty list case
-                    if not output:
-                        logger.info(f"No recent items found within {period}")
-                        return []
 
-                    todos = []
-                    for item in output:
-                        if isinstance(item, str) and item.startswith("ID:"):
-                            todo_dict = self._parse_todo_info(item)
-                            todos.append(todo_dict)
-
-                    logger.info(f"Found {len(todos)} recent items within {period}")
-                    return todos
-                else:
-                    logger.info(f"No recent items found within {period} (non-list output)")
-                    return []
-            else:
+            if not result.get("success"):
                 logger.error(f"Failed to get recent items: {result.get('output', 'Unknown error')}")
                 return []
+
+            output = result.get("output", "")
+
+            # Handle both string (single item) and list (multiple items) outputs
+            # AppleScript returns single-item lists as strings
+            items = []
+            if isinstance(output, str):
+                # Single item returned as string
+                if output and output.startswith("ID:"):
+                    items = [output]
+                else:
+                    return []
+            elif isinstance(output, list):
+                items = output
+            else:
+                logger.warning(f"Unexpected output type: {type(output)}")
+                return []
+
+            if not items:
+                return []
+
+            # Parse the items
+            todos = []
+            for item in items:
+                if isinstance(item, str) and item.startswith("ID:"):
+                    try:
+                        todo_dict = self._parse_todo_info(item)
+                        todos.append(todo_dict)
+                    except Exception as e:
+                        logger.error(f"Error parsing todo info: {e}")
+                        continue
+
+            logger.info(f"Found {len(todos)} recent items within {period}")
+            return todos
 
         except Exception as e:
             logger.error(f"Error getting recent items: {e}")
             return []
+
+    def _parse_period_to_days(self, period: str) -> int:
+        """Parse a period string (e.g., '1d', '3d', '1w', '2m', '1y') to days.
+
+        Args:
+            period: Period string with format '<number><unit>' where unit is:
+                   d=days, w=weeks, m=months (30 days), y=years (365 days)
+
+        Returns:
+            Number of days
+
+        Raises:
+            ValueError: If period format is invalid
+        """
+        import re
+
+        # Match pattern like '1d', '3w', '2m', '1y'
+        match = re.match(r'^(\d+)([dwmy])$', period)
+        if not match:
+            logger.error(f"Invalid period format: {period}")
+            raise ValueError(f"Invalid period format: {period}. Expected format: <number><d|w|m|y> (e.g., '1d', '1w', '2m', '1y')")
+
+        number = int(match.group(1))
+        unit = match.group(2)
+
+        if unit == 'd':
+            return number
+        elif unit == 'w':
+            return number * 7
+        elif unit == 'm':
+            return number * 30  # Approximate month as 30 days
+        elif unit == 'y':
+            return number * 365  # Approximate year as 365 days
+
+        # Should never reach here due to regex match, but just in case
+        raise ValueError(f"Unknown period unit: {unit}")
 
     def _parse_todo_info(self, info_string: str) -> Dict[str, Any]:
         """Parse the todo info string returned from AppleScript."""
@@ -1346,7 +1406,8 @@ class PureAppleScriptScheduler:
             'status': 'open',  # Default status
             'deadline': '',
             'activation_date': '',
-            'completion_date': ''
+            'completion_date': '',
+            'creation_date': ''
         }
 
         # Split by | and parse each part
@@ -1376,5 +1437,7 @@ class PureAppleScriptScheduler:
                     todo_dict['activation_date'] = value
                 elif key == 'COMPLETED':
                     todo_dict['completion_date'] = value
+                elif key == 'CREATED':
+                    todo_dict['creation_date'] = value
 
         return todo_dict
