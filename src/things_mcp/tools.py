@@ -403,154 +403,223 @@ class ThingsTools:
             logger.error(f"Error searching todos via things.py: {e}")
             return []
     
-    async def get_inbox(self) -> List[Dict]:
-        """Get inbox items directly from database."""
+    async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get inbox items directly from database.
+
+        Args:
+            limit: Maximum number of items to return (1-500, default: None = all)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_inbox_sync)
+        return await loop.run_in_executor(None, self._get_inbox_sync, limit)
     
-    def _get_inbox_sync(self) -> List[Dict]:
-        """Synchronous implementation with error handling."""
+    def _get_inbox_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous implementation with error handling.
+
+        Args:
+            limit: Maximum number of items to return
+        """
         try:
             # Get all todos and filter for inbox manually to avoid potential sorting issues
             all_todos = things.todos()
-            
+
             if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
                 all_todos = list(all_todos)
             if isinstance(all_todos, dict):
                 all_todos = [all_todos]
-            
+
             # Filter for inbox items (start='Inbox' or no start/area/project)
             inbox_todos = []
             for todo in all_todos:
                 start = todo.get('start', '')
                 area = todo.get('area', '')
                 project = todo.get('project', '')
-                
-                if (start == 'Inbox' or 
+
+                if (start == 'Inbox' or
                     (not start and not area and not project)):
                     inbox_todos.append(todo)
-            
-            return [self._convert_todo(todo) for todo in inbox_todos]
+                    # Apply limit during collection if specified
+                    if limit and len(inbox_todos) >= limit:
+                        break
+
+            converted_todos = [self._convert_todo(todo) for todo in inbox_todos]
+            # Apply limit to converted results if not already limited during collection
+            if limit and len(converted_todos) > limit:
+                return converted_todos[:limit]
+            return converted_todos
         except Exception as e:
             logger.error(f"Error getting inbox via things.py: {e}")
             return []
     
-    async def get_today(self) -> List[Dict]:
-        """Get today items directly from database."""
+    async def get_today(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get today items directly from database.
+
+        Args:
+            limit: Maximum number of items to return (1-500, default: None = all)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_today_sync)
+        return await loop.run_in_executor(None, self._get_today_sync, limit)
     
-    def _get_today_sync(self) -> List[Dict]:
-        """Synchronous implementation with error handling for None values in sorting."""
+    def _get_today_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous implementation with error handling for None values in sorting.
+
+        Args:
+            limit: Maximum number of items to return
+        """
         try:
             # Get all todos and filter for today manually to avoid sorting issues
             all_todos = things.todos()
-            
+
             if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
                 all_todos = list(all_todos)
             if isinstance(all_todos, dict):
                 all_todos = [all_todos]
-            
+
             # Filter for today items (start='Today' or activation_date=today)
             from datetime import date
             today_str = date.today().strftime('%Y-%m-%d')
-            
+
             today_todos = []
             for todo in all_todos:
                 # Check if this is a today item
                 start = todo.get('start', '')
                 start_date = todo.get('start_date', '')
-                
-                if (start == 'Today' or 
+
+                if (start == 'Today' or
                     start_date == today_str or
                     (start_date and start_date <= today_str and start != 'Someday')):
                     today_todos.append(todo)
-            
+
             # Sort manually with None-safe comparison
             def safe_sort_key(todo):
                 today_index = todo.get('today_index', 0) or 0
                 start_date = todo.get('start_date', '') or ''
                 return (today_index, start_date)
-            
+
             today_todos.sort(key=safe_sort_key)
-            
+
+            # Apply limit after sorting
+            if limit and len(today_todos) > limit:
+                today_todos = today_todos[:limit]
+
             return [self._convert_todo(todo) for todo in today_todos]
         except Exception as e:
             logger.error(f"Error getting today via things.py: {e}")
             return []
     
-    async def get_upcoming(self) -> List[Dict]:
-        """Get upcoming items directly from database."""
+    async def get_upcoming(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get upcoming items directly from database.
+
+        Args:
+            limit: Maximum number of items to return (1-500, default: None = all)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_upcoming_sync)
+        return await loop.run_in_executor(None, self._get_upcoming_sync, limit)
     
-    def _get_upcoming_sync(self) -> List[Dict]:
-        """Synchronous implementation."""
+    def _get_upcoming_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous implementation.
+
+        Args:
+            limit: Maximum number of items to return
+        """
         try:
             upcoming_data = things.upcoming()
-            
+
             if hasattr(upcoming_data, '__iter__') and not isinstance(upcoming_data, (list, dict)):
                 upcoming_data = list(upcoming_data)
             if isinstance(upcoming_data, dict):
                 upcoming_data = [upcoming_data]
-            
+
+            # Apply limit if specified
+            if limit and len(upcoming_data) > limit:
+                upcoming_data = upcoming_data[:limit]
+
             return [self._convert_todo(todo) for todo in upcoming_data]
         except Exception as e:
             logger.error(f"Error getting upcoming via things.py: {e}")
             return []
     
-    async def get_anytime(self) -> List[Dict]:
-        """Get anytime items directly from database."""
+    async def get_anytime(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get anytime items directly from database.
+
+        Args:
+            limit: Maximum number of items to return (1-500, default: None = all)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_anytime_sync)
+        return await loop.run_in_executor(None, self._get_anytime_sync, limit)
     
-    def _get_anytime_sync(self) -> List[Dict]:
-        """Synchronous implementation with error handling."""
+    def _get_anytime_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous implementation with error handling.
+
+        Args:
+            limit: Maximum number of items to return
+        """
         try:
             # Get all todos and filter for anytime manually to avoid sorting issues
             all_todos = things.todos()
-            
+
             if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
                 all_todos = list(all_todos)
             if isinstance(all_todos, dict):
                 all_todos = [all_todos]
-            
+
             # Filter for anytime items
             anytime_todos = []
             for todo in all_todos:
                 start = todo.get('start', '')
                 if start == 'Anytime':
                     anytime_todos.append(todo)
-            
-            return [self._convert_todo(todo) for todo in anytime_todos]
+                    # Apply limit during collection if specified
+                    if limit and len(anytime_todos) >= limit:
+                        break
+
+            converted_todos = [self._convert_todo(todo) for todo in anytime_todos]
+            # Apply limit to converted results if not already limited during collection
+            if limit and len(converted_todos) > limit:
+                return converted_todos[:limit]
+            return converted_todos
         except Exception as e:
             logger.error(f"Error getting anytime via things.py: {e}")
             return []
     
-    async def get_someday(self) -> List[Dict]:
-        """Get someday items directly from database."""
+    async def get_someday(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get someday items directly from database.
+
+        Args:
+            limit: Maximum number of items to return (1-500, default: None = all)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_someday_sync)
+        return await loop.run_in_executor(None, self._get_someday_sync, limit)
     
-    def _get_someday_sync(self) -> List[Dict]:
-        """Synchronous implementation with error handling."""
+    def _get_someday_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        """Synchronous implementation with error handling.
+
+        Args:
+            limit: Maximum number of items to return
+        """
         try:
             # Get all todos and filter for someday manually to avoid sorting issues
             all_todos = things.todos()
-            
+
             if hasattr(all_todos, '__iter__') and not isinstance(all_todos, (list, dict)):
                 all_todos = list(all_todos)
             if isinstance(all_todos, dict):
                 all_todos = [all_todos]
-            
+
             # Filter for someday items
             someday_todos = []
             for todo in all_todos:
                 start = todo.get('start', '')
                 if start == 'Someday':
                     someday_todos.append(todo)
-            
-            return [self._convert_todo(todo) for todo in someday_todos]
+                    # Apply limit during collection if specified
+                    if limit and len(someday_todos) >= limit:
+                        break
+
+            converted_todos = [self._convert_todo(todo) for todo in someday_todos]
+            # Apply limit to converted results if not already limited during collection
+            if limit and len(converted_todos) > limit:
+                return converted_todos[:limit]
+            return converted_todos
         except Exception as e:
             logger.error(f"Error getting someday via things.py: {e}")
             return []

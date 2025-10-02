@@ -680,20 +680,21 @@ class ThingsMCPServer:
         # List-based tools
         @self.mcp.tool()
         async def get_inbox(
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Inbox. Supports response optimization via mode parameter."""
+            """Get todos from Inbox. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data
-                raw_data = await self.tools.get_inbox()
-                
+                # Get raw data with optional limit
+                raw_data = await self.tools.get_inbox(limit=limit)
+
                 # Apply context-aware optimization if mode is specified
                 if mode:
-                    request_params = {'mode': mode}
+                    request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     return self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
-                
+
                 return raw_data
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
@@ -701,20 +702,21 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_today(
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos due today. Supports response optimization via mode parameter."""
+            """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data
-                raw_data = await self.tools.get_today()
-                
+                # Get raw data with optional limit
+                raw_data = await self.tools.get_today(limit=limit)
+
                 # Apply context-aware optimization if mode is specified
                 if mode:
-                    request_params = {'mode': mode}
+                    request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
                     return self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
-                
+
                 return raw_data
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
@@ -722,20 +724,21 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_upcoming(
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get upcoming todos. Supports response optimization via mode parameter."""
+            """Get upcoming todos. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data
-                raw_data = await self.tools.get_upcoming()
-                
+                # Get raw data with optional limit
+                raw_data = await self.tools.get_upcoming(limit=limit)
+
                 # Apply context-aware optimization if mode is specified
                 if mode:
-                    request_params = {'mode': mode}
+                    request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     return self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
-                
+
                 return raw_data
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
@@ -743,20 +746,21 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_anytime(
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Anytime list. Supports response optimization via mode parameter."""
+            """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data
-                raw_data = await self.tools.get_anytime()
-                
+                # Get raw data with optional limit
+                raw_data = await self.tools.get_anytime(limit=limit)
+
                 # Apply context-aware optimization if mode is specified
                 if mode:
-                    request_params = {'mode': mode}
+                    request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     return self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
-                
+
                 return raw_data
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
@@ -764,20 +768,21 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_someday(
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos from Someday list. Supports response optimization via mode parameter."""
+            """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data
-                raw_data = await self.tools.get_someday()
-                
+                # Get raw data with optional limit
+                raw_data = await self.tools.get_someday(limit=limit)
+
                 # Apply context-aware optimization if mode is specified
                 if mode:
-                    request_params = {'mode': mode}
+                    request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     return self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
-                
+
                 return raw_data
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
@@ -1113,8 +1118,13 @@ class ThingsMCPServer:
         # which are not appropriate for MCP server operations
         
         # Health check tool
+        # Empty request model for compatibility
+        class HealthCheckRequest(BaseModel):
+            """Empty request model - health_check takes no parameters."""
+            pass
+
         @self.mcp.tool()
-        async def health_check() -> Dict[str, Any]:
+        async def health_check(request: Optional[HealthCheckRequest] = None) -> Dict[str, Any]:
             """Check server health and Things 3 connectivity."""
             try:
                 is_running = await self.applescript_manager.is_things_running()
@@ -1132,8 +1142,13 @@ class ThingsMCPServer:
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
 
+        # Queue status tool
+        class QueueStatusRequest(BaseModel):
+            """Empty request model - queue_status takes no parameters."""
+            pass
+
         @self.mcp.tool()
-        async def queue_status() -> Dict[str, Any]:
+        async def queue_status(request: Optional[QueueStatusRequest] = None) -> Dict[str, Any]:
             """Get operation queue status and statistics."""
             try:
                 queue = await get_operation_queue()
@@ -1151,12 +1166,17 @@ class ThingsMCPServer:
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
         
+        # Context stats tool
+        class ContextStatsRequest(BaseModel):
+            """Empty request model - context_stats takes no parameters."""
+            pass
+
         @self.mcp.tool()
-        async def context_stats() -> Dict[str, Any]:
+        async def context_stats(request: Optional[ContextStatsRequest] = None) -> Dict[str, Any]:
             """Get context usage statistics and optimization insights."""
             try:
                 stats = self.context_manager.get_context_usage_stats()
-                
+
                 # Add current optimization status
                 stats['optimization_status'] = {
                     'auto_mode_enabled': True,
@@ -1164,7 +1184,7 @@ class ThingsMCPServer:
                     'context_aware_responses': True,
                     'dynamic_field_filtering': True
                 }
-                
+
                 # Add usage recommendations
                 stats['recommendations'] = [
                     "Use 'mode=auto' for intelligent response optimization",
@@ -1172,7 +1192,7 @@ class ThingsMCPServer:
                     "Use 'mode=minimal' when you only need basic todo information",
                     "Use 'limit' parameter to control response size"
                 ]
-                
+
                 return stats
             except Exception as e:
                 logger.error(f"Error getting context stats: {e}")
@@ -1181,8 +1201,13 @@ class ThingsMCPServer:
                     "context_management": "Context awareness is active but stats unavailable"
                 }
 
+        # Server capabilities tool
+        class ServerCapabilitiesRequest(BaseModel):
+            """Empty request model - get_server_capabilities takes no parameters."""
+            pass
+
         @self.mcp.tool()
-        async def get_server_capabilities() -> Dict[str, Any]:
+        async def get_server_capabilities(request: Optional[ServerCapabilitiesRequest] = None) -> Dict[str, Any]:
             """Get server capabilities, features, API coverage, and optimization settings. Returns structured information about available tools, response modes, and performance characteristics."""
             try:
                 capabilities = {
