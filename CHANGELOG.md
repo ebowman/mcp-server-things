@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2025-10-01
+## [1.3.0] - 2025-10-03
 
 ### Changed
 - **NEW: State machine AppleScript parser** - Default parser changed from legacy string manipulation to state machine (BREAKING: fixes bugs)
@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bug fix: cancellation_date parsing** - New parser correctly handles cancellation_date with commas
   - Same §COMMA§ placeholder bug fixed
   - Dates now properly parsed to ISO format
+- **Bug fix: Date validation** - Added validation for when/deadline parameters across all operations
+  - Validates dates before sending to AppleScript, preventing silent failures
+  - Supports relative dates (today, tomorrow, someday) and absolute dates (YYYY-MM-DD)
+  - Applied to add_todo, update_todo, bulk_update_todos, add_project, update_project
+- **Bug fix: Status parameter normalization** - Handle MCP passing string "None" for status parameter
+  - MCP clients may pass status="None" as a string instead of null
+  - Now correctly normalizes to None for get_todos and other operations
+- **Bug fix: Parameter sanitization** - Filter out None values from sanitized parameters
+  - Prevents None values from being included in validated parameter dictionaries
+  - Improves reliability of bulk operations and tag handling
 
 ### Added
 - **Feature flag: use_new_applescript_parser** - Configuration option to control parser selection
@@ -37,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 44 unit tests for state machine parser
   - 18 integration tests comparing old vs new parsers
   - All tests validate parser equivalence
+- **Performance: Optimized search operations** - 10-100x faster using things.py instead of AppleScript
+  - get_due_in_days now uses database queries for instant results
+  - get_activating_in_days optimized with direct database access
+  - search_advanced now searches entire database including project todos (previously limited to lists only)
 
 ### Deprecated
 - **Legacy string manipulation parser** - Will be removed in v2.0.0
