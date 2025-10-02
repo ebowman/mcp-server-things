@@ -396,11 +396,18 @@ class ReadOperations:
     def _get_trash_sync(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         """Synchronous implementation."""
         try:
-            trashed_todos = things.todos(status='canceled') + things.trashed()
+            trash_data = things.trash()
 
-            total_count = len(trashed_todos)
+            # Handle different return types from things.trash()
+            if hasattr(trash_data, '__iter__') and not isinstance(trash_data, (list, dict)):
+                trash_data = list(trash_data)
+            if isinstance(trash_data, dict):
+                trash_data = [trash_data]
 
-            paginated = trashed_todos[offset:offset + limit]
+            total_count = len(trash_data)
+
+            # Apply pagination
+            paginated = trash_data[offset:offset + limit]
 
             items = [ToolsHelpers.convert_todo(t) for t in paginated]
 
