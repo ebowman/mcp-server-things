@@ -167,6 +167,10 @@ class ThingsMCPServer:
                         "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
                     }
 
+                # Normalize status parameter (MCP may pass string "None")
+                if status == "None" or status == "null":
+                    status = None
+
                 # Validate status parameter
                 if status is not None and status not in ["incomplete", "completed", "canceled"]:
                     return {
@@ -307,6 +311,29 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
+                # Validate date parameters
+                if when:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid when date",
+                            "message": str(e)
+                        }
+
+                if deadline:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline date",
+                            "message": str(e)
+                        }
+
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
                 result = await self.tools.add_todo(
@@ -352,18 +379,41 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content."""
             try:
-                # Convert comma-separated tags to list  
+                # Validate date parameters
+                if when:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid when date",
+                            "message": str(e)
+                        }
+
+                if deadline:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline date",
+                            "message": str(e)
+                        }
+
+                # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
-                
+
                 # Convert string booleans to actual booleans
                 completed_bool = None
                 if completed is not None:
                     completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-                    
+
                 canceled_bool = None
                 if canceled is not None:
                     canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
-                
+
                 result = await self.tools.update_todo(
                     todo_id=id,
                     title=title,
@@ -406,6 +456,29 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update multiple todos with the same changes in a single operation."""
             try:
+                # Validate date parameters
+                if when:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid when date",
+                            "message": str(e)
+                        }
+
+                if deadline:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline date",
+                            "message": str(e)
+                        }
+
                 # Parse comma-separated IDs
                 id_list = [id.strip() for id in todo_ids.split(",") if id.strip()]
 
@@ -580,6 +653,29 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Create a new project. Supports areas, deadlines, tags, initial todos, and scheduling."""
             try:
+                # Validate date parameters
+                if when:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid when date",
+                            "message": str(e)
+                        }
+
+                if deadline:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline date",
+                            "message": str(e)
+                        }
+
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
                 return await self.tools.add_project(
@@ -609,18 +705,41 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content."""
             try:
+                # Validate date parameters
+                if when:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid when date",
+                            "message": str(e)
+                        }
+
+                if deadline:
+                    try:
+                        from things_mcp.parameter_validator import ParameterValidator
+                        ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": "Invalid deadline date",
+                            "message": str(e)
+                        }
+
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
-                
+
                 # Convert string booleans to actual booleans
                 completed_bool = None
                 if completed is not None:
                     completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-                    
+
                 canceled_bool = None
                 if canceled is not None:
                     canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
-                
+
                 return await self.tools.update_project(
                     project_id=id,
                     title=title,

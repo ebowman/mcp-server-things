@@ -694,10 +694,14 @@ class ParameterValidator:
         validated = {}
 
         if 'title' in kwargs and kwargs['title'] is not None:
-            validated['title'] = cls.sanitize_string(kwargs['title'])
+            sanitized_title = cls.sanitize_string(kwargs['title'])
+            if sanitized_title is not None:
+                validated['title'] = sanitized_title
 
         if 'notes' in kwargs and kwargs['notes'] is not None:
-            validated['notes'] = cls.sanitize_string(kwargs['notes'])
+            sanitized_notes = cls.sanitize_string(kwargs['notes'])
+            if sanitized_notes is not None:
+                validated['notes'] = sanitized_notes
 
         if 'tags' in kwargs and kwargs['tags'] is not None:
             validated['tags'] = cls.validate_tag_list(kwargs['tags'])

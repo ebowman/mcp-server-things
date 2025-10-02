@@ -68,7 +68,8 @@ class BulkOperations:
 
         # Validate update parameters
         validated_params = ParameterValidator.validate_update_params(**kwargs)
-        kwargs.update(validated_params)
+        # Replace kwargs with only validated params (filters out None values)
+        kwargs = validated_params
 
         # Handle tag validation
         tags = kwargs.get('tags', [])
@@ -121,11 +122,11 @@ class BulkOperations:
                 else:
                     script += f'        set status of targetTodo to open\n'
 
-            if 'title' in kwargs:
+            if 'title' in kwargs and kwargs['title'] is not None:
                 escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title']).strip('"')
                 script += f'        set name of targetTodo to "{escaped_title}"\n'
 
-            if 'notes' in kwargs:
+            if 'notes' in kwargs and kwargs['notes'] is not None:
                 escaped_notes = ToolsHelpers.escape_applescript_string(kwargs['notes']).strip('"')
                 script += f'        set notes of targetTodo to "{escaped_notes}"\n'
 
@@ -139,9 +140,12 @@ class BulkOperations:
                 tags_value = kwargs['tags']
                 if isinstance(tags_value, str):
                     tags_value = [t.strip() for t in tags_value.split(",")] if tags_value else []
-                escaped_tags = [ToolsHelpers.escape_applescript_string(t).strip('"') for t in tags_value]
-                tag_string = ', '.join(escaped_tags)
-                script += f'        set tag names of targetTodo to "{tag_string}"\n'
+                # Filter out None and empty strings
+                tags_value = [t for t in tags_value if t]
+                if tags_value:
+                    escaped_tags = [ToolsHelpers.escape_applescript_string(t).strip('"') for t in tags_value]
+                    tag_string = ', '.join(escaped_tags)
+                    script += f'        set tag names of targetTodo to "{tag_string}"\n'
 
             script += '        set successCount to successCount + 1\n'
             script += '    on error errMsg\n'

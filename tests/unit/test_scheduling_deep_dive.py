@@ -178,10 +178,10 @@ class TestTemporalQueries:
     @pytest.mark.asyncio
     async def test_get_due_in_days_7(self, tools, mock_applescript_manager):
         """Test get_due_in_days retrieves todos with deadlines in next 7 days."""
-        # Mock the PureAppleScriptScheduler's get_todos_due_in_days method
-        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_get_due:
-            mock_get_due.return_value = [
-                {'id': 'due-1', 'title': 'Pay bills', 'dueDate': '2025-10-07'}
+        # Mock things.py since we now use it instead of AppleScript
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'due-1', 'title': 'Pay bills', 'due_date': '2025-10-07', 'status': 'incomplete'}
             ]
 
             result = await tools.get_due_in_days(7)
@@ -192,9 +192,9 @@ class TestTemporalQueries:
     @pytest.mark.asyncio
     async def test_get_due_in_days_30(self, tools, mock_applescript_manager):
         """Test get_due_in_days with 30-day range."""
-        # Mock the PureAppleScriptScheduler's get_todos_due_in_days method
-        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_get_due:
-            mock_get_due.return_value = []
+        # Mock things.py since we now use it instead of AppleScript
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = []
 
             result = await tools.get_due_in_days(30)
 
@@ -204,10 +204,10 @@ class TestTemporalQueries:
     @pytest.mark.asyncio
     async def test_get_activating_in_days_7(self, tools, mock_applescript_manager):
         """Test get_activating_in_days retrieves todos activating in next 7 days."""
-        # Mock the PureAppleScriptScheduler's get_todos_activating_in_days method
-        with patch.object(tools.read_ops.applescript, 'get_todos_activating_in_days', new_callable=AsyncMock) as mock_get_activating:
-            mock_get_activating.return_value = [
-                {'id': 'act-1', 'title': 'Start project', 'startDate': '2025-10-09'}
+        # Mock things.py since we now use it instead of AppleScript
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'act-1', 'title': 'Start project', 'start_date': '2025-10-09', 'status': 'incomplete'}
             ]
 
             result = await tools.get_activating_in_days(7)

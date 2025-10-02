@@ -673,14 +673,9 @@ class TestAdvancedSearchWithTags:
     @pytest.mark.asyncio
     async def test_search_advanced_by_tag(self, things_tools, mock_applescript_manager):
         """Test search_advanced with tag filter."""
-        # Mock AppleScript search result
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': 'todo-id-1'  # Returns single ID
-        }
-
+        # Now uses things.py instead of AppleScript (optimized implementation)
         with patch('things.todos') as mock_todos:
-            # Mock the get_todo_by_id call that happens after search
+            # Mock the things.py database query
             mock_todos.return_value = [
                 {
                     'uuid': 'todo-id-1',
@@ -693,5 +688,8 @@ class TestAdvancedSearchWithTags:
 
             result = await things_tools.search_advanced(tag='urgent')
 
-            # Verify search was executed
-            assert mock_applescript_manager.execute_applescript.called
+            # Verify things.py was called with tag filter
+            mock_todos.assert_called_once()
+            call_kwargs = mock_todos.call_args.kwargs
+            assert 'tag' in call_kwargs
+            assert call_kwargs['tag'] == 'urgent'
