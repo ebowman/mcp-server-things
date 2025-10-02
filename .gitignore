@@ -57,6 +57,9 @@ build/
 .DS_Store
 .coverage
 
+# Backup files
+*.backup
+
 # Test artifacts
 pytest.log
 *.log
