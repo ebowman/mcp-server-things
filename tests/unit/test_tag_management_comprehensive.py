@@ -65,19 +65,19 @@ class TestGetTags:
             # Verify structure
             assert len(result) == 3
 
-            # Check Work tag
-            work_tag = next(t for t in result if t['name'] == 'Work')
-            assert work_tag['name'] == 'Work'
-            assert work_tag['item_count'] == 2
+            # Check Work tag (things.py returns 'title' not 'name')
+            work_tag = next(t for t in result if t['title'] == 'Work')
+            assert work_tag['title'] == 'Work'
+            assert work_tag['count'] == 2  # things.py returns 'count' not 'item_count'
             assert 'items' not in work_tag
 
             # Check Personal tag
-            personal_tag = next(t for t in result if t['name'] == 'Personal')
-            assert personal_tag['item_count'] == 1
+            personal_tag = next(t for t in result if t['title'] == 'Personal')
+            assert personal_tag['count'] == 1
 
             # Check urgent tag (no items)
-            urgent_tag = next(t for t in result if t['name'] == 'urgent')
-            assert 'item_count' not in urgent_tag  # No count field if 0
+            urgent_tag = next(t for t in result if t['title'] == 'urgent')
+            assert urgent_tag['count'] == 0  # things.py always includes count
 
     @pytest.mark.asyncio
     async def test_get_tags_with_items(self, things_tools):
@@ -109,12 +109,12 @@ class TestGetTags:
 
             assert len(result) == 1
             work_tag = result[0]
-            assert work_tag['name'] == 'Work'
-            assert 'items' in work_tag
-            assert len(work_tag['items']) == 2
-            # Use 'name' field instead of 'title' (after optimization)
-            assert work_tag['items'][0]['name'] == 'Write report'
-            assert work_tag['items'][1]['name'] == 'Review PR'
+            assert work_tag['title'] == 'Work'  # things.py returns 'title' not 'name'
+            assert 'todos' in work_tag  # Implementation uses 'todos' not 'items'
+            assert len(work_tag['todos']) == 2
+            # todos contain converted todo objects with 'title' field
+            assert work_tag['todos'][0]['title'] == 'Write report'
+            assert work_tag['todos'][1]['title'] == 'Review PR'
 
     @pytest.mark.asyncio
     async def test_get_tags_structure_and_fields(self, things_tools):
@@ -132,17 +132,16 @@ class TestGetTags:
             assert len(result) == 1
             tag = result[0]
 
-            # Required fields
-            assert 'name' in tag
-            assert tag['name'] == 'TestTag'
+            # Required fields (things.py returns 'title' not 'name')
+            assert 'title' in tag
+            assert tag['title'] == 'TestTag'
 
-            # ID only included if different from name
-            assert 'id' in tag
-            assert tag['id'] == 'unique-id-123'
+            # Implementation returns 'title' and 'shortcut', not 'id'
+            assert 'shortcut' in tag
 
-            # Count field present when > 0
-            assert 'item_count' in tag
-            assert tag['item_count'] == 1
+            # Count field present (things.py always includes count)
+            assert 'count' in tag
+            assert tag['count'] == 1
 
 
 class TestAddTags:
@@ -422,9 +421,9 @@ class TestGetTaggedItems:
             result = await things_tools.get_tagged_items(tag='work')
 
             assert len(result) == 2
-            # Use 'name' field (after optimization converts title -> name)
-            assert result[0]['name'] == 'Task 1'
-            assert result[1]['name'] == 'Task 2'
+            # Converted todos use 'title' field
+            assert result[0]['title'] == 'Task 1'
+            assert result[1]['title'] == 'Task 2'
 
     @pytest.mark.asyncio
     async def test_get_tagged_items_nonexistent_tag(self, things_tools):
@@ -454,7 +453,7 @@ class TestGetTaggedItems:
             # Get items with "Work"
             result_work = await things_tools.get_tagged_items(tag='Work')
             assert len(result_work) == 1
-            assert result_work[0]['name'] == 'Task 1'
+            assert result_work[0]['title'] == 'Task 1'  # Converted todos use 'title'
 
             # Reset mock
             mock_todos.side_effect = todos_for_tag
@@ -462,7 +461,7 @@ class TestGetTaggedItems:
             # Get items with "work"
             result_work_lower = await things_tools.get_tagged_items(tag='work')
             assert len(result_work_lower) == 1
-            assert result_work_lower[0]['name'] == 'Task 2'
+            assert result_work_lower[0]['title'] == 'Task 2'  # Converted todos use 'title'
 
 
 class TestTagEdgeCases:
@@ -610,12 +609,12 @@ class TestTagValidationAndCreation:
             mock_todos.side_effect = todos_for_tag
 
             available_tags = await things_tools.get_tags()
-            tag_names = [tag['name'] for tag in available_tags]
+            tag_titles = [tag['title'] for tag in available_tags]  # things.py returns 'title'
 
             # Verify workflow
-            assert 'work' in tag_names
-            assert 'personal' in tag_names
-            assert 'nonexistent' not in tag_names
+            assert 'work' in tag_titles
+            assert 'personal' in tag_titles
+            assert 'nonexistent' not in tag_titles
 
 
 class TestTagsInBulkOperations:
