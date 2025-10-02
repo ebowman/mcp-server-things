@@ -178,43 +178,42 @@ class TestTemporalQueries:
     @pytest.mark.asyncio
     async def test_get_due_in_days_7(self, tools, mock_applescript_manager):
         """Test get_due_in_days retrieves todos with deadlines in next 7 days."""
-        # Mock AppleScript response
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': [
-                'ID:due-1|TITLE:Pay bills|DEADLINE:Monday, October 7, 2025 at 12:00:00 AM'
+        # Mock the PureAppleScriptScheduler's get_todos_due_in_days method
+        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_get_due:
+            mock_get_due.return_value = [
+                {'id': 'due-1', 'title': 'Pay bills', 'dueDate': '2025-10-07'}
             ]
-        }
 
-        result = await tools.get_due_in_days(7)
+            result = await tools.get_due_in_days(7)
 
-        assert isinstance(result, list)
+            assert isinstance(result, list)
+            assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_get_due_in_days_30(self, tools, mock_applescript_manager):
         """Test get_due_in_days with 30-day range."""
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': []
-        }
+        # Mock the PureAppleScriptScheduler's get_todos_due_in_days method
+        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_get_due:
+            mock_get_due.return_value = []
 
-        result = await tools.get_due_in_days(30)
+            result = await tools.get_due_in_days(30)
 
-        assert isinstance(result, list)
+            assert isinstance(result, list)
+            assert len(result) == 0
 
     @pytest.mark.asyncio
     async def test_get_activating_in_days_7(self, tools, mock_applescript_manager):
         """Test get_activating_in_days retrieves todos activating in next 7 days."""
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': [
-                'ID:act-1|TITLE:Start project|ACTIVATION:Wednesday, October 9, 2025 at 12:00:00 AM'
+        # Mock the PureAppleScriptScheduler's get_todos_activating_in_days method
+        with patch.object(tools.read_ops.applescript, 'get_todos_activating_in_days', new_callable=AsyncMock) as mock_get_activating:
+            mock_get_activating.return_value = [
+                {'id': 'act-1', 'title': 'Start project', 'startDate': '2025-10-09'}
             ]
-        }
 
-        result = await tools.get_activating_in_days(7)
+            result = await tools.get_activating_in_days(7)
 
-        assert isinstance(result, list)
+            assert isinstance(result, list)
+            assert len(result) == 1
 
 
 # ============================================================================
@@ -374,16 +373,18 @@ class TestIntegrationScenarios:
     async def test_daily_review_workflow(self, tools):
         """Test a typical daily review workflow."""
         # 1. Get today's todos
-        with patch('things.todos') as mock_todos:
-            mock_todos.return_value = []
+        with patch('things_mcp.tools_helpers.read_operations.things.today') as mock_today:
+            mock_today.return_value = []
             today_todos = await tools.get_today()
 
         # 2. Get upcoming in next 7 days
-        upcoming = await tools.get_upcoming_in_days(7)
+        with patch.object(tools.read_ops.applescript, 'get_todos_upcoming_in_days', new_callable=AsyncMock) as mock_upcoming:
+            mock_upcoming.return_value = []
+            upcoming = await tools.get_upcoming_in_days(7)
 
         # 3. Check what's due soon
-        with patch.object(tools.applescript, 'execute_applescript') as mock_exec:
-            mock_exec.return_value = {'success': True, 'output': []}
+        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_due:
+            mock_due.return_value = []
             due_soon = await tools.get_due_in_days(7)
 
         # All should return lists
