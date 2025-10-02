@@ -18,6 +18,7 @@ from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
 from .response_optimizer import ResponseOptimizer, FieldOptimizationPolicy
 from .parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
+from .tools_helpers import ToolsHelpers
 
 logger = logging.getLogger(__name__)
 
@@ -782,51 +783,14 @@ class ThingsTools:
     # Keep all the existing write operations from the original tools.py
     
     def _escape_applescript_string(self, text: str) -> str:
-        """Escape a string for safe use in AppleScript."""
+        """Escape a string for safe use in AppleScript (delegates to ToolsHelpers)."""
         if not text:
             return '""'
-
-        # Escape backslashes first, then quotes
-        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-        return f'"{escaped}"'
+        return ToolsHelpers.escape_applescript_string(text)
 
     def _convert_to_boolean(self, value: Any) -> Optional[bool]:
-        """
-        Convert various input formats to boolean for status parameters.
-
-        Handles:
-        - Boolean values: True, False
-        - String values: "true", "True", "TRUE", "false", "False", "FALSE"
-        - None and empty strings return None
-
-        Args:
-            value: The value to convert
-
-        Returns:
-            True, False, or None if value is None/empty
-
-        Raises:
-            ValueError: If value cannot be converted to boolean
-        """
-        if value is None or value == '':
-            return None
-
-        # Already a boolean
-        if isinstance(value, bool):
-            return value
-
-        # String conversion
-        if isinstance(value, str):
-            value_lower = value.lower().strip()
-            if value_lower == 'true':
-                return True
-            elif value_lower == 'false':
-                return False
-            else:
-                raise ValueError(f"Invalid boolean string: '{value}'. Must be 'true' or 'false'")
-
-        # Fallback for any other type - use Python's truthiness
-        return bool(value)
+        """Convert various input formats to boolean (delegates to ToolsHelpers)."""
+        return ToolsHelpers.convert_to_boolean(value)
     
     def _convert_iso_to_applescript_date(self, iso_date: str) -> str:
         """Convert ISO date (YYYY-MM-DD) to AppleScript property-based date construction."""
