@@ -28,21 +28,24 @@ class MoveOperationsTools:
         self.validator = validation_service
     
     async def move_record(
-        self, 
-        todo_id: str, 
-        destination: str,
-        preserve_scheduling: bool = True
+        self,
+        todo_id: str,
+        destination: str
     ) -> Dict[str, Any]:
         """
         Move a todo to a different list, project, or area.
-        
+
+        The move operation handles scheduling automatically based on the destination:
+        - Moving to 'today' sets activation date to today
+        - Moving to 'anytime'/'someday' clears activation date
+        - Moving to 'inbox' clears activation date
+
         Args:
             todo_id: ID of the todo to move
             destination: Destination list/project/area
                         Valid values: inbox, today, upcoming, anytime, someday,
                         project:[project-id], area:[area-id]
-            preserve_scheduling: Whether to preserve existing scheduling when moving
-            
+
         Returns:
             Dict with move operation result
         """
@@ -71,12 +74,11 @@ class MoveOperationsTools:
             
             # Execute the move operation
             move_result = await self._execute_move(
-                todo_id, 
-                destination, 
-                current_todo["todo"], 
-                preserve_scheduling
+                todo_id,
+                destination,
+                current_todo["todo"]
             )
-            
+
             if move_result["success"]:
                 return {
                     "success": True,
@@ -84,8 +86,7 @@ class MoveOperationsTools:
                     "todo_id": todo_id,
                     "destination": destination,
                     "original_location": current_todo["todo"].get("current_list"),
-                    "moved_at": datetime.now().isoformat(),
-                    "preserved_scheduling": preserve_scheduling
+                    "moved_at": datetime.now().isoformat()
                 }
             else:
                 return {
@@ -110,18 +111,16 @@ class MoveOperationsTools:
         self,
         todo_ids: List[str],
         destination: str,
-        preserve_scheduling: bool = True,
         max_concurrent: int = 5
     ) -> Dict[str, Any]:
         """
         Move multiple todos to the same destination.
-        
+
         Args:
             todo_ids: List of todo IDs to move
             destination: Destination for all todos
-            preserve_scheduling: Whether to preserve scheduling
             max_concurrent: Maximum concurrent move operations
-            
+
         Returns:
             Dict with bulk move results
         """
@@ -153,7 +152,7 @@ class MoveOperationsTools:
             
             async def move_single_todo(todo_id: str) -> Dict[str, Any]:
                 async with semaphore:
-                    return await self.move_record(todo_id, destination, preserve_scheduling)
+                    return await self.move_record(todo_id, destination)
             
             # Execute all moves concurrently
             tasks = [move_single_todo(todo_id) for todo_id in todo_ids]
@@ -191,7 +190,6 @@ class MoveOperationsTools:
                 "total_failed": len(failed_moves),
                 "successful_moves": successful_moves,
                 "failed_moves": failed_moves,
-                "preserve_scheduling": preserve_scheduling,
                 "completed_at": datetime.now().isoformat()
             }
         
@@ -374,23 +372,22 @@ class MoveOperationsTools:
         self,
         todo_id: str,
         destination: str,
-        current_todo: Dict[str, Any],
-        preserve_scheduling: bool
+        current_todo: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Execute the actual move operation using AppleScript."""
         try:
             # Build the move script based on destination type
             if destination in ["inbox", "today", "upcoming", "anytime", "someday"]:
                 # Moving to a built-in list
-                script = await self._build_list_move_script(todo_id, destination, preserve_scheduling)
+                script = await self._build_list_move_script(todo_id, destination)
             elif destination.startswith("project:"):
                 # Moving to a project
                 project_id = destination[8:]  # Remove "project:" prefix
-                script = await self._build_project_move_script(todo_id, project_id, preserve_scheduling)
+                script = await self._build_project_move_script(todo_id, project_id)
             elif destination.startswith("area:"):
                 # Moving to an area
                 area_id = destination[5:]  # Remove "area:" prefix
-                script = await self._build_area_move_script(todo_id, area_id, preserve_scheduling)
+                script = await self._build_area_move_script(todo_id, area_id)
             else:
                 return {
                     "success": False,
@@ -435,53 +432,34 @@ class MoveOperationsTools:
     async def _build_list_move_script(
         self,
         todo_id: str,
-        list_name: str,
-        preserve_scheduling: bool
+        list_name: str
     ) -> str:
-        """Build AppleScript for moving to a built-in list."""
-        scheduling_part = ""
-        if not preserve_scheduling:
-            # Clear scheduling when moving to different lists
-            if list_name == "today":
-                scheduling_part = "\n        set scheduled date of theTodo to current date"
-            elif list_name == "upcoming":
-                scheduling_part = "\n        set scheduled date of theTodo to (current date + 1 * days)"
-            elif list_name in ["anytime", "someday"]:
-                scheduling_part = f"\n        set scheduled date of theTodo to missing value"
-        
-        script = f'''
-        tell application "Things3"
-            try
-                set theTodo to to do id "{todo_id}"
-                
-                -- Move to the specified list
-                if "{list_name}" is "inbox" then
-                    move theTodo to list "inbox"
-                else if "{list_name}" is "today" then
-                    move theTodo to list "today"
-                else if "{list_name}" is "upcoming" then
-                    move theTodo to list "upcoming"
-                else if "{list_name}" is "anytime" then
-                    move theTodo to list "anytime"
-                else if "{list_name}" is "someday" then
-                    move theTodo to list "someday"
-                end if
-                {scheduling_part}
-                
-                return "MOVED to {list_name}"
-            on error errMsg
-                return "ERROR: " & errMsg
-            end try
-        end tell
-        '''
-        
-        return script
+        """Build AppleScript for moving to a built-in list.
+
+        The move command handles scheduling automatically:
+        - Moving to 'today' sets activation date to today
+        - Moving to 'anytime'/'someday' clears activation date
+        - Moving to 'inbox' clears activation date
+        """
+
+        lines = [
+            "tell application \"Things3\"",
+            "    try",
+            f"        set theTodo to to do id \"{todo_id}\"",
+            f"        move theTodo to list \"{list_name}\"",
+            f"        return \"MOVED to {list_name}\"",
+            "    on error errMsg",
+            "        return \"ERROR: \" & errMsg",
+            "    end try",
+            "end tell"
+        ]
+
+        return "\n".join(lines)
     
     async def _build_project_move_script(
         self,
         todo_id: str,
-        project_id: str,
-        preserve_scheduling: bool
+        project_id: str
     ) -> str:
         """Build AppleScript for moving to a project."""
         script = f'''
@@ -506,8 +484,7 @@ class MoveOperationsTools:
     async def _build_area_move_script(
         self,
         todo_id: str,
-        area_id: str,
-        preserve_scheduling: bool
+        area_id: str
     ) -> str:
         """Build AppleScript for moving to an area."""
         script = f'''

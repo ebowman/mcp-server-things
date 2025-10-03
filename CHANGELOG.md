@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2025-10-03
+
+### Fixed
+- **Bug fix: NoneType error in mode='standard'** - Fixed crash when notes field is None
+  - Added null check before len() operation in context_manager.py
+  - Affected get_todos() and other operations using standard response mode
+- **Bug fix: Date field formatting** - Fixed §COLON§ markers and field bleeding in dates
+  - Added comma escaping to AppleScript date formatting
+  - Prevents date values from breaking field boundaries
+  - Affects creation_date, modification_date, activation_date, due_date fields
+
+### Changed
+- **Documentation: add_project todos parameter** - Corrected CLAUDE.md to reflect that todos parameter works correctly
+  - Removed incorrect "Known Limitation" entry
+  - Added usage examples and best practices
+
+### Added
+- **Test infrastructure** - Added comprehensive integration and unit test suites
+  - 17 integration tests with automatic cleanup mechanism
+  - 27 new unit tests for date utilities and edge cases
+  - Test fixtures and shared test data
+  - Integration test documentation and verification tools
+
 ## [1.3.0] - 2025-10-03
 
 ### Changed

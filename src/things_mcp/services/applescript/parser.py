@@ -179,7 +179,8 @@ class AppleScriptParser:
                     # Keep this comma, it's part of the date
                     self.current_value += char
                 # Or if the value contains "at" already (we're past the time portion)
-                elif ' at ' in value_lower and (':' in value_lower or 'am' in value_lower or 'pm' in value_lower):
+                # Note: Check for both : and §COLON§ since AppleScript may escape colons
+                elif ' at ' in value_lower and (':' in value_lower or '§colon§' in value_lower or 'am' in value_lower or 'pm' in value_lower):
                     # We've seen the "at HH:MM" part, next comma ends the field
                     self._finalize_field()
                     self.state = ParserState.FIELD
@@ -239,6 +240,13 @@ class AppleScriptParser:
 
         field_name = self.current_field.strip()
         value = self.current_value.strip()
+
+        # Unescape AppleScript placeholders that were used to prevent parsing issues
+        # These are added in queries.py to protect commas and colons in dates/notes
+        if '§COMMA§' in value:
+            value = value.replace('§COMMA§', ',')
+        if '§COLON§' in value:
+            value = value.replace('§COLON§', ':')
 
         # Check if this is a new record (repeated 'id' field)
         if field_name == 'id' and 'id' in self.current_record:

@@ -49,8 +49,9 @@ class AppleScriptQueries:
                     set creationDateStr to ""
                     try
                         set creationDateStr to ((creation date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set creationDateStr to my replaceText(creationDateStr, ":", "§COLON§")
+                        set creationDateStr to my replaceText(creationDateStr, ",", "§COMMA§")
                     on error
                         set creationDateStr to "missing value"
                     end try
@@ -58,8 +59,9 @@ class AppleScriptQueries:
                     set modificationDateStr to ""
                     try
                         set modificationDateStr to ((modification date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set modificationDateStr to my replaceText(modificationDateStr, ":", "§COLON§")
+                        set modificationDateStr to my replaceText(modificationDateStr, ",", "§COMMA§")
                     on error
                         set modificationDateStr to "missing value"
                     end try
@@ -78,8 +80,9 @@ class AppleScriptQueries:
                     set activationDateStr to ""
                     try
                         set activationDateStr to ((activation date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set activationDateStr to my replaceText(activationDateStr, ":", "§COLON§")
+                        set activationDateStr to my replaceText(activationDateStr, ",", "§COMMA§")
                     on error
                         set activationDateStr to "missing value"
                     end try
@@ -88,8 +91,9 @@ class AppleScriptQueries:
                     set dueDateStr to ""
                     try
                         set dueDateStr to ((due date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set dueDateStr to my replaceText(dueDateStr, ":", "§COLON§")
+                        set dueDateStr to my replaceText(dueDateStr, ",", "§COMMA§")
                     on error
                         set dueDateStr to "missing value"
                     end try
@@ -130,8 +134,9 @@ class AppleScriptQueries:
                     set creationDateStr to ""
                     try
                         set creationDateStr to ((creation date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set creationDateStr to my replaceText(creationDateStr, ":", "§COLON§")
+                        set creationDateStr to my replaceText(creationDateStr, ",", "§COMMA§")
                     on error
                         set creationDateStr to "missing value"
                     end try
@@ -139,8 +144,9 @@ class AppleScriptQueries:
                     set modificationDateStr to ""
                     try
                         set modificationDateStr to ((modification date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set modificationDateStr to my replaceText(modificationDateStr, ":", "§COLON§")
+                        set modificationDateStr to my replaceText(modificationDateStr, ",", "§COMMA§")
                     on error
                         set modificationDateStr to "missing value"
                     end try
@@ -159,8 +165,9 @@ class AppleScriptQueries:
                     set activationDateStr to ""
                     try
                         set activationDateStr to ((activation date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set activationDateStr to my replaceText(activationDateStr, ":", "§COLON§")
+                        set activationDateStr to my replaceText(activationDateStr, ",", "§COMMA§")
                     on error
                         set activationDateStr to "missing value"
                     end try
@@ -169,8 +176,9 @@ class AppleScriptQueries:
                     set dueDateStr to ""
                     try
                         set dueDateStr to ((due date of theTodo) as string)
-                        -- Escape colons in dates to avoid parsing issues
+                        -- Escape colons and commas in dates to avoid parsing issues
                         set dueDateStr to my replaceText(dueDateStr, ":", "§COLON§")
+                        set dueDateStr to my replaceText(dueDateStr, ",", "§COMMA§")
                     on error
                         set dueDateStr to "missing value"
                     end try

@@ -375,14 +375,22 @@ class ReadOperations:
                             completed_dt = completed_date
 
                         if completed_dt >= cutoff_date:
-                            result.append(ToolsHelpers.convert_todo(todo))
-
-                            if len(result) >= limit:
-                                break
+                            converted_todo = ToolsHelpers.convert_todo(todo)
+                            # Store stop_date for sorting
+                            converted_todo['_sort_date'] = completed_dt
+                            result.append(converted_todo)
                     except Exception:
                         pass
 
-            return result
+            # Sort by completion date (most recent first)
+            result.sort(key=lambda x: x.get('_sort_date', datetime.min), reverse=True)
+
+            # Remove temporary sort key
+            for todo in result:
+                todo.pop('_sort_date', None)
+
+            # Apply limit after sorting
+            return result[:limit]
 
         except Exception as e:
             logger.error(f"Error in _get_logbook_sync: {e}")
@@ -533,7 +541,8 @@ class ReadOperations:
         """Synchronous implementation using things.py."""
         try:
             all_todos = things.todos(status='incomplete')
-            cutoff_date = datetime.now() + timedelta(days=days)
+            now = datetime.now()
+            cutoff_date = now + timedelta(days=days)
 
             results = []
             for todo in all_todos:
@@ -560,7 +569,8 @@ class ReadOperations:
                         else:
                             start_dt = start_date
 
-                        if start_dt <= cutoff_date:
+                        # Only include if start_date is in the future (not past)
+                        if start_dt >= now and start_dt <= cutoff_date:
                             include_todo = True
                     except Exception:
                         pass

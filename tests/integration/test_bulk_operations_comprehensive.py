@@ -579,12 +579,11 @@ class TestBulkMoveRecords:
         assert 'success' in result3
 
     @pytest.mark.asyncio
-    async def test_bulk_move_preserve_scheduling(self, move_operations, test_todos):
-        """Test preserve_scheduling parameter."""
+    async def test_bulk_move_to_inbox_basic(self, move_operations, test_todos):
+        """Test basic bulk move to inbox."""
         result = await move_operations.bulk_move(
             todo_ids=test_todos[:3],
-            destination="inbox",
-            preserve_scheduling=True
+            destination="inbox"
         )
 
         assert 'success' in result

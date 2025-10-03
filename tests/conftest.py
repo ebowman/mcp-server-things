@@ -637,3 +637,64 @@ def build_url_scheme_error_response(error: str = "Mock URL scheme error"):
         "error": error,
         "method": "url_scheme"
     }
+
+
+# Integration Test Cleanup Fixture
+@pytest.fixture
+async def cleanup_test_todos():
+    """Fixture to track and clean up test todos created during integration tests.
+
+    This fixture ensures that ALL test data is removed from Things 3 after test runs,
+    preventing test pollution and ensuring idempotent test execution.
+
+    Usage:
+        async def test_something(cleanup_test_todos):
+            # Create todo
+            result = await tools.add_todo(title=f"Test {cleanup_test_todos['tag']}")
+            cleanup_test_todos['ids'].append(result['todo_id'])
+
+            # Test logic...
+            # Cleanup happens automatically via teardown
+
+    Yields:
+        dict: {
+            'tag': unique timestamp-based tag for this test run,
+            'ids': list to track created todo IDs,
+            'project_ids': list to track created project IDs
+        }
+    """
+    import time
+    from things_mcp.services.applescript_manager import AppleScriptManager
+    from things_mcp.tools import ThingsTools
+
+    # Create unique tag for this test run
+    test_tag = f"test-integration-{int(time.time())}"
+    todo_ids = []
+    project_ids = []
+
+    # Yield tracking dictionary to test
+    yield {
+        'tag': test_tag,
+        'ids': todo_ids,
+        'project_ids': project_ids
+    }
+
+    # Teardown: Clean up all created resources
+    manager = AppleScriptManager()
+    tools = ThingsTools(manager)
+
+    # Delete todos
+    for todo_id in todo_ids:
+        try:
+            await tools.delete_todo(todo_id)
+            logger.debug(f"Cleaned up test todo: {todo_id}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup todo {todo_id}: {e}")
+
+    # Cancel projects (safer than delete)
+    for project_id in project_ids:
+        try:
+            await tools.update_project(project_id=project_id, canceled="true")
+            logger.debug(f"Cleaned up test project: {project_id}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup project {project_id}: {e}")

@@ -570,10 +570,9 @@ class ThingsMCPServer:
         async def bulk_move_records(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
             destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID"),
-            preserve_scheduling: bool = Field(True, description="Whether to preserve existing scheduling when moving"),
             max_concurrent: int = Field(5, description="Maximum concurrent operations (1-10)", ge=1, le=10)
         ) -> Dict[str, Any]:
-            """Move multiple todos to the same destination efficiently."""
+            """Move multiple todos to the same destination efficiently. The move operation handles scheduling automatically based on the destination."""
             try:
                 # Parse the comma-separated todo IDs
                 todo_id_list = [tid.strip() for tid in todo_ids.split(",") if tid.strip()]
@@ -584,12 +583,11 @@ class ThingsMCPServer:
                         "message": "No valid todo IDs provided",
                         "total_requested": 0
                     }
-                
+
                 # Use the advanced bulk move functionality
                 result = await self.tools.move_operations.bulk_move(
                     todo_ids=todo_id_list,
                     destination=destination,
-                    preserve_scheduling=preserve_scheduling,
                     max_concurrent=max_concurrent
                 )
                 
@@ -1518,10 +1516,10 @@ class ThingsMCPServer:
                     elif operation == "bulk_move_records":
                         recommendations[operation] = {
                             "max_concurrent": min(5, max(1, int(10))),  # Conservative default
-                            "preserve_scheduling": True,
                             "pre_check": "Use get_todos(mode='minimal') to verify IDs",
                             "progress_monitoring": "Check queue_status() during operation",
-                            "estimated_time_per_item": "0.5-1 seconds"
+                            "estimated_time_per_item": "0.5-1 seconds",
+                            "note": "Scheduling handled automatically based on destination"
                         }
                     
                     elif operation == "add_todo":

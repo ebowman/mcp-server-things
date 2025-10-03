@@ -464,12 +464,9 @@ This feature is useful for:
 
 ### Known Limitations
 
-1. **Project todos parameter not functional**: The `todos` parameter in `add_project()` doesn't create child todos. Create project first, then add todos separately with `list_id` parameter.
-
-2. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
+1. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
 
 **Workarounds:**
-- Create projects then add todos individually with `list_id`
 - Use `get_projects(mode='minimal')` to get IDs, then query specific projects
 - Never use `include_items=true` - causes context overflow
 
@@ -577,22 +574,25 @@ bulk_update_todos(
 )
 ```
 
-### 6. Project Todo Creation
+### 6. Project Creation with Initial Todos
 
-**Problem**: Expecting `todos` parameter to work in `add_project()`
+**Best Practice**: Use the `todos` parameter for efficient project creation with initial tasks
 ```python
-# ❌ DOESN'T WORK - todos parameter is non-functional
-add_project(
+# ✅ RECOMMENDED: Create project with todos in one call
+project_id = add_project(
     title="My Project",
-    todos="Task 1\nTask 2\nTask 3"  # Won't create todos
+    deadline="2025-12-31",
+    todos="Task 1\nTask 2\nTask 3"  # Creates all 3 todos!
 )
 
-# ✅ CORRECT: Create project then add todos separately
+# ✅ ALTERNATIVE: Add todos separately (useful for dynamic lists)
 project_id = add_project(title="My Project", deadline="2025-12-31")
 add_todo(title="Task 1", list_id=project_id)
 add_todo(title="Task 2", list_id=project_id)
 add_todo(title="Task 3", list_id=project_id)
 ```
+
+**Note**: The `todos` parameter accepts newline-separated todo titles and creates them atomically with the project.
 
 ### 7. Large Dataset Queries
 

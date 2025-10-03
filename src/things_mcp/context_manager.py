@@ -513,7 +513,7 @@ class ContextAwareResponseManager:
             
             # Apply field-level truncation for large text fields
             if mode != ResponseMode.DETAILED:
-                if 'notes' in filtered_item and len(filtered_item['notes']) > 200:
+                if 'notes' in filtered_item and filtered_item['notes'] is not None and len(filtered_item['notes']) > 200:
                     filtered_item['notes'] = filtered_item['notes'][:200] + "..."
             
             filtered_data.append(filtered_item)

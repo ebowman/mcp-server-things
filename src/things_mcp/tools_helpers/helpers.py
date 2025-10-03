@@ -115,23 +115,24 @@ class ToolsHelpers:
         """Convert things.py todo format to MCP API format.
 
         Args:
-            todo: Todo dict from things.py
+            todo: Todo dict from things.py (uses snake_case field names)
 
         Returns:
-            Converted todo dict in MCP format
+            Converted todo dict in MCP format (uses camelCase field names)
         """
+        # things.py returns snake_case fields, we convert to camelCase
         converted = {
             'uuid': todo.get('uuid'),
             'title': todo.get('title'),
             'notes': todo.get('notes'),
             'status': todo.get('status'),
             'tags': todo.get('tags', []),
-            'creationDate': todo.get('creationDate'),
-            'modificationDate': todo.get('modificationDate'),
-            'completionDate': todo.get('completionDate'),
-            'cancellationDate': todo.get('cancellationDate'),
-            'dueDate': todo.get('dueDate'),
-            'startDate': todo.get('startDate'),
+            'creationDate': todo.get('created'),  # things.py: 'created'
+            'modificationDate': todo.get('modified'),  # things.py: 'modified'
+            'completionDate': todo.get('completion_date'),  # things.py: 'completion_date'
+            'cancellationDate': todo.get('cancellation_date'),  # things.py: 'cancellation_date'
+            'dueDate': todo.get('deadline'),  # things.py: 'deadline'
+            'startDate': todo.get('start_date'),  # things.py: 'start_date'
             'project': todo.get('project'),
             'area': todo.get('area'),
             'checklist': todo.get('checklist', []) if 'checklist' in todo else None
@@ -145,11 +146,12 @@ class ToolsHelpers:
         """Convert things.py project format to MCP API format.
 
         Args:
-            project: Project dict from things.py
+            project: Project dict from things.py (uses snake_case field names)
 
         Returns:
-            Converted project dict in MCP format
+            Converted project dict in MCP format (uses camelCase field names)
         """
+        # things.py returns snake_case fields, we convert to camelCase
         converted = {
             'uuid': project.get('uuid'),
             'title': project.get('title'),
@@ -157,11 +159,11 @@ class ToolsHelpers:
             'status': project.get('status'),
             'tags': project.get('tags', []),
             'area': project.get('area'),
-            'creationDate': project.get('creationDate'),
-            'modificationDate': project.get('modificationDate'),
-            'completionDate': project.get('completionDate'),
-            'cancellationDate': project.get('cancellationDate'),
-            'dueDate': project.get('dueDate')
+            'creationDate': project.get('created'),  # things.py: 'created'
+            'modificationDate': project.get('modified'),  # things.py: 'modified'
+            'completionDate': project.get('completion_date'),  # things.py: 'completion_date'
+            'cancellationDate': project.get('cancellation_date'),  # things.py: 'cancellation_date'
+            'dueDate': project.get('deadline')  # things.py: 'deadline'
         }
 
         # Remove None values
