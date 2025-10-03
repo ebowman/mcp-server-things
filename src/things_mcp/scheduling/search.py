@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from .helpers import SchedulingHelpers
+from ..utils.applescript_utils import AppleScriptTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,6 @@ class SearchOperations:
         """
         self.applescript = applescript_manager
         self.helpers = SchedulingHelpers()
-
-    def _escape_applescript_string(self, text: str) -> str:
-        """Escape a string for safe use in AppleScript."""
-        if not text:
-            return '""'
-
-        # Escape backslashes first, then quotes
-        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-        return f'"{escaped}"'
 
     def _build_list_selection_script(self, list_name: str, status: Optional[str]) -> str:
         """Build AppleScript for selecting which lists to search.
@@ -77,7 +69,7 @@ class SearchOperations:
 
         # Add query filter
         if query:
-            escaped_query = self._escape_applescript_string(query.lower()).strip('"')
+            escaped_query = AppleScriptTemplates.escape_string(query.lower()).strip('"')
             script += f'''
                         -- Check if query matches title or notes
                         set titleMatch to false
@@ -100,7 +92,7 @@ class SearchOperations:
         # Add tag filter
         if tags:
             for tag in tags:
-                escaped_tag = self._escape_applescript_string(tag).strip('"')
+                escaped_tag = AppleScriptTemplates.escape_string(tag).strip('"')
                 script += f'''
                         -- Check if todo has the specified tag
                         try
@@ -116,7 +108,7 @@ class SearchOperations:
 
         # Add area filter
         if area:
-            escaped_area = self._escape_applescript_string(area).strip('"')
+            escaped_area = AppleScriptTemplates.escape_string(area).strip('"')
             script += f'''
                         try
                             if (area of aTodo as string) is not equal to "{escaped_area}" then
@@ -129,7 +121,7 @@ class SearchOperations:
 
         # Add project filter
         if project:
-            escaped_project = self._escape_applescript_string(project).strip('"')
+            escaped_project = AppleScriptTemplates.escape_string(project).strip('"')
             script += f'''
                         try
                             if (project of aTodo as string) is not equal to "{escaped_project}" then

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from .applescript_manager import AppleScriptManager
 from ..config import ThingsMCPConfig, TagCreationPolicy
+from ..utils.applescript_utils import AppleScriptTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +252,7 @@ class TagValidationService:
             # Create tags one by one as Things 3 doesn't support batch tag creation
             for tag_name in tag_names:
                 try:
-                    escaped_name = self._escape_applescript_string(tag_name)
+                    escaped_name = AppleScriptTemplates.escape_string(tag_name)
                     script = f'''
                     tell application "Things3"
                         try
@@ -291,23 +292,7 @@ class TagValidationService:
         except Exception as e:
             logger.error(f"Error in tag creation batch: {e}")
             return {"created": created_tags, "errors": errors + [f"Batch creation error: {str(e)}"]}
-    
-    def _escape_applescript_string(self, text: str) -> str:
-        """Escape a string for safe use in AppleScript.
-        
-        Args:
-            text: Text to escape
-            
-        Returns:
-            Escaped text safe for AppleScript
-        """
-        if not text:
-            return '""'
-        
-        # Escape quotes and backslashes
-        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-        return f'"{escaped}"'
-    
+
     def clear_cache(self):
         """Clear the existing tags cache."""
         self._existing_tags_cache = None

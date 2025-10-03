@@ -284,7 +284,7 @@ class ProgressiveDisclosureEngine:
             "overdue": overdue_count,
             "scheduled_today": today_count,
             "recent_preview": [
-                {"id": t.get("id"), "name": t.get("name", "")[:50]}
+                {"id": t.get("uuid") or t.get("id"), "name": t.get("title") or t.get("name", "")[:50]}
                 for t in todos[:5]
             ]
         }
@@ -298,7 +298,7 @@ class ProgressiveDisclosureEngine:
             "active": active_count,
             "completed": completed_count,
             "recent_projects": [
-                {"id": p.get("id"), "name": p.get("name", "")[:50]}
+                {"id": p.get("uuid") or p.get("id"), "name": p.get("title") or p.get("name", "")[:50]}
                 for p in projects[:3]
             ]
         }

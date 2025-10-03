@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from ..locale_aware_dates import locale_handler
+from ..utils.applescript_utils import AppleScriptTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +21,6 @@ class TodoOperations:
         """
         self.applescript = applescript_manager
         self.scheduler = scheduler
-
-    def _escape_applescript_string(self, text: str) -> str:
-        """Escape a string for safe use in AppleScript."""
-        if not text:
-            return '""'
-
-        # Escape backslashes first, then quotes
-        escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-        return f'"{escaped}"'
 
     def _convert_to_boolean(self, value: Any) -> Optional[bool]:
         """
@@ -85,8 +77,8 @@ class TodoOperations:
         Returns:
             AppleScript code
         """
-        escaped_title = self._escape_applescript_string(title)
-        escaped_notes = self._escape_applescript_string(notes)
+        escaped_title = AppleScriptTemplates.escape_string(title)
+        escaped_notes = AppleScriptTemplates.escape_string(notes)
 
         script = f'''
             tell application "Things3"
@@ -98,7 +90,7 @@ class TodoOperations:
             script += f'set notes of newTodo to {escaped_notes}\n                    '
 
         if area:
-            escaped_area = self._escape_applescript_string(area)
+            escaped_area = AppleScriptTemplates.escape_string(area)
             script += f'set area of newTodo to area {escaped_area}\n                    '
 
         if project:
@@ -106,12 +98,12 @@ class TodoOperations:
 
         if tags:
             tags_string = ', '.join(tags)
-            escaped_tags_string = self._escape_applescript_string(tags_string)
+            escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
             script += f'set tag names of newTodo to {escaped_tags_string}\n                    '
 
         if checklist:
             for item in checklist:
-                escaped_item = self._escape_applescript_string(item)
+                escaped_item = AppleScriptTemplates.escape_string(item)
                 script += f'make new checklist item in newTodo with properties {{name:{escaped_item}}}\n                    '
 
         if deadline:
@@ -218,28 +210,28 @@ class TodoOperations:
 
         # Update title if provided
         if title:
-            escaped_title = self._escape_applescript_string(title)
+            escaped_title = AppleScriptTemplates.escape_string(title)
             script += f'set name of targetTodo to {escaped_title}\n                    '
 
         # Update notes if provided
         if notes:
-            escaped_notes = self._escape_applescript_string(notes)
+            escaped_notes = AppleScriptTemplates.escape_string(notes)
             script += f'set notes of targetTodo to {escaped_notes}\n                    '
 
         # Update area if provided
         if area:
-            escaped_area = self._escape_applescript_string(area)
+            escaped_area = AppleScriptTemplates.escape_string(area)
             script += f'set area of targetTodo to area {escaped_area}\n                    '
 
         # Update project if provided
         if project:
-            escaped_project = self._escape_applescript_string(project)
+            escaped_project = AppleScriptTemplates.escape_string(project)
             script += f'set project of targetTodo to project {escaped_project}\n                    '
 
         # Update tags if provided
         if tags:
             tags_string = ', '.join(tags)
-            escaped_tags_string = self._escape_applescript_string(tags_string)
+            escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
             script += f'set tag names of targetTodo to {escaped_tags_string}\n                    '
 
         # Update deadline if provided
@@ -358,8 +350,8 @@ class TodoOperations:
         Returns:
             AppleScript code
         """
-        escaped_title = self._escape_applescript_string(title)
-        escaped_notes = self._escape_applescript_string(notes)
+        escaped_title = AppleScriptTemplates.escape_string(title)
+        escaped_notes = AppleScriptTemplates.escape_string(notes)
 
         script = f'''
             tell application "Things3"
@@ -371,12 +363,12 @@ class TodoOperations:
             script += f'set notes of newProject to {escaped_notes}\n                    '
 
         if area:
-            escaped_area = self._escape_applescript_string(area)
+            escaped_area = AppleScriptTemplates.escape_string(area)
             script += f'set area of newProject to area {escaped_area}\n                    '
 
         if tags:
             tags_string = ', '.join(tags)
-            escaped_tags_string = self._escape_applescript_string(tags_string)
+            escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
             script += f'set tag names of newProject to {escaped_tags_string}\n                    '
 
         if deadline:
@@ -396,7 +388,7 @@ class TodoOperations:
         if todos:
             for todo_title in todos:
                 if todo_title.strip():
-                    escaped_todo = self._escape_applescript_string(todo_title.strip())
+                    escaped_todo = AppleScriptTemplates.escape_string(todo_title.strip())
                     script += f'''
                     set newTodoInProject to make new to do in newProject with properties {{name:{escaped_todo}}}
                         '''
@@ -483,24 +475,24 @@ class TodoOperations:
 
             # Update title if provided
             if title:
-                escaped_title = self._escape_applescript_string(title)
+                escaped_title = AppleScriptTemplates.escape_string(title)
                 script += f'set name of targetProject to {escaped_title}\n                    '
 
             # Update notes if provided
             if notes:
-                escaped_notes = self._escape_applescript_string(notes)
+                escaped_notes = AppleScriptTemplates.escape_string(notes)
                 script += f'set notes of targetProject to {escaped_notes}\n                    '
 
             # Update area if provided
             if area:
-                escaped_area = self._escape_applescript_string(area)
+                escaped_area = AppleScriptTemplates.escape_string(area)
                 script += f'set area of targetProject to area {escaped_area}\n                    '
 
             # Update tags if provided
             if tags:
                 # Things 3 expects tags as comma-separated string, not AppleScript list
                 tags_string = ', '.join(tags)
-                escaped_tags_string = self._escape_applescript_string(tags_string)
+                escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
                 script += f'set tag names of targetProject to {escaped_tags_string}\n                    '
 
             # Update deadline if provided

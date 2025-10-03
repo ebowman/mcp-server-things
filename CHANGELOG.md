@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2025-10-04
+
+### Fixed
+- **CRITICAL: Project initial todos not retrieved** - Fixed parser consuming multiple records as single field value
+  - AppleScript parser now correctly handles "missing value" in date fields
+  - Prevents field bleeding when date values are missing
+  - All initial todos now properly returned by get_todos(project_uuid=...)
+- **HIGH: Summary mode empty preview** - Fixed preview showing null IDs and empty names
+  - Updated to check both uuid/id and title/name dictionary keys
+  - Summary mode now displays actual todo/project information
+  - Backwards compatible with different data schemas
+
 ## [1.3.1] - 2025-10-03
 
 ### Fixed

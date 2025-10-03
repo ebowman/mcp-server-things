@@ -162,31 +162,37 @@ class AppleScriptParser:
             # We need to be smart: if we see " at " or ", 2" (comma-space-digit)
             # it's likely part of a date
             if self.current_field in self.DATE_FIELDS and self.current_value.strip():
+                value_lower = self.current_value.strip().lower()
+
+                # BUG FIX: If the value is "missing value", it's NOT a date - end the field
+                if value_lower == 'missing value':
+                    self._finalize_field()
+                    self.state = ParserState.FIELD
                 # Check if this looks like it's still in the middle of a date
                 # by looking ahead in the buffer (we can't, so use heuristics)
                 # Date pattern: we expect either:
                 # 1. ", <number>" for day/year
                 # 2. " at " coming soon
                 # If we just saw a month name or day name, keep the comma
-                value_lower = self.current_value.strip().lower()
-                month_names = ['january', 'february', 'march', 'april', 'may', 'june',
-                              'july', 'august', 'september', 'october', 'november', 'december']
-                day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-
-                # Check if we just completed a day or month name
-                words = value_lower.split()
-                if words and (words[-1] in day_names or words[-1] in month_names):
-                    # Keep this comma, it's part of the date
-                    self.current_value += char
-                # Or if the value contains "at" already (we're past the time portion)
-                # Note: Check for both : and §COLON§ since AppleScript may escape colons
-                elif ' at ' in value_lower and (':' in value_lower or '§colon§' in value_lower or 'am' in value_lower or 'pm' in value_lower):
-                    # We've seen the "at HH:MM" part, next comma ends the field
-                    self._finalize_field()
-                    self.state = ParserState.FIELD
                 else:
-                    # Keep the comma, we're still in the date
-                    self.current_value += char
+                    month_names = ['january', 'february', 'march', 'april', 'may', 'june',
+                                  'july', 'august', 'september', 'october', 'november', 'december']
+                    day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+                    # Check if we just completed a day or month name
+                    words = value_lower.split()
+                    if words and (words[-1] in day_names or words[-1] in month_names):
+                        # Keep this comma, it's part of the date
+                        self.current_value += char
+                    # Or if the value contains "at" already (we're past the time portion)
+                    # Note: Check for both : and §COLON§ since AppleScript may escape colons
+                    elif ' at ' in value_lower and (':' in value_lower or '§colon§' in value_lower or 'am' in value_lower or 'pm' in value_lower):
+                        # We've seen the "at HH:MM" part, next comma ends the field
+                        self._finalize_field()
+                        self.state = ParserState.FIELD
+                    else:
+                        # Keep the comma, we're still in the date
+                        self.current_value += char
             else:
                 # End of this field, start of next field
                 self._finalize_field()
