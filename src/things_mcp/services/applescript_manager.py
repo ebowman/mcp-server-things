@@ -71,9 +71,11 @@ class AppleScriptManager:
 
     def _load_auth_token(self) -> Optional[str]:
         """Load Things auth token from file if it exists."""
+        # Path from services/applescript_manager.py -> services -> things_mcp -> src -> project root
+        project_root = Path(__file__).parent.parent.parent.parent
         auth_files = [
-            Path(__file__).parent.parent.parent / '.things-auth',
-            Path(__file__).parent.parent.parent / 'things-auth.txt',
+            project_root / '.things-auth',
+            project_root / 'things-auth.txt',
             Path.home() / '.things-auth'
         ]
 

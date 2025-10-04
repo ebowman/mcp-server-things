@@ -1,5 +1,6 @@
 """Todo and project creation/update operations."""
 
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 
@@ -134,7 +135,7 @@ class TodoOperations:
         return script
 
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
-        """Add a new todo using AppleScript."""
+        """Add a new todo using AppleScript, or URL scheme if checklist items are provided."""
         try:
             # Extract parameters
             notes = kwargs.get('notes', '')
@@ -144,8 +145,24 @@ class TodoOperations:
             area = kwargs.get('area', '')
             project = kwargs.get('project', '') or kwargs.get('list_id', '')
             checklist = kwargs.get('checklist_items') or []
+            heading = kwargs.get('heading', '')
+            list_title = kwargs.get('list_title', '')
 
-            # Build and execute script
+            # If checklist items are provided, use Things URL scheme (only way to create checklists)
+            if checklist:
+                return await self._add_todo_with_checklist(
+                    title=title,
+                    notes=notes,
+                    tags=tags,
+                    when=when,
+                    deadline=deadline,
+                    list_id=project,
+                    list_title=list_title,
+                    heading=heading,
+                    checklist_items=checklist
+                )
+
+            # Otherwise use AppleScript (faster, more reliable for non-checklist todos)
             script = self._build_create_todo_script(title, notes, tags, deadline,
                                                     area, project, checklist)
             result = await self.applescript.execute_applescript(script)
@@ -158,10 +175,6 @@ class TodoOperations:
                         "success": True,
                         "todo_id": todo_id
                     }
-
-                    # Add warning if checklist items were provided (AppleScript limitation)
-                    if checklist:
-                        response["warning"] = "Checklist items not supported via AppleScript (Things 3 API limitation). Todo created without checklist items."
 
                     # Schedule if when date provided
                     if when:
@@ -189,6 +202,299 @@ class TodoOperations:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to add todo"
+            }
+
+    async def _add_todo_with_checklist(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a todo with checklist items using Things URL scheme.
+
+        This is the only way to create checklist items, as AppleScript doesn't support them.
+
+        Args:
+            title: Todo title
+            notes: Optional notes
+            tags: Optional tag list
+            when: Optional scheduling date
+            deadline: Optional deadline date
+            list_id: Optional project/area ID
+            list_title: Optional project/area title
+            heading: Optional heading within project
+            checklist_items: List of checklist item titles
+
+        Returns:
+            Dict with success status and todo information
+        """
+        try:
+            import time
+            from urllib.parse import quote
+
+            # Build URL parameters
+            params = {
+                'title': title
+            }
+
+            # Add optional parameters
+            if kwargs.get('notes'):
+                params['notes'] = kwargs['notes']
+
+            if kwargs.get('tags'):
+                # Tags are comma-separated in URL scheme
+                params['tags'] = ','.join(kwargs['tags'])
+
+            if kwargs.get('when'):
+                params['when'] = kwargs['when']
+
+            if kwargs.get('deadline'):
+                params['deadline'] = kwargs['deadline']
+
+            if kwargs.get('list_id'):
+                params['list'] = kwargs['list_id']
+            elif kwargs.get('list_title'):
+                params['list'] = kwargs['list_title']
+
+            if kwargs.get('heading'):
+                params['heading'] = kwargs['heading']
+
+            # Add checklist items (newline-separated, URL-encoded)
+            if kwargs.get('checklist_items'):
+                items = kwargs['checklist_items']
+                logger.debug(f"Checklist items received: type={type(items)}, value={repr(items)}")
+
+                # Handle both string and list inputs
+                if isinstance(items, str):
+                    # If it's already a newline-separated string, use it as-is
+                    # If it's a single item, it will work too
+                    params['checklist-items'] = items
+                elif isinstance(items, list):
+                    # Convert list to newline-separated string
+                    params['checklist-items'] = '\n'.join(items)
+                    logger.debug(f"Joined list to string: {repr(params['checklist-items'])}")
+                else:
+                    # Fallback: convert to string
+                    params['checklist-items'] = str(items)
+
+                logger.debug(f"Final checklist-items param: {repr(params['checklist-items'])}")
+
+            # Execute URL scheme
+            logger.debug(f"Creating todo with checklist via URL scheme: {params}")
+            result = await self.applescript.execute_url_scheme('add', params)
+
+            if not result.get('success'):
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "message": "Failed to create todo via URL scheme"
+                }
+
+            # URL scheme doesn't return the todo ID, so we need to find it
+            # Wait a moment for Things to process the URL
+            await asyncio.sleep(0.5)
+
+            # Search for the newly created todo by title
+            # Use AppleScript to find it
+            search_script = f'''
+            tell application "Things3"
+                try
+                    set foundTodos to to dos whose name is {AppleScriptTemplates.escape_string(title)}
+                    if (count of foundTodos) > 0 then
+                        -- Get the most recently created one
+                        set newestTodo to item 1 of foundTodos
+                        set newestDate to creation date of newestTodo
+                        repeat with aTodo in foundTodos
+                            if creation date of aTodo > newestDate then
+                                set newestTodo to aTodo
+                                set newestDate to creation date of aTodo
+                            end if
+                        end repeat
+                        return id of newestTodo
+                    else
+                        return "error: Todo not found after creation"
+                    end if
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            search_result = await self.applescript.execute_applescript(search_script)
+
+            # Calculate checklist count correctly
+            checklist_items = kwargs.get('checklist_items', [])
+            if isinstance(checklist_items, str):
+                item_count = len([item.strip() for item in checklist_items.split('\n') if item.strip()])
+            elif isinstance(checklist_items, list):
+                item_count = len(checklist_items)
+            else:
+                item_count = 0
+
+            if search_result.get('success'):
+                todo_id = search_result.get('output', '').strip()
+                if todo_id and not todo_id.startswith('error:'):
+                    return {
+                        "success": True,
+                        "todo_id": todo_id,
+                        "message": f"Todo created with {item_count} checklist items",
+                        "checklist_count": item_count
+                    }
+                else:
+                    # Todo was created but we couldn't find it
+                    return {
+                        "success": True,
+                        "message": "Todo created with checklist but ID could not be retrieved",
+                        "warning": "Todo ID not available",
+                        "checklist_count": item_count
+                    }
+            else:
+                # Todo was likely created but we couldn't find it
+                return {
+                    "success": True,
+                    "message": "Todo created with checklist but ID could not be retrieved",
+                    "warning": "Todo ID not available",
+                    "checklist_count": item_count
+                }
+
+        except Exception as e:
+            logger.error(f"Error adding todo with checklist: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add todo with checklist"
+            }
+
+    async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Add checklist items to an existing todo using Things URL scheme.
+
+        Args:
+            todo_id: ID of the todo to add checklist items to
+            items: List of checklist item titles to add
+
+        Returns:
+            Dict with success status and operation details
+        """
+        try:
+            if not items:
+                return {
+                    "success": False,
+                    "error": "No checklist items provided",
+                    "message": "At least one checklist item is required"
+                }
+
+            # Build URL parameters for appending checklist items
+            params = {
+                'id': todo_id,
+                'append-checklist-items': '\n'.join(items)
+            }
+
+            logger.debug(f"Adding {len(items)} checklist items to todo {todo_id}")
+            result = await self.applescript.execute_url_scheme('update', params)
+
+            if result.get('success'):
+                return {
+                    "success": True,
+                    "message": f"Added {len(items)} checklist items",
+                    "items_added": len(items)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "message": "Failed to add checklist items"
+                }
+
+        except Exception as e:
+            logger.error(f"Error adding checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add checklist items"
+            }
+
+    async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Prepend checklist items to an existing todo using Things URL scheme.
+
+        Args:
+            todo_id: ID of the todo to prepend checklist items to
+            items: List of checklist item titles to prepend
+
+        Returns:
+            Dict with success status and operation details
+        """
+        try:
+            if not items:
+                return {
+                    "success": False,
+                    "error": "No checklist items provided",
+                    "message": "At least one checklist item is required"
+                }
+
+            # Build URL parameters for prepending checklist items
+            params = {
+                'id': todo_id,
+                'prepend-checklist-items': '\n'.join(items)
+            }
+
+            logger.debug(f"Prepending {len(items)} checklist items to todo {todo_id}")
+            result = await self.applescript.execute_url_scheme('update', params)
+
+            if result.get('success'):
+                return {
+                    "success": True,
+                    "message": f"Prepended {len(items)} checklist items",
+                    "items_added": len(items)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "message": "Failed to prepend checklist items"
+                }
+
+        except Exception as e:
+            logger.error(f"Error prepending checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to prepend checklist items"
+            }
+
+    async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Replace all checklist items in a todo using Things URL scheme.
+
+        Args:
+            todo_id: ID of the todo to replace checklist items in
+            items: List of checklist item titles to replace with
+
+        Returns:
+            Dict with success status and operation details
+        """
+        try:
+            # Build URL parameters for replacing checklist items
+            params = {
+                'id': todo_id,
+                'checklist-items': '\n'.join(items) if items else ''
+            }
+
+            logger.debug(f"Replacing checklist items in todo {todo_id} with {len(items)} new items")
+            result = await self.applescript.execute_url_scheme('update', params)
+
+            if result.get('success'):
+                return {
+                    "success": True,
+                    "message": f"Replaced checklist with {len(items)} items",
+                    "items_count": len(items)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "message": "Failed to replace checklist items"
+                }
+
+        except Exception as e:
+            logger.error(f"Error replacing checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to replace checklist items"
             }
 
     def _build_update_script(self, todo_id: str, title: str, notes: str, tags: List[str],
@@ -344,7 +650,7 @@ class TodoOperations:
             }
 
     def _build_create_project_script(self, title: str, notes: str, tags: List[str],
-                                     deadline: str, area: str, todos: List[str]) -> str:
+                                     deadline: str, area_id: str, area_title: str, todos: List[str]) -> str:
         """Build AppleScript for creating a new project.
 
         Args:
@@ -352,7 +658,8 @@ class TodoOperations:
             notes: Project notes
             tags: Tags list
             deadline: Deadline date
-            area: Area name or ID
+            area_id: Area UUID (takes precedence if provided)
+            area_title: Area name
             todos: Initial todos to create in project
 
         Returns:
@@ -370,9 +677,13 @@ class TodoOperations:
         if notes:
             script += f'set notes of newProject to {escaped_notes}\n                    '
 
-        if area:
-            escaped_area = AppleScriptTemplates.escape_string(area)
-            script += f'set area of newProject to area {escaped_area}\n                    '
+        # Set area: prefer area_id (UUID) over area_title (name)
+        if area_id:
+            escaped_area_id = AppleScriptTemplates.escape_string(area_id)
+            script += f'set area of newProject to area id {escaped_area_id}\n                    '
+        elif area_title:
+            escaped_area_title = AppleScriptTemplates.escape_string(area_title)
+            script += f'set area of newProject to area {escaped_area_title}\n                    '
 
         if tags:
             tags_string = ', '.join(tags)
@@ -419,11 +730,23 @@ class TodoOperations:
             tags = kwargs.get('tags', [])
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', '')
-            area = kwargs.get('area', '')
-            todos = kwargs.get('todos', [])
+
+            # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
+            area_id = kwargs.get('area_id', '')
+            area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
+
+            # Handle todos parameter - can be string (newline-separated) or list
+            todos_param = kwargs.get('todos', [])
+            if isinstance(todos_param, str):
+                # Split by newlines and filter out empty strings
+                todos = [t.strip() for t in todos_param.split('\n') if t.strip()]
+            elif isinstance(todos_param, list):
+                todos = todos_param
+            else:
+                todos = []
 
             # Build and execute script
-            script = self._build_create_project_script(title, notes, tags, deadline, area, todos)
+            script = self._build_create_project_script(title, notes, tags, deadline, area_id, area_title, todos)
             result = await self.applescript.execute_applescript(script)
 
             if result.get("success"):
@@ -471,7 +794,11 @@ class TodoOperations:
             tags = kwargs.get('tags', [])
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', '')
-            area = kwargs.get('area', '')
+
+            # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
+            area_id = kwargs.get('area_id', '')
+            area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
+
             completed = kwargs.get('completed', None)
 
             # Start building the AppleScript
@@ -491,10 +818,13 @@ class TodoOperations:
                 escaped_notes = AppleScriptTemplates.escape_string(notes)
                 script += f'set notes of targetProject to {escaped_notes}\n                    '
 
-            # Update area if provided
-            if area:
-                escaped_area = AppleScriptTemplates.escape_string(area)
-                script += f'set area of targetProject to area {escaped_area}\n                    '
+            # Update area if provided: prefer area_id (UUID) over area_title (name)
+            if area_id:
+                escaped_area_id = AppleScriptTemplates.escape_string(area_id)
+                script += f'set area of targetProject to area id {escaped_area_id}\n                    '
+            elif area_title:
+                escaped_area_title = AppleScriptTemplates.escape_string(area_title)
+                script += f'set area of targetProject to area {escaped_area_title}\n                    '
 
             # Update tags if provided
             if tags:

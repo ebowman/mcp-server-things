@@ -37,10 +37,22 @@ class AppleScriptFormatters:
                 if value is not None:
                     if isinstance(value, list):
                         value = ",".join(str(v) for v in value)
-                    param_strings.append(f"{key}={quote(str(value))}")
+
+                    # URL encode all values (including newlines as %0A)
+                    encoded_value = quote(str(value))
+
+                    # Debug logging for checklist parameters
+                    if key in ('checklist-items', 'append-checklist-items', 'prepend-checklist-items'):
+                        logger.debug(f"Checklist parameter '{key}': raw={repr(value)}, encoded={encoded_value}")
+
+                    param_strings.append(f"{key}={encoded_value}")
 
             if param_strings:
                 url += "?" + "&".join(param_strings)
+
+        # Debug log for checklist URLs
+        if 'checklist-items' in str(parameters):
+            logger.debug(f"Generated Things URL: {url[:200]}...")  # Truncate for readability
 
         return url
 

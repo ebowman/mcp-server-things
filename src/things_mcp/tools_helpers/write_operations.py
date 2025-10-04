@@ -269,6 +269,42 @@ class WriteOperations:
                 "message": "Failed to add tags"
             }
 
+    async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Add checklist items to an existing todo."""
+        try:
+            return await self.reliable_scheduler.add_checklist_items(todo_id, items)
+        except Exception as e:
+            logger.error(f"Error adding checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add checklist items"
+            }
+
+    async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Prepend checklist items to an existing todo."""
+        try:
+            return await self.reliable_scheduler.prepend_checklist_items(todo_id, items)
+        except Exception as e:
+            logger.error(f"Error prepending checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to prepend checklist items"
+            }
+
+    async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Replace all checklist items in a todo."""
+        try:
+            return await self.reliable_scheduler.replace_checklist_items(todo_id, items)
+        except Exception as e:
+            logger.error(f"Error replacing checklist items: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to replace checklist items"
+            }
+
     async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Remove tags from a todo using AppleScript."""
         try:

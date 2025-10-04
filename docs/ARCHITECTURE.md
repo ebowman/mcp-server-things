@@ -113,6 +113,103 @@ If Things 3 ever adds reminder support to their AppleScript API, we could:
 
 Until then, this hybrid approach represents the best possible solution given the API constraints.
 
+## Checklist Item Support via URL Scheme
+
+### The Problem
+
+The Things 3 AppleScript API has another critical limitation: **it cannot create or manage checklist items**. While AppleScript can:
+- ✅ Create todos with all standard properties
+- ✅ Set title, notes, tags, deadlines, etc.
+- ✅ Return the created todo's ID
+
+It cannot:
+- ❌ Create checklist items within a todo
+- ❌ Add items to an existing checklist
+- ❌ Modify or remove checklist items
+
+The AppleScript dictionary has no `checklist item` class, making it impossible to work with checklists programmatically via AppleScript.
+
+### The Solution
+
+We use the **Things URL scheme exclusively** for all checklist operations:
+
+#### 1. Creating Todos with Checklists → URL Scheme
+
+```python
+# Create todo with checklist items
+await add_todo(
+    title="Grocery Shopping",
+    checklist_items="Milk\nBread\nEggs\nButter",
+    when="today"
+)
+```
+
+**Method**: Things URL scheme (`things:///add?checklist-items=...`)
+**Advantages**:
+- Only way to create checklists programmatically
+- Supports up to 100 checklist items per todo
+- Newline-separated format is simple and reliable
+
+**Limitations**:
+- Cannot retrieve todo ID immediately (must search by title afterward)
+- Requires brief wait for Things to process the URL
+- Less efficient than direct AppleScript
+
+#### 2. Managing Existing Checklists → URL Scheme
+
+```python
+# Add items to existing checklist
+await add_checklist_items(todo_id="abc123", items=["New item 1", "New item 2"])
+
+# Prepend items to beginning
+await prepend_checklist_items(todo_id="abc123", items=["Urgent item"])
+
+# Replace all checklist items
+await replace_checklist_items(todo_id="abc123", items=["Item 1", "Item 2"])
+```
+
+**Method**: Things URL scheme (`things:///update?id=...&append-checklist-items=...`)
+**URL Parameters**:
+- `append-checklist-items` - Add items to end of checklist
+- `prepend-checklist-items` - Add items to beginning
+- `checklist-items` - Replace all items (or clear with empty string)
+
+### Smart Hybrid Decision
+
+The `add_todo()` function automatically chooses the optimal method:
+
+```python
+if checklist_items:
+    # Use URL scheme (only way to create checklists)
+    return await self._add_todo_with_checklist(...)
+else:
+    # Use AppleScript (faster, returns ID immediately)
+    return await self._add_todo_applescript(...)
+```
+
+### Trade-offs
+
+| Aspect | With Checklists | Without Checklists |
+|--------|----------------|-------------------|
+| **Creation method** | URL Scheme | AppleScript |
+| **Returns todo ID** | ⚠️ Via search | ✅ Immediate |
+| **Supports checklists** | ✅ Yes (only way) | N/A |
+| **Performance** | ⚠️ Slower | ✅ Fast |
+| **Maximum items** | ⚠️ 100 items | N/A |
+
+### Why This Matters
+
+Without URL scheme support for checklists, users would have to:
+1. Create todos programmatically via AppleScript
+2. Manually add all checklist items in the Things UI
+
+By using the URL scheme for checklist operations, we provide:
+- Full programmatic control over checklists
+- Ability to create complex todos with sub-tasks in one operation
+- Tools to manage existing checklists (add/prepend/replace)
+
+This is the **only** way to work with checklists programmatically in Things 3.
+
 ## Other Architectural Decisions
 
 ### Operation Queue System

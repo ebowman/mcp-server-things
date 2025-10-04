@@ -235,9 +235,10 @@ class TestURLSchemeExecution:
             mock_create.return_value = mock_process
             
             result = await manager_with_mocks.execute_url_scheme(action)
-            
+
             assert result["success"] is True
-            assert result["url"] == "things:///show"
+            assert result["url"].startswith("things:///show")
+            assert "auth-token" in result["url"]
     
     @pytest.mark.asyncio
     async def test_url_parameter_encoding(self, manager_with_mocks):

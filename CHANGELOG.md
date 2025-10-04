@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2025-10-04
+
+### Added
+- **Checklist item support** - Full support for creating and managing checklist items via Things URL scheme
+  - `add_todo()` automatically uses URL scheme when `checklist_items` parameter is provided
+  - New `add_checklist_items()` tool to append items to existing todo checklists
+  - New `prepend_checklist_items()` tool to prepend items to existing todo checklists
+  - New `replace_checklist_items()` tool to replace all checklist items
+  - Checklist items returned in todo queries with status (complete/incomplete)
+  - Maximum 100 checklist items per todo
+
+### Changed
+- **Smart hybrid approach** - `add_todo()` now automatically selects optimal creation method
+  - Uses Things URL scheme when checklist items are provided (only way to create checklists)
+  - Uses AppleScript for non-checklist todos (faster, more reliable)
+  - No API changes required - transparent to users
+
+### Fixed
+- **Removed checklist limitation** - Previous limitation documented in CLAUDE.md is now resolved
+  - Checklists were not supported via AppleScript (Things 3 API limitation)
+  - Now fully supported via Things URL scheme integration
+
+### Documentation
+- Added comprehensive checklist usage examples to CLAUDE.md
+- Added checklist architecture documentation to ARCHITECTURE.md
+- Updated known limitations section (checklist support now complete)
+
 ## [1.3.2] - 2025-10-04
 
 ### Fixed

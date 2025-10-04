@@ -2,9 +2,14 @@
 """
 Pure AppleScript Date Scheduling Implementation
 
-This implementation respects the user's explicit constraint: "I would prefer you not use the URI scheme!"
-Instead, it focuses on making AppleScript date scheduling 100% reliable using proper date object construction
-and the research findings from the claude-flow hive-mind investigation.
+This implementation primarily uses AppleScript for todo/project operations, focusing on making
+AppleScript date scheduling 100% reliable using proper date object construction and the research
+findings from the claude-flow hive-mind investigation.
+
+**Exception: Checklist Operations**
+The Things URL scheme is used ONLY for checklist item management (add/prepend/replace) because
+the Things 3 AppleScript API does not support checklist items. This is the only way to create
+and manage checklists programmatically.
 
 Key Research Insights Applied:
 1. Use AppleScript date objects, not string parsing
@@ -72,6 +77,18 @@ class PureAppleScriptScheduler:
     async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
         """Update an existing todo using AppleScript."""
         return await self.todo_ops.update_todo(todo_id, **kwargs)
+
+    async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Add checklist items to an existing todo."""
+        return await self.todo_ops.add_checklist_items(todo_id, items)
+
+    async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Prepend checklist items to an existing todo."""
+        return await self.todo_ops.prepend_checklist_items(todo_id, items)
+
+    async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Replace all checklist items in a todo."""
+        return await self.todo_ops.replace_checklist_items(todo_id, items)
 
     async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a new project using AppleScript."""

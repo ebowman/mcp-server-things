@@ -65,7 +65,29 @@ class ThingsMCPServer:
         self._register_tools()
         self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized with context-aware response management and tag validation support")
-    
+
+    def _process_checklist_items(self, checklist_items_str: str) -> list:
+        """Process checklist items string, handling escape sequences from MCP protocol.
+
+        Args:
+            checklist_items_str: String with newline-separated items (may contain \\n escape sequences)
+
+        Returns:
+            List of individual checklist item strings
+        """
+        logger.debug(f"Processing checklist input: {repr(checklist_items_str)}")
+        logger.debug(f"Raw bytes: {checklist_items_str.encode('unicode_escape').decode('ascii')}")
+
+        # Replace escaped newlines with actual newlines
+        processed = checklist_items_str.replace('\\n', '\n')
+        logger.debug(f"After replace: {repr(processed)}")
+
+        # Split on newlines
+        items = [item.strip() for item in processed.split('\n') if item.strip()]
+        logger.debug(f"Split into {len(items)} items: {items}")
+
+        return items
+
     def _configure_logging(self):
         """Configure logging based on configuration settings."""
         # Get root logger
@@ -345,7 +367,7 @@ class ThingsMCPServer:
                     list_id=list_id,
                     list_title=list_title,
                     heading=heading,
-                    checklist_items=[item.strip() for item in checklist_items.split("\n") if item.strip()] if checklist_items else None
+                    checklist_items=self._process_checklist_items(checklist_items) if checklist_items else None
                 )
                 
                 # Enhance response with tag validation feedback if available
@@ -533,6 +555,68 @@ class ThingsMCPServer:
                 }
 
         @self.mcp.tool()
+        async def add_checklist_items(
+            todo_id: str = Field(..., description="ID of the todo to add checklist items to"),
+            items: str = Field(..., description="Newline-separated checklist items to add")
+        ) -> Dict[str, Any]:
+            """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist."""
+            try:
+                # Parse newline-separated items (handles escaped \n from MCP protocol)
+                item_list = self._process_checklist_items(items)
+
+                if not item_list:
+                    return {
+                        "success": False,
+                        "error": "No valid checklist items provided",
+                        "message": "At least one checklist item is required"
+                    }
+
+                result = await self.tools.add_checklist_items(todo_id=todo_id, items=item_list)
+                return result
+            except Exception as e:
+                logger.error(f"Error adding checklist items: {e}")
+                raise
+
+        @self.mcp.tool()
+        async def prepend_checklist_items(
+            todo_id: str = Field(..., description="ID of the todo to prepend checklist items to"),
+            items: str = Field(..., description="Newline-separated checklist items to prepend")
+        ) -> Dict[str, Any]:
+            """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist."""
+            try:
+                # Parse newline-separated items (handles escaped \n from MCP protocol)
+                item_list = self._process_checklist_items(items)
+
+                if not item_list:
+                    return {
+                        "success": False,
+                        "error": "No valid checklist items provided",
+                        "message": "At least one checklist item is required"
+                    }
+
+                result = await self.tools.prepend_checklist_items(todo_id=todo_id, items=item_list)
+                return result
+            except Exception as e:
+                logger.error(f"Error prepending checklist items: {e}")
+                raise
+
+        @self.mcp.tool()
+        async def replace_checklist_items(
+            todo_id: str = Field(..., description="ID of the todo to replace checklist items in"),
+            items: str = Field(..., description="Newline-separated checklist items to replace with (empty string to clear all)")
+        ) -> Dict[str, Any]:
+            """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items."""
+            try:
+                # Parse newline-separated items (handles escaped \n from MCP protocol, allow empty to clear checklist)
+                item_list = self._process_checklist_items(items) if items else []
+
+                result = await self.tools.replace_checklist_items(todo_id=todo_id, items=item_list)
+                return result
+            except Exception as e:
+                logger.error(f"Error replacing checklist items: {e}")
+                raise
+
+        @self.mcp.tool()
         async def get_todo_by_id(
             todo_id: str = Field(..., description="ID of the todo to retrieve")
         ) -> Dict[str, Any]:
@@ -676,6 +760,8 @@ class ThingsMCPServer:
 
                 # Convert comma-separated tags to list
                 tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                # Convert newline-separated todos to list
+                todos_list = [todo.strip() for todo in todos.split("\n")] if todos else None
                 return await self.tools.add_project(
                     title=title,
                     notes=notes,
@@ -684,7 +770,7 @@ class ThingsMCPServer:
                     deadline=deadline,
                     area_id=area_id,
                     area_title=area_title,
-                    todos=[todo.strip() for todo in todos.split("\n")] if todos else None
+                    todos=todos_list
                 )
             except Exception as e:
                 logger.error(f"Error adding project: {e}")
@@ -698,6 +784,8 @@ class ThingsMCPServer:
             tags: Optional[str] = Field(None, description="Comma-separated new tags"),
             when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
             deadline: Optional[str] = Field(None, description="New deadline"),
+            area_id: Optional[str] = Field(None, description="ID of area to move to"),
+            area_title: Optional[str] = Field(None, description="Title of area to move to"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
@@ -745,6 +833,8 @@ class ThingsMCPServer:
                     tags=tag_list,
                     when=when,
                     deadline=deadline,
+                    area_id=area_id,
+                    area_title=area_title,
                     completed=completed_bool,
                     canceled=canceled_bool
                 )

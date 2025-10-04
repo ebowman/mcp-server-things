@@ -462,18 +462,71 @@ This feature is useful for:
 - Getting complete project history
 - Status-based reporting and analytics
 
+### Checklist Support ✅
+
+**Checklist items are now fully supported** via the Things 3 URL scheme API. The server automatically uses the URL scheme when checklist items are provided.
+
+#### Creating Todos with Checklists
+
+```python
+# Create todo with checklist items
+add_todo(
+    title="Grocery Shopping",
+    notes="Weekly shopping list",
+    checklist_items="Milk\nBread\nEggs\nButter",  # Newline-separated
+    when="today"
+)
+
+# With project and tags
+add_todo(
+    title="Release v2.0",
+    checklist_items="Run tests\nUpdate docs\nCreate changelog\nTag release",
+    list_id="project123",
+    tags="work,release",
+    deadline="2025-12-31"
+)
+```
+
+#### Managing Checklist Items
+
+```python
+# Add items to existing todo (appends to end)
+add_checklist_items(
+    todo_id="abc123",
+    items="New item 1\nNew item 2"
+)
+
+# Prepend items to beginning
+prepend_checklist_items(
+    todo_id="abc123",
+    items="Urgent item\nHigh priority"
+)
+
+# Replace all checklist items
+replace_checklist_items(
+    todo_id="abc123",
+    items="Item 1\nItem 2\nItem 3"
+)
+
+# Clear all checklist items
+replace_checklist_items(
+    todo_id="abc123",
+    items=""  # Empty string clears checklist
+)
+```
+
+**Format Requirements:**
+- Items are newline-separated (`\n`)
+- Maximum 100 checklist items per todo
+- Items can be marked complete/incomplete in Things 3 UI
+
+**Implementation Details:**
+- Checklists use Things URL scheme API (not AppleScript)
+- URL scheme is automatically used when `checklist_items` parameter is provided
+- Todo ID is retrieved after creation by searching for the newly created todo
+- Non-checklist todos still use faster AppleScript approach
+
 ### Known Limitations
-
-1. **Checklist Items Not Supported**: ⚠️ **Checklist items CANNOT be created via AppleScript** - This is a Things 3 AppleScript API limitation, not a bug. The `checklist_items` parameter is accepted for API consistency but checklist items will not be created. Only the todo itself is created.
-
-**Root Cause:**
-- Things 3 AppleScript dictionary has no checklist/check list item class
-- Checklist items can only be created via URL scheme (explicitly excluded per project constraints)
-- The parameter validation accepts it but AppleScript silently ignores it
-
-**Alternative:**
-- Manually add checklist items in Things 3 after todo creation
-- Use notes field to list items as text (e.g., "- [ ] Item 1\n- [ ] Item 2")
 
 2. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
 

@@ -201,6 +201,18 @@ class ThingsTools:
         """Remove tags from a todo using AppleScript (write operation)."""
         return await self.write_ops.remove_tags(todo_id=todo_id, tags=tags)
 
+    async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Add checklist items to an existing todo (write operation)."""
+        return await self.write_ops.add_checklist_items(todo_id=todo_id, items=items)
+
+    async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Prepend checklist items to an existing todo (write operation)."""
+        return await self.write_ops.prepend_checklist_items(todo_id=todo_id, items=items)
+
+    async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
+        """Replace all checklist items in a todo (write operation)."""
+        return await self.write_ops.replace_checklist_items(todo_id=todo_id, items=items)
+
     # ========== BULK OPERATIONS (delegate to BulkOperations) ==========
 
     async def bulk_update_todos(self, todo_ids: List[str], **kwargs) -> Dict[str, Any]:

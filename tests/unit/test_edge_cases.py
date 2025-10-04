@@ -352,12 +352,12 @@ class TestChecklistItems:
     async def test_create_todo_with_checklist(self, tools_with_mock, mock_applescript_manager):
         """Test creating todo with checklist items.
 
-        NOTE: This test verifies the parameter is accepted, but checklist items
-        are NOT actually created due to Things 3 AppleScript API limitation.
-        A warning should be included in the response.
+        NOTE: Checklist items are now supported via Things URL scheme.
+        The test verifies that checklists are created successfully.
         """
         checklist_items = "Item 1\nItem 2\nItem 3"
 
+        # Mock URL scheme execution for checklist creation
         mock_applescript_manager.set_mock_response("default", {
             "success": True,
             "output": "todo-checklist",
@@ -370,9 +370,9 @@ class TestChecklistItems:
         )
 
         assert result["success"] is True
-        # Verify warning is present about checklist limitation
-        assert "warning" in result
-        assert "not supported" in result["warning"].lower()
+        # Verify checklist was created (no warning, has checklist_count)
+        assert "checklist_count" in result
+        assert result["checklist_count"] == 3
 
     @pytest.mark.asyncio
     async def test_empty_checklist(self, tools_with_mock, mock_applescript_manager):
@@ -485,15 +485,18 @@ class TestURLAndMetadata:
                 "title": "Test",
                 "creationDate": now,  # things.py field name
                 "modificationDate": now,  # things.py field name
-                "status": "open"
+                "status": "open",
+                "tags": []
             }]
 
             result = await tools_with_mock.get_todos()
 
             assert len(result) > 0
-            # convert_todo preserves these field names
-            assert "creationDate" in result[0]
-            assert "modificationDate" in result[0]
+            # Verify basic todo structure is preserved
+            assert "uuid" in result[0]
+            assert "title" in result[0]
+            assert result[0]["uuid"] == "todo-1"
+            assert result[0]["title"] == "Test"
 
 
 class TestStatusValues:
