@@ -464,7 +464,18 @@ This feature is useful for:
 
 ### Known Limitations
 
-1. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
+1. **Checklist Items Not Supported**: ⚠️ **Checklist items CANNOT be created via AppleScript** - This is a Things 3 AppleScript API limitation, not a bug. The `checklist_items` parameter is accepted for API consistency but checklist items will not be created. Only the todo itself is created.
+
+**Root Cause:**
+- Things 3 AppleScript dictionary has no checklist/check list item class
+- Checklist items can only be created via URL scheme (explicitly excluded per project constraints)
+- The parameter validation accepts it but AppleScript silently ignores it
+
+**Alternative:**
+- Manually add checklist items in Things 3 after todo creation
+- Use notes field to list items as text (e.g., "- [ ] Item 1\n- [ ] Item 2")
+
+2. **Project include_items context explosion**: ⚠️ **NEVER use `get_projects(include_items=true)`** - generates 252K+ tokens for 73 projects, exceeding context limits. Always use `get_projects(mode='summary')` first, then query specific projects.
 
 **Workarounds:**
 - Use `get_projects(mode='minimal')` to get IDs, then query specific projects

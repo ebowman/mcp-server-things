@@ -460,7 +460,11 @@ class ReadOperations:
     def _get_todo_by_id_sync(self, todo_id: str) -> Dict[str, Any]:
         """Synchronous implementation."""
         try:
-            all_todos = things.todos()
+            # Search all todos regardless of status (incomplete, completed, canceled)
+            all_todos = []
+            all_todos.extend(things.todos(status='incomplete'))
+            all_todos.extend(things.todos(status='completed'))
+            all_todos.extend(things.todos(status='canceled'))
 
             for todo in all_todos:
                 if todo.get('uuid') == todo_id:

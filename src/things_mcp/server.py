@@ -345,7 +345,7 @@ class ThingsMCPServer:
                     list_id=list_id,
                     list_title=list_title,
                     heading=heading,
-                    checklist_items=[item.strip() for item in checklist_items.split("\n")] if checklist_items else None
+                    checklist_items=[item.strip() for item in checklist_items.split("\n") if item.strip()] if checklist_items else None
                 )
                 
                 # Enhance response with tag validation feedback if available

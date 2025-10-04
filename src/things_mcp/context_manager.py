@@ -492,13 +492,13 @@ class ContextAwareResponseManager:
         
         # Define field sets by mode
         field_sets = {
-            ResponseMode.SUMMARY: {'id', 'name', 'status', 'tag_names', 'due_date'},  # Include useful fields in summary
+            ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
             ResponseMode.MINIMAL: {
-                'id', 'name', 'status', 'due_date', 'modification_date', 'creation_date'
+                'uuid', 'title', 'status', 'dueDate', 'modificationDate', 'creationDate'
             },
             ResponseMode.STANDARD: {
-                'id', 'name', 'status', 'notes', 'due_date', 'modification_date', 
-                'creation_date', 'tag_names', 'project_name', 'area_name', 'scheduled_date'
+                'uuid', 'title', 'status', 'notes', 'dueDate', 'modificationDate',
+                'creationDate', 'tags', 'project', 'area', 'startDate'
             },
             ResponseMode.DETAILED: None  # Include all fields
         }

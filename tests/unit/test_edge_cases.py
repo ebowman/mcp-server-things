@@ -337,7 +337,12 @@ class TestInvalidInputs:
 
 
 class TestChecklistItems:
-    """Test checklist items functionality."""
+    """Test checklist items functionality.
+
+    NOTE: Checklist items are NOT supported via AppleScript (Things 3 API limitation).
+    These tests verify the parameter is accepted but checklist items won't be created.
+    A warning is returned to inform the user of this limitation.
+    """
 
     @pytest.fixture
     def tools_with_mock(self, mock_applescript_manager):
@@ -345,7 +350,12 @@ class TestChecklistItems:
 
     @pytest.mark.asyncio
     async def test_create_todo_with_checklist(self, tools_with_mock, mock_applescript_manager):
-        """Test creating todo with checklist items."""
+        """Test creating todo with checklist items.
+
+        NOTE: This test verifies the parameter is accepted, but checklist items
+        are NOT actually created due to Things 3 AppleScript API limitation.
+        A warning should be included in the response.
+        """
         checklist_items = "Item 1\nItem 2\nItem 3"
 
         mock_applescript_manager.set_mock_response("default", {
@@ -360,6 +370,9 @@ class TestChecklistItems:
         )
 
         assert result["success"] is True
+        # Verify warning is present about checklist limitation
+        assert "warning" in result
+        assert "not supported" in result["warning"].lower()
 
     @pytest.mark.asyncio
     async def test_empty_checklist(self, tools_with_mock, mock_applescript_manager):

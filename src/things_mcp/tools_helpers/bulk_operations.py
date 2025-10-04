@@ -8,6 +8,7 @@ from ..services.applescript_manager import AppleScriptManager
 from ..pure_applescript_scheduler import PureAppleScriptScheduler
 from ..services.tag_service import TagValidationService
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
+from ..locale_aware_dates import locale_handler
 from .helpers import ToolsHelpers
 
 logger = logging.getLogger(__name__)
@@ -133,8 +134,17 @@ class BulkOperations:
             if 'deadline' in kwargs:
                 deadline = kwargs['deadline']
                 if deadline:
-                    as_date = ToolsHelpers.convert_iso_to_applescript_date(deadline)
-                    script += f'        set due date of targetTodo to date "{as_date}"\n'
+                    date_components = locale_handler.normalize_date_input(deadline)
+                    if date_components:
+                        year, month, day = date_components
+                        script += f'''        set deadlineDate to (current date)
+        set time of deadlineDate to 0
+        set day of deadlineDate to 1
+        set year of deadlineDate to {year}
+        set month of deadlineDate to {month}
+        set day of deadlineDate to {day}
+        set due date of targetTodo to deadlineDate
+'''
 
             if 'tags' in kwargs and kwargs['tags']:
                 tags_value = kwargs['tags']

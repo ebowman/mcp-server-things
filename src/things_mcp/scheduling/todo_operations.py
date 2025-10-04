@@ -101,10 +101,13 @@ class TodoOperations:
             escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
             script += f'set tag names of newTodo to {escaped_tags_string}\n                    '
 
-        if checklist:
-            for item in checklist:
-                escaped_item = AppleScriptTemplates.escape_string(item)
-                script += f'make new checklist item in newTodo with properties {{name:{escaped_item}}}\n                    '
+        # NOTE: Checklist items are NOT supported via AppleScript (Things 3 API limitation)
+        # The checklist parameter is accepted but we don't generate AppleScript for it
+        # A warning is added in the response instead
+        # if checklist:
+        #     for item in checklist:
+        #         escaped_item = AppleScriptTemplates.escape_string(item)
+        #         script += f'make new checklist item in newTodo with properties {{name:{escaped_item}}}\n                    '
 
         if deadline:
             date_components = locale_handler.normalize_date_input(deadline)
@@ -140,7 +143,7 @@ class TodoOperations:
             deadline = kwargs.get('deadline', '')
             area = kwargs.get('area', '')
             project = kwargs.get('project', '') or kwargs.get('list_id', '')
-            checklist = kwargs.get('checklist', [])
+            checklist = kwargs.get('checklist_items') or []
 
             # Build and execute script
             script = self._build_create_todo_script(title, notes, tags, deadline,
@@ -150,20 +153,25 @@ class TodoOperations:
             if result.get("success"):
                 todo_id = result.get("output", "").strip()
                 if todo_id and not todo_id.startswith("error:"):
+                    # Build response
+                    response = {
+                        "success": True,
+                        "todo_id": todo_id
+                    }
+
+                    # Add warning if checklist items were provided (AppleScript limitation)
+                    if checklist:
+                        response["warning"] = "Checklist items not supported via AppleScript (Things 3 API limitation). Todo created without checklist items."
+
                     # Schedule if when date provided
                     if when:
                         schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
-                        return {
-                            "success": True,
-                            "todo_id": todo_id,
-                            "message": "Todo created and scheduled successfully",
-                            "scheduling": schedule_result
-                        }
-                    return {
-                        "success": True,
-                        "todo_id": todo_id,
-                        "message": "Todo created successfully"
-                    }
+                        response["message"] = "Todo created and scheduled successfully"
+                        response["scheduling"] = schedule_result
+                    else:
+                        response["message"] = "Todo created successfully"
+
+                    return response
                 return {
                     "success": False,
                     "error": todo_id,
