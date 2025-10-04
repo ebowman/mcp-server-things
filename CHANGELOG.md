@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2025-10-04
+
+### Changed
+- **Checklist API improvement** - Changed checklist parameters from newline-delimited strings to List[str]
+  - `add_todo(checklist_items=...)` now accepts `List[str]` instead of `str`
+  - `add_checklist_items(items=...)` now accepts `List[str]` instead of `str`
+  - `prepend_checklist_items(items=...)` now accepts `List[str]` instead of `str`
+  - `replace_checklist_items(items=...)` now accepts `List[str]` instead of `str`
+  - More idiomatic API design - pass lists directly instead of manually joining with newlines
+  - Internal conversion to URL scheme format happens transparently
+
+### Documentation
+- Updated CLAUDE.md with List[str] examples for all checklist operations
+- Updated test examples to use list format
+
 ## [1.4.0] - 2025-10-04
 
 ### Added

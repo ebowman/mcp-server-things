@@ -329,7 +329,7 @@ class ThingsMCPServer:
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
-            checklist_items: Optional[str] = Field(None, description="Newline-separated checklist items to add")
+            checklist_items: Optional[List[str]] = Field(None, description="List of checklist items to add")
         ) -> Dict[str, Any]:
             """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
@@ -367,7 +367,7 @@ class ThingsMCPServer:
                     list_id=list_id,
                     list_title=list_title,
                     heading=heading,
-                    checklist_items=self._process_checklist_items(checklist_items) if checklist_items else None
+                    checklist_items=checklist_items
                 )
                 
                 # Enhance response with tag validation feedback if available
@@ -557,21 +557,18 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def add_checklist_items(
             todo_id: str = Field(..., description="ID of the todo to add checklist items to"),
-            items: str = Field(..., description="Newline-separated checklist items to add")
+            items: List[str] = Field(..., description="List of checklist items to add")
         ) -> Dict[str, Any]:
             """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist."""
             try:
-                # Parse newline-separated items (handles escaped \n from MCP protocol)
-                item_list = self._process_checklist_items(items)
-
-                if not item_list:
+                if not items:
                     return {
                         "success": False,
                         "error": "No valid checklist items provided",
                         "message": "At least one checklist item is required"
                     }
 
-                result = await self.tools.add_checklist_items(todo_id=todo_id, items=item_list)
+                result = await self.tools.add_checklist_items(todo_id=todo_id, items=items)
                 return result
             except Exception as e:
                 logger.error(f"Error adding checklist items: {e}")
@@ -580,21 +577,18 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def prepend_checklist_items(
             todo_id: str = Field(..., description="ID of the todo to prepend checklist items to"),
-            items: str = Field(..., description="Newline-separated checklist items to prepend")
+            items: List[str] = Field(..., description="List of checklist items to prepend")
         ) -> Dict[str, Any]:
             """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist."""
             try:
-                # Parse newline-separated items (handles escaped \n from MCP protocol)
-                item_list = self._process_checklist_items(items)
-
-                if not item_list:
+                if not items:
                     return {
                         "success": False,
                         "error": "No valid checklist items provided",
                         "message": "At least one checklist item is required"
                     }
 
-                result = await self.tools.prepend_checklist_items(todo_id=todo_id, items=item_list)
+                result = await self.tools.prepend_checklist_items(todo_id=todo_id, items=items)
                 return result
             except Exception as e:
                 logger.error(f"Error prepending checklist items: {e}")
@@ -603,14 +597,11 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def replace_checklist_items(
             todo_id: str = Field(..., description="ID of the todo to replace checklist items in"),
-            items: str = Field(..., description="Newline-separated checklist items to replace with (empty string to clear all)")
+            items: List[str] = Field(..., description="List of checklist items to replace with (empty list to clear all)")
         ) -> Dict[str, Any]:
             """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items."""
             try:
-                # Parse newline-separated items (handles escaped \n from MCP protocol, allow empty to clear checklist)
-                item_list = self._process_checklist_items(items) if items else []
-
-                result = await self.tools.replace_checklist_items(todo_id=todo_id, items=item_list)
+                result = await self.tools.replace_checklist_items(todo_id=todo_id, items=items)
                 return result
             except Exception as e:
                 logger.error(f"Error replacing checklist items: {e}")

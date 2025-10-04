@@ -473,14 +473,14 @@ This feature is useful for:
 add_todo(
     title="Grocery Shopping",
     notes="Weekly shopping list",
-    checklist_items="Milk\nBread\nEggs\nButter",  # Newline-separated
+    checklist_items=["Milk", "Bread", "Eggs", "Butter"],  # List of strings
     when="today"
 )
 
 # With project and tags
 add_todo(
     title="Release v2.0",
-    checklist_items="Run tests\nUpdate docs\nCreate changelog\nTag release",
+    checklist_items=["Run tests", "Update docs", "Create changelog", "Tag release"],
     list_id="project123",
     tags="work,release",
     deadline="2025-12-31"
@@ -493,30 +493,30 @@ add_todo(
 # Add items to existing todo (appends to end)
 add_checklist_items(
     todo_id="abc123",
-    items="New item 1\nNew item 2"
+    items=["New item 1", "New item 2"]
 )
 
 # Prepend items to beginning
 prepend_checklist_items(
     todo_id="abc123",
-    items="Urgent item\nHigh priority"
+    items=["Urgent item", "High priority"]
 )
 
 # Replace all checklist items
 replace_checklist_items(
     todo_id="abc123",
-    items="Item 1\nItem 2\nItem 3"
+    items=["Item 1", "Item 2", "Item 3"]
 )
 
 # Clear all checklist items
 replace_checklist_items(
     todo_id="abc123",
-    items=""  # Empty string clears checklist
+    items=[]  # Empty list clears checklist
 )
 ```
 
 **Format Requirements:**
-- Items are newline-separated (`\n`)
+- Items are passed as a list of strings: `["item1", "item2", "item3"]`
 - Maximum 100 checklist items per todo
 - Items can be marked complete/incomplete in Things 3 UI
 

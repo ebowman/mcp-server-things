@@ -355,7 +355,7 @@ class TestChecklistItems:
         NOTE: Checklist items are now supported via Things URL scheme.
         The test verifies that checklists are created successfully.
         """
-        checklist_items = "Item 1\nItem 2\nItem 3"
+        checklist_items = ["Item 1", "Item 2", "Item 3"]
 
         # Mock URL scheme execution for checklist creation
         mock_applescript_manager.set_mock_response("default", {
@@ -385,7 +385,7 @@ class TestChecklistItems:
 
         result = await tools_with_mock.add_todo(
             title="Test",
-            checklist_items=""
+            checklist_items=[]
         )
 
         assert result["success"] is True
@@ -393,7 +393,7 @@ class TestChecklistItems:
     @pytest.mark.asyncio
     async def test_checklist_with_special_chars(self, tools_with_mock, mock_applescript_manager):
         """Test checklist items with special characters."""
-        checklist_items = '✓ Item with emoji\n"Quoted item"\nItem with\\backslash'
+        checklist_items = ['✓ Item with emoji', '"Quoted item"', 'Item with\\backslash']
 
         mock_applescript_manager.set_mock_response("default", {
             "success": True,
