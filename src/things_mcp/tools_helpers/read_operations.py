@@ -536,12 +536,12 @@ class ReadOperations:
         """Alias for get_activating_in_days."""
         return await self.get_activating_in_days(days)
 
-    async def get_upcoming_in_days(self, days: int, mode: Optional[str] = None):
-        """Get todos upcoming within specified number of days."""
+    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None):
+        """Get todos due or activating within specified number of days."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_upcoming_in_days_sync, days)
+        return await loop.run_in_executor(None, self._get_todos_upcoming_in_days_sync, days)
 
-    def _get_upcoming_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
+    def _get_todos_upcoming_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
         """Synchronous implementation using things.py."""
         try:
             all_todos = things.todos(status='incomplete')
@@ -585,12 +585,8 @@ class ReadOperations:
             return results
 
         except Exception as e:
-            logger.error(f"Error in _get_upcoming_in_days_sync: {e}")
+            logger.error(f"Error in _get_todos_upcoming_in_days_sync: {e}")
             return []
-
-    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None):
-        """Alias for get_upcoming_in_days."""
-        return await self.get_upcoming_in_days(days, mode)
 
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
         """Advanced search with multiple filters.

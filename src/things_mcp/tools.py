@@ -107,8 +107,13 @@ class ThingsTools:
         """Get today items directly from database."""
         return await self.read_ops.get_today(limit=limit)
 
-    async def get_upcoming(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get upcoming items directly from database."""
+    async def get_upcoming(self, limit: Optional[int] = None, days: Optional[int] = None) -> List[Dict]:
+        """Get upcoming items. If days is specified, returns todos due/activating within that timeframe."""
+        if days is not None:
+            result = await self.read_ops.get_todos_upcoming_in_days(days=days)
+            if limit and len(result) > limit:
+                return result[:limit]
+            return result
         return await self.read_ops.get_upcoming(limit=limit)
 
     async def get_anytime(self, limit: Optional[int] = None) -> List[Dict]:
@@ -151,12 +156,8 @@ class ThingsTools:
         """Get todos activating within specified days."""
         return await self.read_ops.get_todos_activating_in_days(days=days)
 
-    async def get_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-        """Get todos upcoming within specified days using things.py."""
-        return await self.read_ops.get_upcoming_in_days(days=days, mode=mode)
-
     async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-        """Alias for get_upcoming_in_days for compatibility."""
+        """Get todos due or activating within specified days."""
         return await self.read_ops.get_todos_upcoming_in_days(days=days, mode=mode)
 
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:

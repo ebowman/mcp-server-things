@@ -86,7 +86,7 @@ class TestUpcomingQueries:
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_7_days(self, cleanup_test_todos):
-        """Verify get_upcoming_in_days(7) returns todos within 7 days."""
+        """Verify get_upcoming(7) returns todos within 7 days."""
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -117,7 +117,7 @@ class TestUpcomingQueries:
             test_todos.append((day_offset, result['todo_id']))
 
         # Query upcoming in 7 days
-        upcoming = await tools.get_upcoming_in_days(days=7)
+        upcoming = await tools.get_upcoming(days=7)
         upcoming_ids = [todo['uuid'] for todo in upcoming]
 
         # Verify days 1-7 are included
@@ -128,11 +128,11 @@ class TestUpcomingQueries:
                 # Beyond 7 days should be excluded (or we just don't assert - depends on implementation)
                 pass
 
-        print(f"✓ get_upcoming_in_days(7) returned correct todos")
+        print(f"✓ get_upcoming(7) returned correct todos")
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_30_days(self, cleanup_test_todos):
-        """Verify get_upcoming_in_days(30) returns todos within 30 days."""
+        """Verify get_upcoming(30) returns todos within 30 days."""
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -150,17 +150,17 @@ class TestUpcomingQueries:
             cleanup_test_todos['ids'].append(result['todo_id'])
 
         # Query upcoming in 30 days
-        upcoming = await tools.get_upcoming_in_days(days=30)
+        upcoming = await tools.get_upcoming(days=30)
         upcoming_ids = [todo['uuid'] for todo in upcoming]
 
         # Should have at least our test todos
         assert len(upcoming_ids) >= len(test_dates), "Expected todos not found in 30-day upcoming"
 
-        print(f"✓ get_upcoming_in_days(30) returned {len(upcoming_ids)} todos")
+        print(f"✓ get_upcoming(30) returned {len(upcoming_ids)} todos")
 
     @pytest.mark.asyncio
     async def test_get_upcoming_excludes_past(self, cleanup_test_todos):
-        """Verify get_upcoming_in_days() excludes past todos."""
+        """Verify get_upcoming() excludes past todos."""
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -183,7 +183,7 @@ class TestUpcomingQueries:
         cleanup_test_todos['ids'].append(future_result['todo_id'])
 
         # Query upcoming
-        upcoming = await tools.get_upcoming_in_days(days=7)
+        upcoming = await tools.get_upcoming(days=7)
         upcoming_ids = [todo['uuid'] for todo in upcoming]
 
         # Past todo should be excluded

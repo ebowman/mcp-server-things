@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2025-12-22
+
+### Changed
+- **Consolidated `get_upcoming` API** - Added optional `days` parameter to `get_upcoming`
+  - `get_upcoming()` - Returns items from Things 3's Upcoming list (unchanged)
+  - `get_upcoming(days=30)` - Returns todos due/activating within 30 days (new)
+  - Removed redundant `get_upcoming_in_days` tool - use `get_upcoming(days=N)` instead
+  - Simpler, more intuitive API with one tool instead of two
+
+### Fixed
+- **Fixed validation error** - `get_upcoming(days=30)` now works correctly
+  - Previously failed with "Unexpected keyword argument" error
+
 ## [1.4.1] - 2025-10-04
 
 ### Changed

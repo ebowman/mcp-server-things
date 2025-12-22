@@ -207,7 +207,7 @@ search_advanced(start_date='2025-09-24')
 → Finds 5 items to review
 
 # 3. Next week preview
-get_upcoming_in_days(days=7, mode='summary')
+get_upcoming(days=7, mode='summary')
 → "129 items scheduled for next 7 days"
 
 # 4. Stalled projects
@@ -406,7 +406,7 @@ and highlight anything not scheduled yet.
 **WHAT CLAUDE DOES**:
 ```
 # Get upcoming items
-get_upcoming_in_days(days=14, mode='standard')
+get_upcoming(days=14, mode='standard')
 
 # Analyzes data
 "Here's your deadline dashboard:

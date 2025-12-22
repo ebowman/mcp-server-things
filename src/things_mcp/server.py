@@ -923,11 +923,39 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365)
         ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get upcoming todos. Supports response optimization via mode parameter and limit."""
+            """Get upcoming todos. Supports response optimization via mode parameter and limit.
+
+            If 'days' is provided, returns todos due or activating within that timeframe.
+            Without 'days', returns items from Things 3's built-in Upcoming list.
+            """
             try:
-                # Get raw data with optional limit
+                # If days is specified, filter todos by date range
+                if days is not None:
+                    logger.info(f"Getting todos upcoming in {days} days")
+                    todos = await self.tools.get_todos_upcoming_in_days(days)
+
+                    # Apply limit if specified
+                    if limit and len(todos) > limit:
+                        todos = todos[:limit]
+
+                    if mode:
+                        request_params = {'mode': mode, 'days': days}
+                        optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
+                        response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                        return self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                    else:
+                        return {
+                            "data": todos,
+                            "meta": {
+                                "count": len(todos),
+                                "days": days
+                            }
+                        }
+
+                # Original behavior: get items from Things 3's Upcoming list
                 raw_data = await self.tools.get_upcoming(limit=limit)
 
                 # Apply context-aware optimization if mode is specified
@@ -1046,43 +1074,6 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
                 return {"error": str(e), "todos": []}
-        
-        @self.mcp.tool()
-        async def get_upcoming_in_days(
-            days: int = Field(30, description="Number of days ahead to check for upcoming todos", ge=1, le=365),
-            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw")
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-            """Get todos due or activating within specified days (1-365). Supports response modes."""
-            try:
-                logger.info(f"Getting todos upcoming in {days} days")
-                todos = await self.tools.get_todos_upcoming_in_days(days)
-                
-                # Always return a properly formatted response
-                if mode:
-                    request_params = {'mode': mode}
-                    optimized_params, _ = self.context_manager.optimize_request('get_upcoming_in_days', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(todos, 'get_upcoming_in_days', response_mode, optimized_params)
-                else:
-                    # Return structured response even without mode
-                    return {
-                        "data": todos,
-                        "meta": {
-                            "count": len(todos),
-                            "days": days
-                        }
-                    }
-            except Exception as e:
-                logger.error(f"Error getting upcoming todos in {days} days: {e}")
-                # Return structured error response
-                return {
-                    "data": [],
-                    "meta": {
-                        "count": 0,
-                        "days": days,
-                        "error": str(e)
-                    }
-                }
         
         # Tag management tools
         @self.mcp.tool()

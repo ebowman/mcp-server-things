@@ -96,7 +96,7 @@ class TestBoundaryConditions:
                 }
             ]
 
-            result = await tools_with_mock.get_upcoming_in_days(days=365)
+            result = await tools_with_mock.get_upcoming(days=365)
 
             assert isinstance(result, list)
 

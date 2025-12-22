@@ -155,23 +155,23 @@ class TestTemporalQueries:
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_days_7(self, tools):
-        """Test get_upcoming_in_days with 7-day range."""
-        result = await tools.get_upcoming_in_days(7)
+        """Test get_upcoming with 7-day range."""
+        result = await tools.get_upcoming(days=7)
 
         # Should return a list (even if empty)
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_days_14(self, tools):
-        """Test get_upcoming_in_days with 14-day range."""
-        result = await tools.get_upcoming_in_days(14)
+        """Test get_upcoming with 14-day range."""
+        result = await tools.get_upcoming(days=14)
 
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_days_30(self, tools):
-        """Test get_upcoming_in_days with 30-day range."""
-        result = await tools.get_upcoming_in_days(30)
+        """Test get_upcoming with 30-day range."""
+        result = await tools.get_upcoming(days=30)
 
         assert isinstance(result, list)
 
@@ -380,7 +380,7 @@ class TestIntegrationScenarios:
         # 2. Get upcoming in next 7 days
         with patch.object(tools.read_ops.applescript, 'get_todos_upcoming_in_days', new_callable=AsyncMock) as mock_upcoming:
             mock_upcoming.return_value = []
-            upcoming = await tools.get_upcoming_in_days(7)
+            upcoming = await tools.get_upcoming(days=7)
 
         # 3. Check what's due soon
         with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_due:
@@ -401,7 +401,7 @@ class TestIntegrationScenarios:
             completed = await tools.get_logbook(period='7d')
 
         # 2. Check what's coming up
-        upcoming = await tools.get_upcoming_in_days(14)
+        upcoming = await tools.get_upcoming(days=14)
 
         # 3. Create a new todo for next week with reminder
         mock_applescript_manager.execute_applescript.return_value = {

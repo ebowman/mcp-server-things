@@ -260,7 +260,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 ### List Access
 - `get_inbox()` - Get Inbox todos
 - `get_today()` - Get Today's todos
-- `get_upcoming()` - Get upcoming todos
+- `get_upcoming(days?)` - Get upcoming todos (with optional days filter)
 - `get_anytime()` - Get Anytime todos
 - `get_someday()` - Get Someday todos
 - `get_logbook(limit?, period?)` - Get completed todos
@@ -269,7 +269,6 @@ You can set environment variables directly in your Claude Desktop configuration:
 ### Date-Range Queries
 - `get_due_in_days(days)` - Get todos due within specified days
 - `get_activating_in_days(days)` - Get todos activating within days
-- `get_upcoming_in_days(days)` - Get todos due or activating within days
 
 ### Search & Tags
 - `search_todos(query)` - Basic search
