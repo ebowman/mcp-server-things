@@ -379,8 +379,8 @@ class ReadOperations:
                             # Store stop_date for sorting
                             converted_todo['_sort_date'] = completed_dt
                             result.append(converted_todo)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Skipping todo with invalid completion date '{completed_date}': {e}")
 
             # Sort by completion date (most recent first)
             result.sort(key=lambda x: x.get('_sort_date', datetime.min), reverse=True)
@@ -473,8 +473,8 @@ class ReadOperations:
                     try:
                         items = things.checklist_items(todo_id)
                         converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
-                    except Exception:
-                        pass
+                    except (KeyError, TypeError) as e:
+                        logger.warning(f"Could not fetch checklist items for todo {todo_id}: {e}")
 
                     return converted
 
@@ -562,8 +562,8 @@ class ReadOperations:
 
                         if due_dt <= cutoff_date:
                             include_todo = True
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Skipping todo with invalid deadline '{due_date}': {e}")
 
                 start_date = todo.get('start_date')
                 if not include_todo and start_date:
@@ -576,8 +576,8 @@ class ReadOperations:
                         # Only include if start_date is in the future (not past)
                         if start_dt >= now and start_dt <= cutoff_date:
                             include_todo = True
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Skipping todo with invalid start_date '{start_date}': {e}")
 
                 if include_todo:
                     results.append(ToolsHelpers.convert_todo(todo))
@@ -694,8 +694,8 @@ class ReadOperations:
 
                             if created_dt >= cutoff_date:
                                 results.append(ToolsHelpers.convert_todo(todo))
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Skipping todo with invalid created date '{created_date}': {e}")
 
                 return results
 

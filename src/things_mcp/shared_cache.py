@@ -243,7 +243,8 @@ class SharedCache:
         """Get the number of cache entries."""
         try:
             return len(list(self.cache_dir.glob("*.json")))
-        except Exception:
+        except OSError as e:
+            logger.warning(f"Could not count cache entries: {e}")
             return 0
     
     def keys(self) -> list[str]:
