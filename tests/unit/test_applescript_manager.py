@@ -227,18 +227,37 @@ class TestURLSchemeExecution:
     async def test_execute_url_scheme_without_parameters(self, manager_with_mocks):
         """Test URL scheme execution without parameters."""
         action = "show"
-        
+
         with patch('asyncio.create_subprocess_exec') as mock_create:
             mock_process = AsyncMock()
             mock_process.communicate.return_value = (b"", b"")
             mock_process.returncode = 0
             mock_create.return_value = mock_process
-            
+
+            result = await manager_with_mocks.execute_url_scheme(action)
+
+            assert result["success"] is True
+            assert result["url"] == "things:///show"  # No params, no auth token configured
+
+    @pytest.mark.asyncio
+    async def test_execute_url_scheme_with_auth_token(self, manager_with_mocks):
+        """Test URL scheme execution includes auth token when configured."""
+        action = "show"
+
+        # Configure auth token on the manager
+        manager_with_mocks.auth_token = "test-token-123"
+
+        with patch('asyncio.create_subprocess_exec') as mock_create:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
             result = await manager_with_mocks.execute_url_scheme(action)
 
             assert result["success"] is True
             assert result["url"].startswith("things:///show")
-            assert "auth-token" in result["url"]
+            assert "auth-token=test-token-123" in result["url"]
     
     @pytest.mark.asyncio
     async def test_url_parameter_encoding(self, manager_with_mocks):
