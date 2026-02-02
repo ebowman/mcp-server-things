@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 # Optional dotenv support
 try:
@@ -880,7 +880,7 @@ class ThingsMCPServer:
         async def get_inbox(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos from Inbox. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
@@ -902,7 +902,7 @@ class ThingsMCPServer:
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
@@ -925,7 +925,7 @@ class ThingsMCPServer:
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
             days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365)
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get upcoming todos. Supports response optimization via mode parameter and limit.
 
             If 'days' is provided, returns todos due or activating within that timeframe.
@@ -974,7 +974,7 @@ class ThingsMCPServer:
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
@@ -996,7 +996,7 @@ class ThingsMCPServer:
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
-        ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
