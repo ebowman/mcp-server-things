@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-02-02
+
+### Fixed
+- **Fixed Claude API JSON schema error** - Removed `Union` types from tool return annotations
+  - Claude API rejects schemas with `oneOf`/`allOf`/`anyOf` at top level
+  - FastMCP generates `oneOf` from `Union[...]` return type annotations
+  - Changed 5 tools (`get_inbox`, `get_today`, `get_upcoming`, `get_anytime`, `get_someday`) from `Union[List[Dict], Dict]` to `Dict[str, Any]`
+  - These functions already wrap responses via `context_manager.optimize_response()`, so the type annotation now matches actual behavior
+
 ## [1.4.2] - 2025-12-22
 
 ### Changed
