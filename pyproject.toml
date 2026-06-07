@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-server-things"
-version = "1.4.5"
+dynamic = ["version"]
 description = "Model Context Protocol server for Things 3 task management integration"
 readme = "README.md"
 authors = [
-    {name = "MCP Developer", email = "developer@example.com"}
+    {name = "Eric Bowman", email = "ebowman@boboco.ie"}
 ]
 keywords = ["mcp", "things3", "applescript", "task-management", "productivity"]
 classifiers = [
@@ -74,6 +74,10 @@ docs = [
 
 [project.scripts]
 things-mcp = "src.things_mcp.__main__:main"
+
+[tool.setuptools.dynamic]
+# Single source of truth for the version: src/things_mcp/__init__.py
+version = {attr = "things_mcp.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -573,8 +573,9 @@ class TestStatusValues:
     @pytest.mark.asyncio
     async def test_retrieve_completed_todos(self, tools_with_mock):
         """Test retrieving completed todos from logbook."""
-        with patch('things_mcp.tools_helpers.read_operations.things.logbook') as mock_logbook:
-            mock_logbook.return_value = [{
+        # get_logbook is backed by things.todos(status='completed'), filtered by stop_date.
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
+            mock_todos.return_value = [{
                 "uuid": "todo-1",
                 "title": "Completed task",
                 "status": "completed",
