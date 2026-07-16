@@ -679,92 +679,83 @@ today = get_today(mode='standard', limit=20)
 
 ## Release Process
 
-When creating a new release, follow these steps to ensure version consistency across all files:
+Publishing is **automated by CI**. Creating a GitHub Release triggers
+`.github/workflows/publish.yml`, which runs the test gate, builds the package,
+publishes to PyPI via trusted publishing, and then **verifies** the version is
+live on PyPI (failing loudly if it isn't). Do not run `twine upload` manually
+unless trusted publishing is broken (see break-glass below).
 
-### 1. Update Version Numbers
+### 1. Bump the version (single source of truth)
 
-**Critical Files (MUST update):**
+The version lives in **one** place — `src/things_mcp/__init__.py`. `pyproject.toml`
+reads it dynamically (`[tool.setuptools.dynamic] version = {attr = "things_mcp.__version__"}`),
+and `server.py` / `--version` import the same `__version__`.
 
 ```bash
-# 1. Update package version
-# File: pyproject.toml (line 7)
-version = "X.Y.Z"
-
-# 2. Update runtime version
-# File: src/things_mcp/__init__.py (line 3)
+# File: src/things_mcp/__init__.py
 __version__ = "X.Y.Z"
+```
 
-# 3. Update CHANGELOG
-# File: CHANGELOG.md (top of file)
+Then add the matching section to `CHANGELOG.md` (top of file):
+
+```markdown
 ## [X.Y.Z] - YYYY-MM-DD
 
 ### Fixed
 - Bug fix description
-
-### Added
-- New feature description
-
-### Changed
-- Change description
 ```
 
-### 2. Commit and Tag
+### 2. Commit and tag
 
 ```bash
-# Run tests first
-pytest
-
-# Commit changes
-git add pyproject.toml src/things_mcp/__init__.py CHANGELOG.md
+pytest tests/unit                       # gate also runs in CI
+git add src/things_mcp/__init__.py CHANGELOG.md
 git commit -m "Release vX.Y.Z - Brief description"
-
-# Push to GitHub
 git push origin main
 
-# Create and push tag
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-### 3. Create GitHub Release
+### 3. Create the GitHub Release (this publishes to PyPI)
 
 ```bash
-# Create release with notes from CHANGELOG
 gh release create vX.Y.Z \
   --title "vX.Y.Z - Release Title" \
   --notes "$(sed -n '/## \[X.Y.Z\]/,/## \[/p' CHANGELOG.md | head -n -1)"
 ```
 
-### 4. Publish to PyPI
+CI then runs `test → build → publish-to-pypi → verify-pypi`. Watch it:
 
 ```bash
-# Build distribution packages
-python -m build
-
-# Upload to PyPI
-python -m twine upload dist/mcp_server_things-X.Y.Z*
+gh run watch "$(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
 ```
 
-### Version Consistency Notes
+If `publish-to-pypi` fails with `403 ... OIDC scoped token is not valid for
+project`, a trusted publisher for this repo+workflow is registered on the wrong
+PyPI project. Fix it under the `mcp-server-things` project's Publishing settings
+(repo `ebowman/mcp-server-things`, workflow `publish.yml`, environment `pypi`)
+and remove any stray publisher on other projects, then re-run the workflow.
 
-- **pyproject.toml** - Package version for pip/PyPI
-- **src/things_mcp/__init__.py** - Runtime version (used by server.py)
-- **CHANGELOG.md** - Version history with dates
-- Version is automatically synced: `__version__` is imported by server.py and reported via `get_server_capabilities()`
-- No need to update version in documentation examples (README.md, CONTRIBUTING.md) - those are placeholders
+### Break-glass: manual upload
+
+Only if CI publishing is broken and the release must ship:
+
+```bash
+python -m build
+python -m twine check dist/mcp_server_things-X.Y.Z*
+python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
+```
 
 ### Release Checklist
 
-- [ ] All tests pass (`pytest`)
-- [ ] Version updated in `pyproject.toml`
-- [ ] Version updated in `src/things_mcp/__init__.py`
+- [ ] Version bumped in `src/things_mcp/__init__.py` (only here)
 - [ ] CHANGELOG.md updated with date and changes
-- [ ] Committed with descriptive message
-- [ ] Pushed to GitHub
-- [ ] Git tag created and pushed
-- [ ] GitHub release created
-- [ ] Published to PyPI
-- [ ] Verify version reporting: AI should report correct version when queried
+- [ ] `pytest tests/unit` passes
+- [ ] Committed, pushed to `main`, tag pushed
+- [ ] GitHub Release created
+- [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)
+- [ ] AI reports the correct version when queried (`--version` / `get_server_capabilities`)
 
 ## Code Quality Improvements
 

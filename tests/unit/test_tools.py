@@ -58,19 +58,16 @@ class TestGetTodos:
     @pytest.mark.asyncio
     async def test_get_todos_all(self, tools_with_mock):
         """Test getting all todos."""
-        # Mock operation queue to avoid timeout
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value=[{
-                "id": "todo-123",
-                "name": "Sample Todo",
-                "status": "open"
-            }])
-            mock_get_queue.return_value = mock_queue
-            
+        # get_todos() reads via things.todos(status='incomplete'), not the queue.
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
+            mock_todos.return_value = [{
+                "uuid": "todo-123",
+                "title": "Sample Todo",
+                "status": "incomplete"
+            }]
+
             result = await tools_with_mock.get_todos()
-            
+
             assert isinstance(result, list)
             assert len(result) > 0
     
