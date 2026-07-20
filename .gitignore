@@ -65,3 +65,7 @@ pytest.log
 *.log
 htmlcov/
 .pytest_cache/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
