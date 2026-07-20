@@ -4,7 +4,8 @@
 
 **Things 3 MCP Server** - A Model Context Protocol server that enables AI assistants to interact with Things 3 via AppleScript on macOS.
 
-### ✨ Latest Features (v1.2.2)
+### ✨ Latest Features (v1.5.0)
+- **🩺 Boot Diagnostics** - stderr boot-phase markers, a startup watchdog, and a bounded lazy import of `things` to make cold-start hangs diagnosable (see below)
 - **🏷️ Tag Management** - Fixed tag concatenation in all tag operations (add_tags, remove_tags, bulk_update_todos)
 - **⚡ Bulk Operations** - Fixed multi-field updates; tags now work correctly in batch operations
 - **📅 Date Scheduling** - Reliable scheduling with `today`, `tomorrow`, `someday`, or specific dates (YYYY-MM-DD)
@@ -66,6 +67,19 @@ result = self.applescript_manager.execute_script(script)
 2. **Large data timeouts**: Use response modes (summary, minimal) and pagination
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
+
+### Boot Diagnostics (v1.5.0+)
+
+The server emits timestamped `things-mcp boot: <ts> +<elapsed>s <phase>` marker
+lines to stderr at each boot phase, and arms a one-shot watchdog
+(`THINGS_MCP_BOOT_WATCHDOG_SECS`, default 25s, `<= 0` disables) that dumps all
+thread stacks to stderr if boot stalls past the deadline - one benign dump on
+a healthy long-running server is expected. The third-party `things` package
+import is lazy and timeout-bounded (`THINGS_MCP_THINGS_IMPORT_TIMEOUT_SECS`,
+default 10s, `<= 0` is unbounded) since it performs an unbounded filesystem
+glob at import time; a stall raises `ThingsImportTimeoutError` with a boot
+marker instead of hanging silently. See README "Boot diagnostics" for the
+diagnosis recipe.
 
 ### API Coverage Status
 - **Implemented**: 25+ operations (40% of AppleScript API)

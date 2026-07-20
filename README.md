@@ -341,6 +341,41 @@ python -m things_mcp.main --health-check
 python -m things_mcp.main --test-applescript
 ```
 
+### Boot diagnostics
+
+If the server appears to hang before an MCP client can connect (especially on
+a cold start), the process writes timestamped boot-phase markers to stderr:
+
+```
+things-mcp boot: 2026-07-20T09:00:00.000+00:00 +0.001s process-start
+things-mcp boot: 2026-07-20T09:00:00.010+00:00 +0.011s watchdog-armed (25.0s)
+things-mcp boot: 2026-07-20T09:00:00.050+00:00 +0.051s things-import-start
+things-mcp boot: 2026-07-20T09:00:00.120+00:00 +0.121s things-import-done
+```
+
+A one-shot startup watchdog also runs in the background: if boot doesn't
+complete the MCP handshake within the deadline, it dumps every thread's stack
+to stderr (`Timeout (0:00:25)!` followed by a traceback for each thread). On a
+healthy, long-running server this fires exactly once, at the deadline, and is
+harmless - it's stderr-only and does not affect the MCP stdio protocol (which
+only uses stdout).
+
+Relevant environment variables:
+
+```bash
+# Startup watchdog deadline in seconds. 0 (or any value <= 0) disables it.
+THINGS_MCP_BOOT_WATCHDOG_SECS=25
+
+# Timeout for lazily importing the third-party `things` package, in seconds.
+# 0 (or any value <= 0) makes the import unbounded (blocking).
+THINGS_MCP_THINGS_IMPORT_TIMEOUT_SECS=10
+```
+
+To diagnose a cold-start hang from a client's debug log: find the last
+`things-mcp boot:` marker line - the phase named there is where boot stalled.
+If a watchdog stack dump follows, its traceback shows exactly where each
+thread was blocked at that moment.
+
 ## Performance
 
 - **Startup Time**: Less than 2 seconds
