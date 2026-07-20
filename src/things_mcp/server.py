@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .boot_trace import boot_marker
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .operation_queue import shutdown_operation_queue, get_operation_queue
@@ -54,15 +55,19 @@ class ThingsMCPServer:
                 self.config = load_config_from_env()
         else:
             self.config = load_config_from_env()
-        
+        boot_marker("config-loaded")
+
         # Configure logging based on config
         self._configure_logging()
-        
+        boot_marker("logging-configured")
+
         self.applescript_manager = AppleScriptManager()
+        boot_marker("applescript-manager-ready")
         self.tools = ThingsTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()
         # self.query_engine = NaturalLanguageQueryEngine(self.tools)  # Removed - too complex
         self._register_tools()
+        boot_marker("tools-registered")
         self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized with context-aware response management and tag validation support")
 
@@ -1698,6 +1703,7 @@ class ThingsMCPServer:
         """Run the MCP server."""
         try:
             logger.info("Starting Things MCP Server...")
+            boot_marker("calling-mcp.run")
             self.mcp.run()
         except KeyboardInterrupt:
             logger.info("Server stopped by user")

@@ -3,9 +3,6 @@
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-# Import things.py for backwards compatibility with tests
-import things
-
 from .services.applescript_manager import AppleScriptManager
 from .pure_applescript_scheduler import PureAppleScriptScheduler
 from .services.validation_service import ValidationService
