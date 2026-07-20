@@ -11,7 +11,7 @@ from datetime import datetime
 
 import pytest
 
-from things_mcp.boot_trace import boot_marker
+from things_mcp.boot_trace import arm_boot_watchdog, boot_marker
 
 
 class TestBootMarker:
@@ -89,3 +89,93 @@ class TestBootMarker:
         timestamp_str = rest.split(" +", 1)[0]
         # Should parse without raising.
         datetime.fromisoformat(timestamp_str)
+
+
+class TestArmBootWatchdog:
+    """Test arm_boot_watchdog() behavior."""
+
+    def _fake_faulthandler(self, monkeypatch, calls):
+        """Install a fake faulthandler module recording dump_traceback_later calls."""
+
+        class FakeFaultHandler:
+            @staticmethod
+            def dump_traceback_later(timeout, repeat=False, file=None, exit=False):
+                calls.append(
+                    {"timeout": timeout, "repeat": repeat, "file": file, "exit": exit}
+                )
+
+        monkeypatch.setitem(__import__("sys").modules, "faulthandler", FakeFaultHandler())
+
+    def test_default_timeout_is_25_seconds(self, monkeypatch):
+        """With the env var unset, arms faulthandler with a 25s timeout."""
+        monkeypatch.delenv("THINGS_MCP_BOOT_WATCHDOG_SECS", raising=False)
+        calls = []
+        self._fake_faulthandler(monkeypatch, calls)
+
+        arm_boot_watchdog()
+
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 25.0
+        assert calls[0]["repeat"] is False
+        assert calls[0]["exit"] is False
+
+    def test_env_override_sets_custom_timeout(self, monkeypatch):
+        """THINGS_MCP_BOOT_WATCHDOG_SECS=7 arms faulthandler with a 7s timeout."""
+        monkeypatch.setenv("THINGS_MCP_BOOT_WATCHDOG_SECS", "7")
+        calls = []
+        self._fake_faulthandler(monkeypatch, calls)
+
+        arm_boot_watchdog()
+
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 7.0
+
+    def test_zero_disables_watchdog(self, monkeypatch):
+        """THINGS_MCP_BOOT_WATCHDOG_SECS=0 disables the watchdog and emits a marker."""
+        monkeypatch.setenv("THINGS_MCP_BOOT_WATCHDOG_SECS", "0")
+        calls = []
+        self._fake_faulthandler(monkeypatch, calls)
+
+        fake_stderr = io.StringIO()
+        monkeypatch.setattr("sys.stderr", fake_stderr)
+
+        arm_boot_watchdog()
+
+        assert calls == []
+        assert "watchdog-disabled" in fake_stderr.getvalue()
+
+    def test_invalid_value_falls_back_to_default(self, monkeypatch):
+        """An unparseable value falls back to the default 25s timeout."""
+        monkeypatch.setenv("THINGS_MCP_BOOT_WATCHDOG_SECS", "banana")
+        calls = []
+        self._fake_faulthandler(monkeypatch, calls)
+
+        arm_boot_watchdog()
+
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 25.0
+
+    def test_negative_value_disables_watchdog(self, monkeypatch):
+        """A negative value disables the watchdog."""
+        monkeypatch.setenv("THINGS_MCP_BOOT_WATCHDOG_SECS", "-3")
+        calls = []
+        self._fake_faulthandler(monkeypatch, calls)
+
+        arm_boot_watchdog()
+
+        assert calls == []
+
+    def test_faulthandler_runtime_error_does_not_propagate(self, monkeypatch):
+        """If faulthandler.dump_traceback_later raises RuntimeError, it is swallowed."""
+        monkeypatch.delenv("THINGS_MCP_BOOT_WATCHDOG_SECS", raising=False)
+
+        class RaisingFaultHandler:
+            @staticmethod
+            def dump_traceback_later(timeout, repeat=False, file=None, exit=False):
+                raise RuntimeError("cannot arm timer")
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "faulthandler", RaisingFaultHandler()
+        )
+
+        arm_boot_watchdog()  # must not raise

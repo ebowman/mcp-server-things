@@ -1,8 +1,9 @@
 """Entry point for running the Things MCP server as a module."""
 
-from .boot_trace import boot_marker
+from .boot_trace import arm_boot_watchdog, boot_marker
 
 boot_marker("process-start")
+arm_boot_watchdog()
 
 from .main import main
 
