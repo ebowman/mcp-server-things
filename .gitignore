@@ -73,3 +73,7 @@ htmlcov/
 # Local Claude Code state (domestique-managed agents/commands ARE tracked)
 .claude/.domestique/
 .claude/settings.local.json
+
+# Local tooling artifacts
+CLAUDE.md.bak.*
+.gastown-ignore
