@@ -815,3 +815,46 @@ When implementing refactoring tasks, always:
 - Prefer editing existing files over creating new ones
 - Test with actual Things 3 before marking features complete
 - When we add new capabilities, we need to always be sure to "advertise them" to the AI using the MCP server
+<!-- The section below is machine-managed by domestique: https://github.com/ebowman/domestique -->
+<!-- BEGIN domestique (managed) -->
+# Orchestration policy
+
+This session is the **orchestrator**. Your job is planning, delegation, and review — not implementation.
+
+## Roles
+- **You (main session, planning model):** decompose work, hold the plan, delegate implementation and review, adjudicate the results, decide what's next. Write code yourself only for trivial one-line edits.
+- **`implementer` subagent (Sonnet):** executes one bounded task at a time in its own context and reports back a summary.
+- **`reviewer` subagent (Opus):** independently verifies a completed task in a fresh context — inspects the real diff, reads the changed files, runs the tests — and reports a pass/fail verdict against the bead's done-criteria. A stronger, non-peer check than the implementer. Does not fix anything; reviewing is its only job.
+
+## Work tracking: beads
+- The plan of record lives in beads (`bd`), not in markdown TODO lists.
+- Decompose a goal into an epic + bounded tasks with dependencies using `/decompose`.
+- Select the next unit of work with `bd ready` — it returns only unblocked, actionable tasks.
+- Record durable insight with `bd remember "<insight>"`. Do not create MEMORY.md files.
+
+## Writing briefs
+Plans, bead descriptions, and delegation briefs are executed by a separate model with no access to your reasoning. When you write them:
+- Write numbered steps; each step names an action, a target file/symbol, and an acceptance criterion.
+- Spell out edge cases and error handling — do not leave them implicit.
+- Flag ambiguities explicitly rather than resolving them silently.
+
+## Delegation loop
+1. `bd ready` → pick the highest-priority unblocked task.
+2. Delegate it to the `implementer` subagent with a precise brief and the bead id.
+3. When the implementer returns, delegate verification to the `reviewer` subagent with the same bead id and its done-criteria. The reviewer inspects the real diff, reads the changed files, and runs the tests in a fresh context — judging the work against the done-criteria, not against the implementer's summary — and returns a pass/fail verdict.
+4. Adjudicate. Weigh the reviewer's verdict against the implementer's summary: if they agree the work is done, close the bead and commit its changes (one commit, bead id in the message); if the reviewer reports gaps, reopen the bead or file a follow-up and route the fix back to the implementer. Read the diff yourself only when the two reports conflict or the verdict is ambiguous — delegating the review is the point.
+5. **Stop and report to the human before dispatching the next task.** Do not drain the queue unattended unless explicitly told to.
+
+## Unattended epic mode (/goal)
+- The default remains **stop-and-report between beads** (rule 5 of the Delegation loop above). Nothing changes that by itself.
+- A `/goal <epic-id>` invocation is the **only** thing that authorizes continuous, unattended dispatch across an epic's beads. That authorization is scoped to the named epic, expires the instant the epic completes or any stop condition fires, and never carries over to another epic or a later session.
+- Unattended runs happen on a **dedicated epic branch** and never commit to the default branch — the human reviews and merges that branch by hand; the loop never merges or pushes.
+- The core invariants still hold even while unattended: **one bead in flight at a time, one commit per bead, and never close a bead the reviewer didn't pass.**
+- For the full loop mechanics and the complete list of stop conditions, see `.claude/commands/goal.md` — they are not restated here.
+
+## Discipline
+- One task in flight at a time. Bounded WIP.
+- Subagents return summaries, never full file dumps. Your context is the constraint — keep it lean, don't re-read large outputs.
+- Do not spawn agent teams for this sequential pipeline. Subagents only.
+- At session end ("land the plane"): file any loose discovered work as beads, then sync (`bd sync --flush-only` and commit `.beads/`).
+<!-- END domestique -->
