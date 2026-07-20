@@ -5,11 +5,17 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
-import things
-
+from ..things_import import LazyThingsProxy
 from ..services.applescript_manager import AppleScriptManager
 from ..response_optimizer import ResponseOptimizer
 from .helpers import ToolsHelpers
+
+# Lazily-importing proxy for things.py -- avoids the module-level,
+# unbounded glob.iglob() scan that a plain `import things` would perform
+# at server boot time. See things_import.LazyThingsProxy docstring; this
+# also preserves existing test seams that patch `things.<attr>` (the real
+# module) or `read_operations.things.<attr>` (this proxy) directly.
+things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
 
