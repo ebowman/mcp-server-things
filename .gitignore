@@ -69,3 +69,7 @@ htmlcov/
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+
+# Local Claude Code state (domestique-managed agents/commands ARE tracked)
+.claude/.domestique/
+.claude/settings.local.json
