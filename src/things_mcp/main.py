@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .boot_trace import boot_marker
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
@@ -274,6 +275,7 @@ def show_version():
 
 def main():
     """Main entry point."""
+    boot_marker("process-start")
     parser = create_parser()
     args = parser.parse_args()
     
