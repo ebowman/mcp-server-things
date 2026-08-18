@@ -879,7 +879,34 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting areas: {e}")
                 raise
-        
+
+        @self.mcp.tool()
+        async def add_area(
+            title: str = Field(..., min_length=1, description="Title of the area"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area. Tags that don't already exist in Things 3 are silently filtered out.")
+        ) -> Dict[str, Any]:
+            """Create a new area. Areas represent life/work domains (e.g. Work, Personal) and can contain projects and todos. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            try:
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                return await self.tools.add_area(title=title, tags=tag_list)
+            except Exception as e:
+                logger.error(f"Error adding area: {e}")
+                raise
+
+        @self.mcp.tool()
+        async def update_area(
+            id: str = Field(..., description="ID of the area to update"),
+            title: Optional[str] = Field(None, description="New title for the area"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Tags that don't already exist in Things 3 are silently filtered out.")
+        ) -> Dict[str, Any]:
+            """Update an existing area's title and/or tags. Only provided fields are changed. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            try:
+                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                return await self.tools.update_area(area_id=id, title=title, tags=tag_list)
+            except Exception as e:
+                logger.error(f"Error updating area: {e}")
+                raise
+
         # List-based tools
         @self.mcp.tool()
         async def get_inbox(
@@ -1410,7 +1437,7 @@ class ThingsMCPServer:
                         "version": __version__,
                         "platform": "macOS",
                         "framework": "FastMCP 2.0",
-                        "total_tools": 27  # Updated count including new tools
+                        "total_tools": 29  # Updated count including add_area/update_area
                     },
                     "features": {
                         "context_optimization": {
@@ -1456,7 +1483,7 @@ class ThingsMCPServer:
                         }
                     },
                     "api_coverage": {
-                        "total_tools": 27,
+                        "total_tools": 29,
                         "applescript_coverage_percentage": 45,
                         "workflow_operations": ["create", "read", "update", "delete", "move", "search"],
                         "list_operations": ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"],

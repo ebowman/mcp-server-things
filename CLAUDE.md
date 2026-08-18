@@ -380,6 +380,17 @@ add_project(
     area_title="Personal",  # Convenient but requires unique names
     deadline="2025-12-31"
 )
+
+# Create a new area
+new_area = add_area(title="Side Projects")
+add_area(title="Side Projects", tags="work,priority")  # tags must already exist in Things 3
+
+# Rename an area and/or update its tags
+update_area(id=new_area["area_id"], title="Side Hustles")
+update_area(id=new_area["area_id"], tags="work,priority")  # replaces existing tags
+
+# Note: there is no delete_area tool - deleting an area also deletes its
+# projects, so area deletion is intentionally not exposed via this API.
 ```
 
 ### Working with Projects

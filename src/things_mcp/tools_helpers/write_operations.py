@@ -9,6 +9,7 @@ from ..services.validation_service import ValidationService
 from ..services.tag_service import TagValidationService
 from ..move_operations import MoveOperationsTools
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
+from ..utils.applescript_utils import AppleScriptTemplates
 from .helpers import ToolsHelpers
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,161 @@ class WriteOperations:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to update project"
+            }
+
+    async def add_area(self, title: str, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Add a new area using AppleScript.
+
+        Args:
+            title: Name of the new area (required, non-empty)
+            tags: Optional list of existing tag names to apply to the area.
+                  Tags that do not already exist in Things 3 are silently
+                  filtered out by Things itself (AI cannot create tags).
+
+        Returns:
+            Dict with success status, area_id, title, and message.
+        """
+        try:
+            title = ParameterValidator.validate_non_empty_string(title, 'title')
+        except ValidationError as e:
+            logger.error(f"Validation error in add_area: {e}")
+            return create_validation_error_response(e)
+
+        try:
+            escaped_title = AppleScriptTemplates.escape_string(title)
+
+            script = f'''
+            tell application "Things3"
+                try
+                    set newArea to make new area with properties {{name:{escaped_title}}}
+            '''
+
+            if tags:
+                tags_string = ', '.join(tags)
+                escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
+                script += f'set tag names of newArea to {escaped_tags_string}\n                    '
+
+            script += '''
+                    return id of newArea
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                if output and not output.startswith("error:"):
+                    return {
+                        "success": True,
+                        "area_id": output,
+                        "title": title,
+                        "message": "Area created successfully"
+                    }
+                return {
+                    "success": False,
+                    "error": output,
+                    "message": "Failed to create area"
+                }
+            return {
+                "success": False,
+                "error": result.get("output", "AppleScript execution failed"),
+                "message": "Failed to create area"
+            }
+        except Exception as e:
+            logger.error(f"Error adding area: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add area"
+            }
+
+    async def update_area(self, area_id: str, title: Optional[str] = None,
+                           tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Update an existing area using AppleScript.
+
+        Args:
+            area_id: ID of the area to update (required)
+            title: New name for the area (optional)
+            tags: New list of existing tag names to apply to the area (optional).
+                  Tags that do not already exist in Things 3 are silently
+                  filtered out by Things itself (AI cannot create tags).
+
+        Returns:
+            Dict with success status and message.
+        """
+        try:
+            area_id = ParameterValidator.validate_non_empty_string(area_id, 'area_id')
+        except ValidationError as e:
+            logger.error(f"Validation error in update_area: {e}")
+            return create_validation_error_response(e)
+
+        if not title and not tags:
+            return {
+                "success": False,
+                "error": "No fields provided to update",
+                "message": "Nothing to update"
+            }
+
+        try:
+            escaped_area_id = AppleScriptTemplates.escape_string(area_id)
+
+            script = f'''
+            tell application "Things3"
+                try
+                    set targetArea to area id {escaped_area_id}
+            '''
+
+            if title:
+                escaped_title = AppleScriptTemplates.escape_string(title)
+                script += f'set name of targetArea to {escaped_title}\n                    '
+
+            if tags:
+                tags_string = ', '.join(tags)
+                escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
+                script += f'set tag names of targetArea to {escaped_tags_string}\n                    '
+
+            script += '''
+                    return "updated"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+
+            if result.get("success"):
+                output = result.get("output", "").strip()
+                if output == "updated":
+                    return {
+                        "success": True,
+                        "message": "Area updated successfully"
+                    }
+                if "area id" in output.lower() or "can't get area" in output.lower() or "doesn't understand" in output.lower():
+                    return {
+                        "success": False,
+                        "error": f"Area not found: {area_id}",
+                        "message": "Failed to update area"
+                    }
+                return {
+                    "success": False,
+                    "error": output,
+                    "message": "Failed to update area"
+                }
+            return {
+                "success": False,
+                "error": result.get("output", "AppleScript execution failed"),
+                "message": "Failed to update area"
+            }
+        except Exception as e:
+            logger.error(f"Error updating area: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to update area"
             }
 
     async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:

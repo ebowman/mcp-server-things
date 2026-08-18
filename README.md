@@ -114,6 +114,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - Get all projects and areas with optional task inclusion
 - Create new projects with initial todos
 - Update project metadata and status
+- Create and rename areas, including tags (`add_area`, `update_area`)
 - Organize todos within project hierarchies
 
 ### Built-in List Access
@@ -256,6 +257,8 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ### Area Management
 - `get_areas(include_items?)` - List areas
+- `add_area(title, tags?)` - Create new area
+- `update_area(id, title?, tags?)` - Update existing area
 
 ### List Access
 - `get_inbox()` - Get Inbox todos

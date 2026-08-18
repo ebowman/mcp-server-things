@@ -187,6 +187,14 @@ class ThingsTools:
         """Update a project using AppleScript (write operation)."""
         return await self.write_ops.update_project(project_id=project_id, **kwargs)
 
+    async def add_area(self, title: str, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Add a new area using AppleScript (write operation)."""
+        return await self.write_ops.add_area(title=title, tags=tags)
+
+    async def update_area(self, area_id: str, **kwargs) -> Dict[str, Any]:
+        """Update an area using AppleScript (write operation)."""
+        return await self.write_ops.update_area(area_id=area_id, **kwargs)
+
     async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
         """Move a todo using AppleScript (write operation)."""
         return await self.write_ops.move_record(todo_id=todo_id, destination_list=destination_list)
