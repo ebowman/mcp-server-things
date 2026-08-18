@@ -73,7 +73,8 @@ docs = [
 "Source" = "https://github.com/ebowman/mcp-server-things"
 
 [project.scripts]
-things-mcp = "src.things_mcp.__main__:main"
+mcp-server-things = "things_mcp.main:main"
+things-mcp = "things_mcp.main:main"
 
 [tool.setuptools.dynamic]
 # Single source of truth for the version: src/things_mcp/__init__.py

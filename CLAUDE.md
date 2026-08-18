@@ -779,6 +779,13 @@ PyPI project. Fix it under the `mcp-server-things` project's Publishing settings
 (repo `ebowman/mcp-server-things`, workflow `publish.yml`, environment `pypi`)
 and remove any stray publisher on other projects, then re-run the workflow.
 
+### 4. Build and attach the .mcpb bundle
+
+```bash
+scripts/build_mcpb.sh
+gh release upload vX.Y.Z dist/mcp-server-things-X.Y.Z.mcpb
+```
+
 ### Break-glass: manual upload
 
 Only if CI publishing is broken and the release must ship:
@@ -797,6 +804,7 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] Committed, pushed to `main`, tag pushed
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)
+- [ ] Built .mcpb (`scripts/build_mcpb.sh`) and attached `dist/*.mcpb` to the GitHub release
 - [ ] AI reports the correct version when queried (`--version` / `get_server_capabilities`)
 
 ## Code Quality Improvements

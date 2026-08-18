@@ -8,7 +8,44 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 ## Installation
 
-### Option 1: From PyPI (Recommended)
+> **Automation permission note:** Unlike servers that rely solely on the Things
+> URL scheme, this server drives Things 3 via AppleScript for most write
+> operations. The first time it does so, macOS will prompt you to grant your
+> MCP client (e.g. Claude Desktop) **Automation** access to Things 3 (System
+> Settings → Privacy & Security → Automation). This is a one-time prompt but
+> is required regardless of which installation option below you choose.
+
+### Option 0: One-click .mcpb (Claude Desktop)
+
+1. Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases)
+2. Double-click the `.mcpb` file to install it into Claude Desktop
+3. Approve the Automation permission prompt for Things 3 the first time the server writes a todo
+4. Done — no virtual environment or `PYTHONPATH` configuration required
+
+The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`). Note: the .mcpb/uvx path works from the next PyPI release onward — the currently published wheel predates the console-script fix that makes `uvx mcp-server-things` resolve correctly.
+
+### Option 1: uvx (Any MCP Client)
+
+With [uv](https://docs.astral.sh/uv/) installed (`brew install uv`), the package can be run directly without a manual virtual environment:
+
+```bash
+uvx mcp-server-things
+```
+
+Configure your MCP client to use `uvx` with `mcp-server-things` as the argument, e.g. for Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "things": {
+      "command": "uvx",
+      "args": ["mcp-server-things"]
+    }
+  }
+}
+```
+
+### Option 2: From PyPI
 
 1. Create and activate a virtual environment:
 ```bash
@@ -21,7 +58,7 @@ source venv/bin/activate  # On macOS/Linux
 pip install mcp-server-things
 ```
 
-### Option 2: From Source (Development)
+### Option 3: From Source (Development)
 
 1. Clone the repository:
 ```bash
