@@ -138,6 +138,12 @@ class ToolsHelpers:
             'checklist': todo.get('checklist', []) if 'checklist' in todo else None
         }
 
+        # Marker added by Someday-project filtering: a task that things.py
+        # reports as Anytime/other but that actually belongs to a Someday
+        # project (see get_someday()). Only included when truthy.
+        if todo.get('inherited_someday'):
+            converted['inheritedSomeday'] = True
+
         # Remove None values to keep response clean
         return {k: v for k, v in converted.items() if v is not None}
 

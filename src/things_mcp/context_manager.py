@@ -498,7 +498,7 @@ class ContextAwareResponseManager:
             },
             ResponseMode.STANDARD: {
                 'uuid', 'title', 'status', 'notes', 'dueDate', 'modificationDate',
-                'creationDate', 'tags', 'project', 'area', 'startDate'
+                'creationDate', 'tags', 'project', 'area', 'startDate', 'inheritedSomeday'
             },
             ResponseMode.DETAILED: None  # Include all fields
         }

@@ -20,6 +20,116 @@ things = LazyThingsProxy()
 logger = logging.getLogger(__name__)
 
 
+def _get_someday_project_ids() -> set:
+    """Return the set of project UUIDs whose start state is 'Someday'.
+
+    Things UI hides tasks that live inside a Someday project from Today,
+    Anytime, and Upcoming, even if things.py reports the individual task
+    itself as scheduled for today/anytime. This loads the set of Someday
+    project UUIDs once so callers can filter tasks accordingly.
+
+    Defensive: any failure talking to things.py results in an empty set,
+    which means no filtering is applied (todos are kept).
+
+    Returns:
+        Set of project UUIDs with start == 'Someday'. Empty set on error
+        or if there are no Someday projects.
+    """
+    try:
+        someday_projects = things.projects(start='Someday') or []
+        return {p['uuid'] for p in someday_projects if p.get('uuid')}
+    except Exception as e:
+        logger.debug(f"Error loading Someday project ids: {e}")
+        return set()
+
+
+def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]]) -> Optional[str]:
+    """Resolve a heading UUID to its parent project UUID, with per-call caching.
+
+    Args:
+        heading_uuid: UUID of the heading to resolve.
+        cache: Dict used to memoize heading UUID -> project UUID (or None)
+            lookups for the duration of a single filtering call.
+
+    Returns:
+        The parent project UUID, or None if the heading is missing/deleted
+        or otherwise cannot be resolved.
+    """
+    if heading_uuid in cache:
+        return cache[heading_uuid]
+
+    project_uuid = None
+    try:
+        heading = things.get(heading_uuid)
+        if heading:
+            project_uuid = heading.get('project')
+    except Exception as e:
+        logger.debug(f"Error resolving heading {heading_uuid}: {e}")
+        project_uuid = None
+
+    cache[heading_uuid] = project_uuid
+    return project_uuid
+
+
+def _is_in_someday_project(todo: Dict[str, Any], someday_project_ids: set,
+                            heading_cache: Dict[str, Optional[str]]) -> bool:
+    """Check whether a todo belongs to a Someday project, directly or via heading.
+
+    Args:
+        todo: Raw things.py todo dict (must have 'project'/'heading' keys as
+            provided by things.py, prior to convert_todo() field renaming).
+        someday_project_ids: Set of project UUIDs with start == 'Someday'.
+        heading_cache: Per-call cache for heading -> project UUID lookups.
+
+    Returns:
+        True if the todo should be treated as belonging to a Someday project.
+    """
+    if not someday_project_ids:
+        return False
+
+    project_uuid = todo.get('project')
+    if project_uuid:
+        return project_uuid in someday_project_ids
+
+    heading_uuid = todo.get('heading')
+    if heading_uuid:
+        resolved_project = _resolve_heading_project(heading_uuid, heading_cache)
+        if resolved_project:
+            return resolved_project in someday_project_ids
+
+    return False
+
+
+def filter_someday_project_tasks(todos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filter out tasks that belong to Someday projects.
+
+    Matches Things UI behavior: tasks belonging to a project whose start
+    state is 'Someday' are hidden from Today, Anytime, and Upcoming views,
+    even when things.py reports the individual task as scheduled/anytime.
+    Handles both tasks directly assigned to a Someday project and tasks
+    parented under a heading that belongs to a Someday project.
+
+    Todos without a project (standalone) are always kept. Any error while
+    resolving Someday project/heading membership is treated defensively as
+    "not Someday" (the todo is kept).
+
+    Args:
+        todos: List of raw things.py todo dicts.
+
+    Returns:
+        Filtered list excluding todos that belong to Someday projects.
+    """
+    someday_project_ids = _get_someday_project_ids()
+    if not someday_project_ids:
+        return todos
+
+    heading_cache: Dict[str, Optional[str]] = {}
+    return [
+        todo for todo in todos
+        if not _is_in_someday_project(todo, someday_project_ids, heading_cache)
+    ]
+
+
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
@@ -274,6 +384,7 @@ class ReadOperations:
         """Synchronous implementation."""
         try:
             today_todos = things.today()
+            today_todos = filter_someday_project_tasks(today_todos or [])
 
             result = []
             for todo in today_todos:
@@ -297,6 +408,7 @@ class ReadOperations:
         """Synchronous implementation."""
         try:
             upcoming_todos = things.upcoming()
+            upcoming_todos = filter_someday_project_tasks(upcoming_todos or [])
 
             result = []
             for todo in upcoming_todos:
@@ -320,6 +432,7 @@ class ReadOperations:
         """Synchronous implementation."""
         try:
             anytime_todos = things.anytime()
+            anytime_todos = filter_someday_project_tasks(anytime_todos or [])
 
             result = []
             for todo in anytime_todos:
@@ -342,7 +455,32 @@ class ReadOperations:
     def _get_someday_sync(self, limit: Optional[int] = None) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            someday_todos = things.someday()
+            someday_todos = list(things.someday() or [])
+
+            # things.py doesn't mark a todo as Someday just because its
+            # parent project is Someday - it reports the todo's own
+            # start state (often Anytime). Find those "inherited" Someday
+            # todos and add them too, so get_someday() matches what the
+            # Things UI shows under a Someday project.
+            someday_project_ids = _get_someday_project_ids()
+            if someday_project_ids:
+                existing_uuids = {t.get('uuid') for t in someday_todos}
+                heading_cache: Dict[str, Optional[str]] = {}
+                try:
+                    other_todos = things.todos(status='incomplete') or []
+                except Exception as e:
+                    logger.debug(f"Error loading todos for inherited Someday check: {e}")
+                    other_todos = []
+
+                for todo in other_todos:
+                    uuid = todo.get('uuid')
+                    if not uuid or uuid in existing_uuids:
+                        continue
+                    if _is_in_someday_project(todo, someday_project_ids, heading_cache):
+                        todo = dict(todo)
+                        todo['inherited_someday'] = True
+                        someday_todos.append(todo)
+                        existing_uuids.add(uuid)
 
             result = []
             for todo in someday_todos:
@@ -506,6 +644,7 @@ class ReadOperations:
 
             # Use things.py with deadline operator for fast database query
             due_todos = things.todos(deadline=f'<={target_date}', status='incomplete')
+            due_todos = filter_someday_project_tasks(due_todos or [])
 
             return [ToolsHelpers.convert_todo(t) for t in due_todos]
         except Exception as e:
@@ -532,6 +671,7 @@ class ReadOperations:
 
             # Use things.py with start_date operator for fast database query
             activating_todos = things.todos(start_date=f'<={target_date}', status='incomplete')
+            activating_todos = filter_someday_project_tasks(activating_todos or [])
 
             return [ToolsHelpers.convert_todo(t) for t in activating_todos]
         except Exception as e:
@@ -551,6 +691,7 @@ class ReadOperations:
         """Synchronous implementation using things.py."""
         try:
             all_todos = things.todos(status='incomplete')
+            all_todos = filter_someday_project_tasks(all_todos or [])
             now = datetime.now()
             cutoff_date = now + timedelta(days=days)
 
