@@ -13,7 +13,7 @@
 - **📊 Context Optimization** - Response modes provide 5-12x better performance than documented
 
 ### Architecture
-- **Framework**: FastMCP 2.0 (Python 3.8+)
+- **Framework**: FastMCP 3.x (Python 3.8+)
 - **Integration**: AppleScript via subprocess calls
 - **Testing**: pytest with mocked AppleScript operations  
 - **Platform**: macOS 12.0+ with Things 3 installed
@@ -297,6 +297,23 @@ get_tag_usage(mode="summary")
    ```
 
 ## 🔧 Tool Usage Best Practices
+
+### Structured Output
+
+All read tools (`get_today`, `get_inbox`, `get_upcoming`, `get_anytime`, `get_someday`, `get_logbook`, `get_trash`, `get_todos`, `get_projects`, `get_areas`, `get_tags`, `get_tagged_items`, `get_recent`, `search_todos`, `search_advanced`, `get_todo_by_id`, `get_due_in_days`, `get_activating_in_days`, `get_tag_usage`) return both human-readable text and machine-readable `structured_content` (via FastMCP 3.x's automatic dict serialization). MCP clients that support structured output can read `structured_content` directly instead of re-parsing the text.
+
+The structured shape is consistent across list-returning tools:
+```json
+{"items": [...], "count": 3, "total": 42, "mode": "standard", "limit": 20, "offset": null}
+```
+- `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
+- `count` - `len(items)`
+- `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
+- `mode` / `limit` / `offset` - echoed back from the effective request
+
+Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
+
+**The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below.
 
 ### Response Mode Selection
 

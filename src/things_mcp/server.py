@@ -1,4 +1,4 @@
-"""Simple FastMCP 2.0 server implementation for Things 3 integration."""
+"""Simple FastMCP 3.x server implementation for Things 3 integration."""
 
 import asyncio
 import atexit
@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 # Optional dotenv support
 try:
@@ -256,22 +256,28 @@ class ThingsMCPServer:
                     include_items=final_include_items,
                     status=final_status
                 )
-                
-                # Apply limit if specified
+
+                # Track pre-limit total, then apply limit if specified
+                pre_limit_total = len(raw_data)
                 if final_limit and len(raw_data) > final_limit:
                     raw_data = raw_data[:final_limit]
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'get_todos', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=pre_limit_total,
+                )
+
             except Exception as e:
                 logger.error(f"Error getting todos: {e}")
                 raise
@@ -618,7 +624,8 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get a specific todo by its ID."""
             try:
-                return await self.tools.get_todo_by_id(todo_id)
+                todo = await self.tools.get_todo_by_id(todo_id)
+                return {"item": todo}
             except Exception as e:
                 logger.error(f"Error getting todo by ID: {e}")
                 raise
@@ -713,7 +720,11 @@ class ThingsMCPServer:
                     raw_data, 'get_projects', response_mode, optimized_params
                 )
 
-                return optimized_response
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
             except Exception as e:
                 logger.error(f"Error getting projects: {e}")
                 raise
@@ -875,7 +886,11 @@ class ThingsMCPServer:
                     raw_data, 'get_areas', response_mode, optimized_params
                 )
 
-                return optimized_response
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
             except Exception as e:
                 logger.error(f"Error getting areas: {e}")
                 raise
@@ -923,9 +938,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
@@ -945,9 +961,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
-                    return self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
@@ -968,6 +985,7 @@ class ThingsMCPServer:
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
                     todos = await self.tools.get_todos_upcoming_in_days(days)
+                    pre_limit_total = len(todos)
 
                     # Apply limit if specified
                     if limit and len(todos) > limit:
@@ -977,15 +995,14 @@ class ThingsMCPServer:
                         request_params = {'mode': mode, 'days': days}
                         optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                         response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                        return self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                        optimized_response = self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                        result = self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
+                        result['days'] = days
+                        return result
                     else:
-                        return {
-                            "data": todos,
-                            "meta": {
-                                "count": len(todos),
-                                "days": days
-                            }
-                        }
+                        result = self._read_result(todos, limit=limit, total=pre_limit_total)
+                        result['days'] = days
+                        return result
 
                 # Original behavior: get items from Things 3's Upcoming list
                 raw_data = await self.tools.get_upcoming(limit=limit)
@@ -995,9 +1012,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
@@ -1017,9 +1035,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
@@ -1039,9 +1058,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
@@ -1050,10 +1070,13 @@ class ThingsMCPServer:
         async def get_logbook(
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
             period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get completed todos from Logbook. Supports limit (max 100) and period filters (e.g., '7d', '1w')."""
             try:
-                return await self.tools.get_logbook(limit=limit, period=period)
+                logbook_data = await self.tools.get_logbook(limit=limit, period=period)
+                result = self._read_result(logbook_data, mode='standard', limit=limit)
+                result['period'] = period
+                return result
             except Exception as e:
                 logger.error(f"Error getting logbook: {e}")
                 raise
@@ -1079,7 +1102,14 @@ class ThingsMCPServer:
             - get_trash(limit=100, offset=200) - Get items 201-300
             """
             try:
-                return await self.tools.get_trash(limit=limit, offset=offset)
+                trash_data = await self.tools.get_trash(limit=limit, offset=offset)
+                return self._read_result(
+                    trash_data,
+                    mode='standard',
+                    limit=limit,
+                    offset=offset,
+                    total=trash_data.get('total_count') if isinstance(trash_data, dict) else None,
+                )
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
                 raise
@@ -1088,33 +1118,40 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_due_in_days(
             days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos due within specified days (1-365). Uses efficient AppleScript filtering."""
             try:
-                return await self.tools.get_todos_due_in_days(days)
+                due_todos = await self.tools.get_todos_due_in_days(days)
+                result = self._read_result(due_todos, mode='standard')
+                result['days'] = days
+                return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
-                return {"error": str(e), "todos": []}
+                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
         
         @self.mcp.tool()
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos activating within specified days (1-365)."""
             try:
-                return await self.tools.get_todos_activating_in_days(days)
+                activating_todos = await self.tools.get_todos_activating_in_days(days)
+                result = self._read_result(activating_todos, mode='standard')
+                result['days'] = days
+                return result
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
-                return {"error": str(e), "todos": []}
+                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
         
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
             include_items: bool = Field(False, description="Include items list (True) or just counts (False)")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get all tags with item counts or full items. Use include_items=true for full item lists."""
             try:
-                return await self.tools.get_tags(include_items=include_items)
+                tags_data = await self.tools.get_tags(include_items=include_items)
+                return self._read_result(tags_data, mode='standard')
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
                 raise
@@ -1122,10 +1159,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos with a specific tag."""
             try:
-                return await self.tools.get_tagged_items(tag=tag)
+                tagged_items = await self.tools.get_tagged_items(tag=tag)
+                result = self._read_result(tagged_items, mode='standard')
+                result['tag'] = tag
+                return result
             except Exception as e:
                 logger.error(f"Error getting tagged items: {e}")
                 raise
@@ -1152,7 +1192,8 @@ class ThingsMCPServer:
                         "error": "Invalid mode",
                         "message": f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}"
                     }
-                return await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
+                usage_data = await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
+                return self._read_result(usage_data, mode=mode)
             except Exception as e:
                 logger.error(f"Error getting tag usage: {e}")
                 raise
@@ -1190,18 +1231,23 @@ class ThingsMCPServer:
                 
                 # Get raw data from tools layer
                 raw_data = await self.tools.search_todos(query=query, limit=final_limit)
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_todos', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=len(raw_data),
+                )
+
             except Exception as e:
                 logger.error(f"Error searching todos: {e}")
                 raise
@@ -1283,18 +1329,23 @@ class ThingsMCPServer:
                     deadline=deadline,
                     limit=final_limit
                 )
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_advanced', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=len(raw_data),
+                )
+
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")
                 raise
@@ -1302,10 +1353,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_recent(
             period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get recently created items within a time period (e.g., '3d', '1w')."""
             try:
-                return await self.tools.get_recent(period=period)
+                recent_items = await self.tools.get_recent(period=period)
+                result = self._read_result(recent_items, mode='standard')
+                result['period'] = period
+                return result
             except Exception as e:
                 logger.error(f"Error getting recent items: {e}")
                 raise
@@ -1463,7 +1517,7 @@ class ThingsMCPServer:
                         "name": "Things 3 MCP Server",
                         "version": __version__,
                         "platform": "macOS",
-                        "framework": "FastMCP 2.0",
+                        "framework": "FastMCP 3.x",
                         "total_tools": 30  # Updated count including add_area/update_area/get_tag_usage
                     },
                     "features": {
@@ -1734,12 +1788,114 @@ class ThingsMCPServer:
 
         logger.info("All MCP tools registered successfully")
     
+    def _read_result(
+        self,
+        response: Union[Dict[str, Any], List[Dict[str, Any]]],
+        mode: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        total: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Normalize a read-tool response into a consistent structured-content shape.
+
+        FastMCP requires tool return values to be a dict (or a ``ToolResult``) so it can
+        populate both the human-readable text content and machine-readable
+        ``structured_content`` for the client. This helper guarantees that shape for every
+        read tool while preserving the existing text/JSON rendering produced by
+        ``context_manager.optimize_response`` (or a raw list, for tools that don't go
+        through the context manager).
+
+        The resulting envelope always contains:
+            - ``items``: the list of item dicts appropriate for the effective mode. In
+              ``summary`` mode this is intentionally a small preview (not the full list) to
+              avoid context explosion, matching the existing summary behaviour.
+            - ``count``: len(items)
+            - ``total``: total items available before any limit was applied (falls back to
+              ``count`` when the true pre-limit total isn't known/tracked).
+            - ``mode``: the effective response mode, if known.
+            - ``limit`` / ``offset``: echoed back from the request, or None.
+
+        Any other keys already present on a dict ``response`` (e.g. ``meta``,
+        ``status_breakdown``, ``optimized``, error fields, etc.) are preserved so existing
+        text/JSON substance is unchanged.
+
+        Args:
+            response: Either the dict already produced by context_manager.optimize_response
+                (which may be a summary-style dict with a preview list, or a
+                {"data": [...], "meta": {...}} dict), or a raw list of item dicts for tools
+                that don't apply response-mode optimization.
+            mode: Effective response mode, if known (e.g. 'summary', 'standard').
+            limit: The limit that was applied/requested, if any.
+            offset: The offset that was applied/requested, if any.
+            total: Total item count before limiting, if known/tracked separately from the
+                returned items (e.g. pagination endpoints like get_trash).
+
+        Returns:
+            A dict containing at least items/count/total/mode/limit/offset, plus any
+            pre-existing keys from a dict response.
+        """
+        if isinstance(response, list):
+            items = response
+            result: Dict[str, Any] = {
+                "items": items,
+                "count": len(items),
+                "total": total if total is not None else len(items),
+                "mode": mode,
+                "limit": limit,
+                "offset": offset,
+            }
+            return result
+
+        # response is already a dict (e.g. from context_manager.optimize_response,
+        # or a hand-built {"items": ..., ...} / {"data": ..., "meta": ...} payload).
+        result = dict(response)
+
+        if "items" in result and isinstance(result["items"], list):
+            items = result["items"]
+        elif "data" in result and isinstance(result["data"], list):
+            items = result["data"]
+        else:
+            # Summary-style responses (and other non-list-bearing dicts) don't carry a
+            # full item list - use whatever preview list is present (e.g.
+            # 'recent_preview', 'recent_projects', 'most_common') without inventing one,
+            # to avoid materializing full items in summary mode.
+            preview = (
+                result.get("recent_preview")
+                or result.get("recent_projects")
+                or result.get("tags")
+                or result.get("top")
+                or []
+            )
+            items = preview if isinstance(preview, list) else []
+
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+
+        effective_mode = mode or result.get("mode") or meta.get("mode")
+        effective_total = total
+        if effective_total is None:
+            effective_total = meta.get("total") if isinstance(meta.get("total"), int) else None
+        if effective_total is None:
+            effective_total = result.get("count") if isinstance(result.get("count"), int) else None
+        if effective_total is None:
+            effective_total = result.get("tag_count") if isinstance(result.get("tag_count"), int) else None
+        if effective_total is None:
+            effective_total = len(items)
+
+        result.setdefault("items", items)
+        result["count"] = len(items)
+        result["total"] = effective_total
+        result["mode"] = effective_mode
+        result["limit"] = limit
+        result["offset"] = offset
+
+        return result
+
     def _get_policy_description(self, policy) -> str:
         """Get human-readable description of tag creation policy.
-        
+
         Args:
             policy: Tag creation policy
-            
+
         Returns:
             Description string
         """

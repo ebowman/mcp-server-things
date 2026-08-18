@@ -172,6 +172,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Logging**: Structured logging with configurable levels
 - **Concurrency Support**: Multi-client safe operation with operation queuing
 - **Input Validation**: Configurable limits for titles, notes, and tags
+- **Structured Output**: Every read tool returns both human-readable text and machine-readable `structured_content` (via FastMCP 3.x) with a consistent `{items, count, total, mode, limit, offset}` shape (`{item: {...}}` for single-item lookups like `get_todo_by_id`), so clients can consume results programmatically without re-parsing text
 
 ## Requirements
 
