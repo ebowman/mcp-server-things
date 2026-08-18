@@ -324,6 +324,107 @@ class ReadOperations:
             logger.error(f"Error in _get_tags_sync: {e}")
             return []
 
+    async def get_tag_usage(self, only_unused: bool = False, mode: str = 'standard') -> Dict[str, Any]:
+        """Report per-tag usage counts (open/total) in a single pass over todos and projects.
+
+        Useful for weekly-review tag cleanup: surfaces every tag's open and total item
+        counts, sorted by usage (highest first), with an option to list only unused tags.
+
+        Args:
+            only_unused: If True, only include tags with total_count == 0.
+            mode: Response mode - 'summary', 'minimal', 'standard', or 'detailed'.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_tag_usage_sync, only_unused, mode)
+
+    def _get_tag_usage_sync(self, only_unused: bool, mode: str) -> Dict[str, Any]:
+        """Synchronous implementation using things.py, single pass over all items."""
+        try:
+            tags = things.tags()
+
+            # Initialize counts keyed by tag title, preserving uuid for each known tag.
+            usage: Dict[str, Dict[str, Any]] = {}
+            for tag in tags:
+                title = tag.get('title', tag.get('name', ''))
+                usage[title] = {
+                    'title': title,
+                    'uuid': tag.get('uuid'),
+                    'open_count': 0,
+                    'total_count': 0,
+                }
+
+            def tally(items: List[Dict], is_open: bool) -> None:
+                for item in items:
+                    for tag_title in (item.get('tags') or []):
+                        entry = usage.get(tag_title)
+                        if entry is None:
+                            # Tag referenced on an item but not returned by things.tags();
+                            # track it anyway so counts aren't silently dropped.
+                            entry = {
+                                'title': tag_title,
+                                'uuid': None,
+                                'open_count': 0,
+                                'total_count': 0,
+                            }
+                            usage[tag_title] = entry
+                        entry['total_count'] += 1
+                        if is_open:
+                            entry['open_count'] += 1
+
+            # Single pass over all todos, across every status.
+            for status in ('incomplete', 'completed', 'canceled'):
+                todos = things.todos(status=status) or []
+                tally(todos, is_open=(status == 'incomplete'))
+
+            # Single pass over all projects, across every status.
+            for status in ('incomplete', 'completed', 'canceled'):
+                projects = things.projects(status=status) or []
+                tally(projects, is_open=(status == 'incomplete'))
+
+            rows = list(usage.values())
+
+            if only_unused:
+                rows = [r for r in rows if r['total_count'] == 0]
+
+            rows.sort(key=lambda r: (-r['open_count'], -r['total_count'], r['title'].lower()))
+
+            return self._format_tag_usage_response(rows, mode)
+
+        except Exception as e:
+            logger.error(f"Error in _get_tag_usage_sync: {e}")
+            return {'error': str(e), 'tags': []}
+
+    @staticmethod
+    def _format_tag_usage_response(rows: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
+        """Apply response-mode shaping to tag usage rows (custom schema; not routed
+        through the generic ResponseOptimizer/context_manager machinery, which assumes
+        a todo/project field schema that doesn't fit tag-usage rows)."""
+        unused_count = sum(1 for r in rows if r['total_count'] == 0)
+
+        if mode == 'summary':
+            return {
+                'tag_count': len(rows),
+                'unused_count': unused_count,
+                'top': [
+                    {'title': r['title'], 'open_count': r['open_count'], 'total_count': r['total_count']}
+                    for r in rows[:5]
+                ],
+            }
+
+        if mode == 'minimal':
+            return {
+                'tag_count': len(rows),
+                'unused_count': unused_count,
+                'tags': [{'title': r['title'], 'open_count': r['open_count']} for r in rows],
+            }
+
+        # standard / detailed / anything else: full rows
+        return {
+            'tag_count': len(rows),
+            'unused_count': unused_count,
+            'tags': rows,
+        }
+
     async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
         """Search todos using things.py."""
         loop = asyncio.get_event_loop()

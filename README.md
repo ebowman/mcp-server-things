@@ -127,7 +127,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Trash**: Deleted items
 
 ### Advanced Features
-- **Tag Management**: Full tag support with AI creation control
+- **Tag Management**: Full tag support with AI creation control, plus usage reporting (`get_tag_usage`) for weekly-review cleanup
 - **Date-Range Queries**: Get todos due/activating within specific timeframes
 - **URL Schemes**: Native Things 3 URL scheme integration
 - **Health Monitoring**: System health checks and queue status monitoring
@@ -277,6 +277,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `search_todos(query)` - Basic search
 - `search_advanced(...)` - Advanced search with filters
 - `get_tags(include_items?)` - List tags
+- `get_tag_usage(only_unused?, mode?)` - Per-tag open/total usage counts, sorted by usage, for cleanup
 - `create_tag(name)` - Create a new tag
 - `get_tagged_items(tag)` - Get items with specific tag
 - `add_tags(todo_id, tags)` - Add tags to a todo

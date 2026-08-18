@@ -92,6 +92,10 @@ class ThingsTools:
         """Get all tags with counts or items - super fast with things.py."""
         return await self.read_ops.get_tags(include_items=include_items)
 
+    async def get_tag_usage(self, only_unused: bool = False, mode: str = 'standard') -> Dict[str, Any]:
+        """Get per-tag usage counts (open/total), sorted by usage, for tag cleanup."""
+        return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
+
     async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
         """Search todos directly in database with optional limit."""
         return await self.read_ops.search_todos(query=query, limit=limit)

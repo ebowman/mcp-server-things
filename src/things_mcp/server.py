@@ -1129,6 +1129,33 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting tagged items: {e}")
                 raise
+
+        @self.mcp.tool()
+        async def get_tag_usage(
+            only_unused: bool = Field(False, description="If true, only return tags with zero items (cleanup candidates)"),
+            mode: str = Field("standard", description="Response mode: summary, minimal, standard, or detailed")
+        ) -> Dict[str, Any]:
+            """Report how many items (todos and projects, open and total) use each tag, sorted by usage (highest first).
+
+            Useful for weekly-review tag cleanup: identify rarely-used or unused tags,
+            then remove them from remaining items or delete the tag manually in Things.
+
+            Args:
+                only_unused: If true, return only tags with zero items (open_count and total_count both 0).
+                mode: Response mode - 'summary' (tag_count/unused_count/top 5), 'minimal' (title+open_count only),
+                    'standard'/'detailed' (full rows with title, uuid, open_count, total_count).
+            """
+            try:
+                if mode not in ("summary", "minimal", "standard", "detailed"):
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}"
+                    }
+                return await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
+            except Exception as e:
+                logger.error(f"Error getting tag usage: {e}")
+                raise
         
         # Search tools
         @self.mcp.tool()
@@ -1437,7 +1464,7 @@ class ThingsMCPServer:
                         "version": __version__,
                         "platform": "macOS",
                         "framework": "FastMCP 2.0",
-                        "total_tools": 29  # Updated count including add_area/update_area
+                        "total_tools": 30  # Updated count including add_area/update_area/get_tag_usage
                     },
                     "features": {
                         "context_optimization": {
@@ -1483,7 +1510,7 @@ class ThingsMCPServer:
                         }
                     },
                     "api_coverage": {
-                        "total_tools": 29,
+                        "total_tools": 30,
                         "applescript_coverage_percentage": 45,
                         "workflow_operations": ["create", "read", "update", "delete", "move", "search"],
                         "list_operations": ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"],

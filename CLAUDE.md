@@ -251,6 +251,23 @@ remove_tags(todo_id="abc123", tags="Work")   # Removes "Work"
 remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
 ```
 
+### Tag Usage Report (Cleanup)
+
+`get_tag_usage()` reports open/total item counts per tag in a single pass over todos
+and projects, sorted by usage (highest first) — useful for weekly-review tag cleanup:
+
+```python
+# Full usage report, sorted by open_count desc, then total_count desc, then title
+get_tag_usage()
+
+# Only tags with zero items anywhere (open or completed/canceled) - cleanup candidates
+get_tag_usage(only_unused=True)
+
+# Response modes: 'summary' (counts + top 5), 'minimal' (title+open_count),
+# 'standard'/'detailed' (full rows: title, uuid, open_count, total_count)
+get_tag_usage(mode="summary")
+```
+
 ### Tag Best Practices
 
 1. **Check Available Tags First**:
