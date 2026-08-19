@@ -67,6 +67,12 @@ claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}' -s u
 Run `mcp-server-things doctor` (or `uvx mcp-server-things doctor`) to confirm Things 3, permissions, and the database are all reachable.
 Then ask your client "What's in my Things inbox?".
 
+> **`uvx mcp-server-things` fails with `Building cryptography==...` / maturin / Rust errors?**
+> Your default Python is an x86_64 (Intel/Rosetta) build — `cryptography` no longer ships
+> macOS x86_64 wheels. Fix: run with an arm64 interpreter, e.g. `uvx -p 3.12 mcp-server-things`
+> (Homebrew or uv-managed Python), or `uv python install 3.12` first. `mcp-server-things doctor`
+> warns about this.
+
 <details>
 <summary>Advanced: pip, virtualenv, from source, existing installs</summary>
 

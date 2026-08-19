@@ -5,6 +5,11 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`mcp-server-things doctor` now checks Python architecture** - a new "Python architecture" check WARNs when the running interpreter is x86_64 (Rosetta) on Apple Silicon hardware, since transitive dependencies (e.g. `cryptography>=50`) ship no macOS x86_64 wheels and `uvx mcp-server-things` can fail with `Building cryptography==...` maturin/Rust build errors in that case. PASSes on a matching arm64-on-Apple-Silicon or x86_64-on-Intel setup (noting the same wheel gap for genuine Intel Macs). README and docs/UPGRADING.md now call out the fix (`uvx -p 3.12 mcp-server-things` with an arm64 interpreter).
+
 ## [1.6.0] - 2026-08-19
 
 Upgrading from an existing install? See [docs/UPGRADING.md](docs/UPGRADING.md)
