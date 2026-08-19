@@ -149,13 +149,13 @@ class ThingsTools:
         """Get a specific todo by ID directly from database."""
         return await self.read_ops.get_todo_by_id(todo_id=todo_id)
 
-    async def get_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Get todos due within specified days."""
-        return await self.read_ops.get_due_in_days(days=days)
+        return await self.read_ops.get_due_in_days(days=days, include_overdue=include_overdue)
 
-    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_todos_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Get todos due within specified days."""
-        return await self.read_ops.get_todos_due_in_days(days=days)
+        return await self.read_ops.get_todos_due_in_days(days=days, include_overdue=include_overdue)
 
     async def get_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos activating within specified days."""

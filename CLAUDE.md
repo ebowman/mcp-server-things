@@ -331,6 +331,33 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 `get_someday(include_project_tasks?)` defaults to `include_project_tasks=false` and returns only items whose own start state is Someday (`things.someday()`). Things 3 also lets tasks inherit "Someday" from a parent project even when things.py reports their own start state as Anytime/other; on databases with many Someday projects this inherited set can be very large (in practice, many times larger than the native set) and, under response-mode truncation, would crowd out the native items. Pass `include_project_tasks=true` to also include those inherited tasks - each is marked `inheritedSomeday: true` in the response so callers can distinguish them. This only affects `get_someday`; `get_today`, `get_anytime`, and `get_upcoming` always exclude tasks that belong to a Someday project (matching Things UI behavior) regardless of this flag.
 
+### Due/activating date-window tools
+
+`get_due_in_days(days, include_overdue?)` and `get_activating_in_days(days)` both query a
+forward window of `today <= date <= today + days`, and both apply the Someday-project
+filter described above.
+
+- `get_activating_in_days` always excludes todos that are already active (`start_date` in
+  the past) - it only returns todos whose start date falls within the forward window,
+  matching the tool's name and docstring ("activating within specified days").
+- `get_due_in_days` defaults to `include_overdue=true`, preserving the historical
+  behavior of also returning todos whose deadline has already passed. Pass
+  `include_overdue=false` to restrict results to the forward window only
+  (`today <= deadline <= today + days`).
+- Boundary dates are inclusive on both ends: a deadline/start_date of exactly today or
+  exactly the target date is included.
+
+```python
+# Historical behavior: due soon + already overdue
+get_due_in_days(days=7)
+
+# Only todos due within the next 7 days, excluding anything already overdue
+get_due_in_days(days=7, include_overdue=false)
+
+# Todos that will become active in the next 7 days (excludes already-active todos)
+get_activating_in_days(days=7)
+```
+
 ### List tools: headings never returned, projects opt-in
 
 `get_inbox`, `get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` never return headings. Projects are also excluded by default and are opt-in via `include_projects: bool = false` on `get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` (matching the Things app's list views); `get_inbox` has no such flag since the Inbox can never contain projects. Pass `include_projects=true` to also include projects that belong to that list (e.g. a project due today, or a trashed project). `include_projects` is independent of `get_someday`'s `include_project_tasks` flag described above - one controls whether Someday projects themselves are returned, the other controls whether tasks that inherit Someday status from their parent project are returned.

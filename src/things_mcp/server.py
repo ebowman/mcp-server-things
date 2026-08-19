@@ -1194,23 +1194,25 @@ class ThingsMCPServer:
         # Efficient date-range query tools using AppleScript 'whose' clause
         @self.mcp.tool()
         async def get_due_in_days(
-            days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
+            days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365),
+            include_overdue: bool = Field(True, description="Include todos whose deadline is already in the past. Default true preserves historical behavior; set false to restrict results to today <= deadline <= target date.")
         ) -> Dict[str, Any]:
-            """Get todos due within specified days (1-365). Uses efficient AppleScript filtering."""
+            """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only."""
             try:
-                due_todos = await self.tools.get_todos_due_in_days(days)
+                due_todos = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
                 result = self._read_result(due_todos, mode='standard')
                 result['days'] = days
+                result['include_overdue'] = include_overdue
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
                 return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
-        
+
         @self.mcp.tool()
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
         ) -> Dict[str, Any]:
-            """Get todos activating within specified days (1-365)."""
+            """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded."""
             try:
                 activating_todos = await self.tools.get_todos_activating_in_days(days)
                 result = self._read_result(activating_todos, mode='standard')

@@ -290,8 +290,13 @@ class TestReadToolsApplySomedayFilter:
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.todos')
     async def test_get_activating_in_days_filters_someday_project_tasks(self, mock_todos, mock_projects, tools):
+        from datetime import date, timedelta
+        tomorrow_str = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+        task_direct_someday = {**TASK_DIRECT_SOMEDAY, 'start_date': tomorrow_str}
+        task_anytime_project = {**TASK_ANYTIME_PROJECT, 'start_date': tomorrow_str}
+
         mock_projects.return_value = [SOMEDAY_PROJECT]
-        mock_todos.return_value = [TASK_DIRECT_SOMEDAY, TASK_ANYTIME_PROJECT]
+        mock_todos.return_value = [task_direct_someday, task_anytime_project]
 
         result = await tools.get_activating_in_days(7)
 

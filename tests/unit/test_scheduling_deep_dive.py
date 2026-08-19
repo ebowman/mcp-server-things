@@ -202,18 +202,120 @@ class TestTemporalQueries:
             assert len(result) == 0
 
     @pytest.mark.asyncio
-    async def test_get_activating_in_days_7(self, tools, mock_applescript_manager):
+    async def test_get_activating_in_days_7(self, tools, mock_applescript_manager, tomorrow_str):
         """Test get_activating_in_days retrieves todos activating in next 7 days."""
         # Mock things.py since we now use it instead of AppleScript
         with patch('things.todos') as mock_todos:
             mock_todos.return_value = [
-                {'uuid': 'act-1', 'title': 'Start project', 'start_date': '2025-10-09', 'status': 'incomplete'}
+                {'uuid': 'act-1', 'title': 'Start project', 'start_date': tomorrow_str, 'status': 'incomplete'}
             ]
 
             result = await tools.get_activating_in_days(7)
 
             assert isinstance(result, list)
             assert len(result) == 1
+
+
+# ============================================================================
+# TEST CLASS 4b: DUE/ACTIVATING WINDOW BOUNDARIES (hq-nxu.1)
+# ============================================================================
+
+class TestDueAndActivatingWindowBoundaries:
+    """Boundary tests for get_due_in_days/get_activating_in_days forward-window filtering.
+
+    Covers rows with dates in the past, exactly today, inside the window,
+    exactly on the target date (upper boundary), and beyond the window
+    (future, excluded by the things.py query itself).
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_include_overdue_true_keeps_past_dates(self, tools, today_str):
+        """Default include_overdue=True preserves historical behavior: overdue items included."""
+        past = (date.today() - timedelta(days=5)).strftime('%Y-%m-%d')
+        window = (date.today() + timedelta(days=3)).strftime('%Y-%m-%d')
+        target = (date.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'past', 'title': 'Overdue', 'deadline': past, 'status': 'incomplete'},
+                {'uuid': 'today', 'title': 'Due today', 'deadline': today_str, 'status': 'incomplete'},
+                {'uuid': 'window', 'title': 'Due in window', 'deadline': window, 'status': 'incomplete'},
+                {'uuid': 'boundary', 'title': 'Due on target day', 'deadline': target, 'status': 'incomplete'},
+            ]
+
+            result = await tools.get_due_in_days(7, include_overdue=True)
+
+            uuids = {t['uuid'] for t in result}
+            assert uuids == {'past', 'today', 'window', 'boundary'}
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_include_overdue_false_excludes_past_dates(self, tools, today_str):
+        """include_overdue=False restricts to today <= deadline <= target date."""
+        past = (date.today() - timedelta(days=5)).strftime('%Y-%m-%d')
+        window = (date.today() + timedelta(days=3)).strftime('%Y-%m-%d')
+        target = (date.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'past', 'title': 'Overdue', 'deadline': past, 'status': 'incomplete'},
+                {'uuid': 'today', 'title': 'Due today', 'deadline': today_str, 'status': 'incomplete'},
+                {'uuid': 'window', 'title': 'Due in window', 'deadline': window, 'status': 'incomplete'},
+                {'uuid': 'boundary', 'title': 'Due on target day', 'deadline': target, 'status': 'incomplete'},
+            ]
+
+            result = await tools.get_due_in_days(7, include_overdue=False)
+
+            uuids = {t['uuid'] for t in result}
+            assert uuids == {'today', 'window', 'boundary'}
+            assert 'past' not in uuids
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_default_matches_include_overdue_true(self, tools, today_str):
+        """Calling get_due_in_days without include_overdue defaults to True (backwards compatible)."""
+        past = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'past', 'title': 'Overdue', 'deadline': past, 'status': 'incomplete'},
+            ]
+
+            result = await tools.get_due_in_days(7)
+
+            uuids = {t['uuid'] for t in result}
+            assert 'past' in uuids
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_excludes_past_start_dates(self, tools, today_str):
+        """get_activating_in_days always restricts to today <= start_date <= target date."""
+        past = (date.today() - timedelta(days=5)).strftime('%Y-%m-%d')
+        window = (date.today() + timedelta(days=3)).strftime('%Y-%m-%d')
+        target = (date.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'past', 'title': 'Already active', 'start_date': past, 'status': 'incomplete'},
+                {'uuid': 'today', 'title': 'Activating today', 'start_date': today_str, 'status': 'incomplete'},
+                {'uuid': 'window', 'title': 'Activating in window', 'start_date': window, 'status': 'incomplete'},
+                {'uuid': 'boundary', 'title': 'Activating on target day', 'start_date': target, 'status': 'incomplete'},
+            ]
+
+            result = await tools.get_activating_in_days(7)
+
+            uuids = {t['uuid'] for t in result}
+            assert uuids == {'today', 'window', 'boundary'}
+            assert 'past' not in uuids
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_missing_start_date_excluded(self, tools):
+        """Rows without a start_date at all are excluded (defensive against missing keys)."""
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'no-start-date', 'title': 'No start date', 'status': 'incomplete'},
+            ]
+
+            result = await tools.get_activating_in_days(7)
+
+            assert result == []
 
 
 # ============================================================================

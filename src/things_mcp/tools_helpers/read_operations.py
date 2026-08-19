@@ -858,38 +858,57 @@ class ReadOperations:
             logger.error(f"Error in _get_todo_by_id_sync: {e}")
             raise
 
-    async def get_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Get todos due within specified number of days.
 
         Optimized to use things.py for 10-100x faster performance.
         Searches entire database, not just specific lists.
+
+        Args:
+            days: Number of days ahead to check for due todos.
+            include_overdue: If True (default), also include todos whose
+                deadline is already in the past, matching the historical
+                behavior of this tool. If False, only todos with
+                today <= deadline <= target date are returned.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_due_in_days_sync, days)
+        return await loop.run_in_executor(None, self._get_due_in_days_sync, days, include_overdue)
 
-    def _get_due_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
+    def _get_due_in_days_sync(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Synchronous implementation using things.py with deadline filter."""
         try:
+            today = datetime.now().strftime('%Y-%m-%d')
             target_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
 
-            # Use things.py with deadline operator for fast database query
+            # things.py only supports a single comparison operator per date
+            # field, so fetch the upper bound from the database and, when
+            # overdue items should be excluded, post-filter the lower bound
+            # in Python (raw deadline/start_date values are 'YYYY-MM-DD'
+            # strings and are lexically comparable).
             due_todos = things.todos(deadline=f'<={target_date}', status='incomplete')
             due_todos = filter_someday_project_tasks(due_todos or [])
+
+            if not include_overdue:
+                due_todos = [t for t in due_todos if (t.get('deadline') or '') >= today]
 
             return [ToolsHelpers.convert_todo(t) for t in due_todos]
         except Exception as e:
             logger.error(f"Error in _get_due_in_days_sync: {e}")
             return []
 
-    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_todos_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Alias for get_due_in_days."""
-        return await self.get_due_in_days(days)
+        return await self.get_due_in_days(days, include_overdue=include_overdue)
 
     async def get_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos activating within specified number of days.
 
         Optimized to use things.py for 10-100x faster performance.
         Searches entire database, not just specific lists.
+
+        Only todos whose start date falls within the forward window
+        (today <= start_date <= target date) are returned; todos that are
+        already active (start_date in the past) are excluded.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_activating_in_days_sync, days)
@@ -897,11 +916,16 @@ class ReadOperations:
     def _get_activating_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
         """Synchronous implementation using things.py with start_date filter."""
         try:
+            today = datetime.now().strftime('%Y-%m-%d')
             target_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
 
-            # Use things.py with start_date operator for fast database query
+            # things.py only supports a single comparison operator per date
+            # field, so fetch the upper bound from the database and
+            # post-filter the lower bound in Python (raw start_date values
+            # are 'YYYY-MM-DD' strings and are lexically comparable).
             activating_todos = things.todos(start_date=f'<={target_date}', status='incomplete')
             activating_todos = filter_someday_project_tasks(activating_todos or [])
+            activating_todos = [t for t in activating_todos if (t.get('start_date') or '') >= today]
 
             return [ToolsHelpers.convert_todo(t) for t in activating_todos]
         except Exception as e:
