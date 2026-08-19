@@ -404,6 +404,34 @@ When working with retrieval tools (`get_todos`, `search_todos`, list tools), use
 - **Summary mode**: Fixed ~200 bytes total
 - For 100+ items, always start with `mode='summary'` or `mode='minimal'`
 
+### Todo field lists per mode (hq-f0w.4)
+
+Field names are the camelCase keys `ToolsHelpers.convert_todo` emits (things.py's
+snake_case fields renamed). `start` is the Inbox/Anytime/Someday state (distinct
+from `startDate`, which is a specific date). `heading`/`headingTitle` and
+`project`/`projectTitle` are always present in the dict (as `null` when the todo
+isn't under a heading/project respectively); other fields are omitted when `null`.
+
+- **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
+- **`minimal`**: `uuid`, `title`, `status`, `type`, `start`, `project`, `dueDate`,
+  `modificationDate`, `creationDate` - enough to locate a todo (identity, kind,
+  and where it lives) without pulling notes or checklist detail
+- **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
+  `modificationDate`, `creationDate`, `tags`, `project`, `projectTitle`,
+  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`
+- **`detailed`** / **`raw`**: all fields, including `hasChecklist` (bool - only a
+  real `checklist` list of items when `include_items=true` was requested),
+  `completionDate`/`cancellationDate` (derived from things.py's single
+  `stop_date` field by `status`), `index`, `todayIndex`
+
+Note: `area` was removed from the todo field sets (a to-do row from things.py
+never actually carries an `area` key - only projects do; the field was always
+absent in practice). Heading info (`heading`/`headingTitle`) comes directly from
+the Things database via things.py; when a read is served by the AppleScript path
+(`get_todos(project_uuid=...)`), these fields are filled in best-effort by a
+secondary things.py lookup after the AppleScript fetch and are omitted/`null` if
+that lookup fails.
+
 ### Performance Tips
 
 1. **Use specific list tools** instead of filtering `get_todos`:

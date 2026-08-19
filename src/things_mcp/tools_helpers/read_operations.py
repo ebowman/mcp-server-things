@@ -203,6 +203,28 @@ class ReadOperations:
                         result.append(converted)
 
                 logger.debug(f"Retrieved {len(result)} todos for project {project_uuid} via AppleScript")
+
+                # Best-effort enrichment: the AppleScript read path has no
+                # heading concept, so headingTitle/heading/projectTitle/start
+                # are missing from convert_applescript_todo's output. Fill
+                # them in from things.py's own project-scoped query, keyed by
+                # uuid. Never let this fail the call - AppleScript data is
+                # still returned as-is if things.py is unavailable/errors.
+                try:
+                    things_rows = things.todos(project=project_uuid)
+                    by_uuid = {row['uuid']: row for row in things_rows if row.get('uuid')}
+                    for todo in result:
+                        row = by_uuid.get(todo.get('uuid'))
+                        if row:
+                            todo['heading'] = row.get('heading')
+                            todo['headingTitle'] = row.get('heading_title')
+                            todo['projectTitle'] = row.get('project_title')
+                            todo['start'] = row.get('start')
+                except Exception as e:
+                    logger.debug(
+                        f"Best-effort heading/start enrichment failed for project {project_uuid}: {e}"
+                    )
+
                 return result
             except Exception as e:
                 logger.error(f"AppleScript query failed for project {project_uuid}, falling back to things.py: {e}")

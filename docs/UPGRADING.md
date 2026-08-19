@@ -68,6 +68,25 @@ have automation or prompts that depend on exact output shape, check these:
   parameter on any of these five tools to restore projects in the results
   (headings are never returned, even with this flag) — `get_inbox` is
   unaffected since the Inbox can never contain projects.
+- **Todo/project dicts gained new fields and one field changed shape**
+  (hq-f0w.4). New: `type` (`'to-do'`/`'project'`/etc.), `start` (Inbox /
+  Anytime / Someday — distinct from the existing `startDate`, a specific
+  date), `projectTitle`, `heading`, `headingTitle`, `hasChecklist` (bool),
+  `index`, `todayIndex`; projects also gained `areaTitle`. `area` was
+  removed from todo dicts — it was always `null`/absent in practice, since
+  things.py to-do rows never actually carry an `area` key (only projects
+  do). `checklist` is now only present as a list of items when
+  `include_items=true` (or `get_todo_by_id`) actually fetched them; it no
+  longer appears as a stray, usually-empty-looking bool/list mix — check
+  `hasChecklist` instead if you just need to know whether a todo has a
+  checklist. `completionDate`/`cancellationDate` are unaffected in shape
+  but are now correctly populated (previously always absent — see the
+  `[Unreleased]` CHANGELOG entry). What to do: nothing required for
+  existing integrations reading `dueDate`/`startDate`/`tags`/etc.; if you
+  read `area` off a todo dict, switch to reading it off the todo's parent
+  project instead (fetch the project by `project` uuid), and if you check
+  for a `checklist` key's *presence* to mean "has a checklist", switch to
+  the new `hasChecklist` boolean.
 
 ## Recommended: switch to uvx
 

@@ -490,15 +490,22 @@ class ContextAwareResponseManager:
         if mode == ResponseMode.RAW:
             return data  # No filtering
         
-        # Define field sets by mode
+        # Define field sets by mode. Keys follow ToolsHelpers.convert_todo /
+        # convert_project's camelCase output (see hq-f0w.4). 'area' was
+        # dropped from the STANDARD todo set - things.py to-do rows never
+        # carry an 'area' key (only projects do), so it was always absent.
         field_sets = {
             ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
             ResponseMode.MINIMAL: {
-                'uuid', 'title', 'status', 'dueDate', 'modificationDate', 'creationDate'
+                # Minimum needed to still locate a todo: identity, status,
+                # kind, and where it lives (start state + parent project).
+                'uuid', 'title', 'status', 'type', 'start', 'project',
+                'dueDate', 'modificationDate', 'creationDate'
             },
             ResponseMode.STANDARD: {
-                'uuid', 'title', 'status', 'notes', 'dueDate', 'modificationDate',
-                'creationDate', 'tags', 'project', 'area', 'startDate', 'inheritedSomeday'
+                'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
+                'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
+                'start', 'startDate', 'inheritedSomeday'
             },
             ResponseMode.DETAILED: None  # Include all fields
         }
