@@ -1,4 +1,4 @@
-"""Simple FastMCP 2.0 server implementation for Things 3 integration."""
+"""Simple FastMCP 3.x server implementation for Things 3 integration."""
 
 import asyncio
 import atexit
@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 # Optional dotenv support
 try:
@@ -29,6 +29,22 @@ from .context_manager import ContextAwareResponseManager, ResponseMode
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated tag string into a list of non-empty, stripped tag names.
+
+    Args:
+        tags: Comma-separated tag names (e.g. "work,urgent" or "a, ,b").
+
+    Returns:
+        A list of non-empty, stripped tag names, or None if `tags` is falsy or
+        contains no non-empty entries after stripping (e.g. None, "", " , ").
+    """
+    if not tags:
+        return None
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    return tag_list or None
 
 
 class ThingsMCPServer:
@@ -164,6 +180,20 @@ class ThingsMCPServer:
             signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
             signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
     
+    async def _registered_tool_count(self) -> int:
+        """Return the number of tools currently registered with the MCP server.
+
+        Computed at runtime from the FastMCP tool registry so this value never
+        drifts from the actual set of registered tools. Falls back defensively
+        if the registry call fails for any reason.
+        """
+        try:
+            tools = await self.mcp.list_tools()
+            return len(tools)
+        except Exception as e:
+            logger.debug(f"Failed to compute registered tool count from FastMCP registry: {e}")
+            return 0
+
     def _register_tools(self) -> None:
         """Register all MCP tools with the server."""
         
@@ -256,22 +286,28 @@ class ThingsMCPServer:
                     include_items=final_include_items,
                     status=final_status
                 )
-                
-                # Apply limit if specified
+
+                # Track pre-limit total, then apply limit if specified
+                pre_limit_total = len(raw_data)
                 if final_limit and len(raw_data) > final_limit:
                     raw_data = raw_data[:final_limit]
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'get_todos', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=pre_limit_total,
+                )
+
             except Exception as e:
                 logger.error(f"Error getting todos: {e}")
                 raise
@@ -362,7 +398,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 result = await self.tools.add_todo(
                     title=title,
                     notes=notes,
@@ -381,10 +417,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -430,7 +466,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -458,10 +494,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -517,7 +553,7 @@ class ThingsMCPServer:
                     }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -618,7 +654,8 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get a specific todo by its ID."""
             try:
-                return await self.tools.get_todo_by_id(todo_id)
+                todo = await self.tools.get_todo_by_id(todo_id)
+                return {"item": todo}
             except Exception as e:
                 logger.error(f"Error getting todo by ID: {e}")
                 raise
@@ -713,7 +750,11 @@ class ThingsMCPServer:
                     raw_data, 'get_projects', response_mode, optimized_params
                 )
 
-                return optimized_response
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
             except Exception as e:
                 logger.error(f"Error getting projects: {e}")
                 raise
@@ -755,7 +796,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 # Convert newline-separated todos to list
                 todos_list = [todo.strip() for todo in todos.split("\n")] if todos else None
                 return await self.tools.add_project(
@@ -811,7 +852,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -875,11 +916,42 @@ class ThingsMCPServer:
                     raw_data, 'get_areas', response_mode, optimized_params
                 )
 
-                return optimized_response
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
             except Exception as e:
                 logger.error(f"Error getting areas: {e}")
                 raise
-        
+
+        @self.mcp.tool()
+        async def add_area(
+            title: str = Field(..., min_length=1, description="Title of the area"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area. Tags that don't already exist in Things 3 are silently filtered out.")
+        ) -> Dict[str, Any]:
+            """Create a new area. Areas represent life/work domains (e.g. Work, Personal) and can contain projects and todos. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            try:
+                tag_list = _parse_tag_list(tags)
+                return await self.tools.add_area(title=title, tags=tag_list)
+            except Exception as e:
+                logger.error(f"Error adding area: {e}")
+                raise
+
+        @self.mcp.tool()
+        async def update_area(
+            id: str = Field(..., description="ID of the area to update"),
+            title: Optional[str] = Field(None, description="New title for the area"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Tags that don't already exist in Things 3 are silently filtered out.")
+        ) -> Dict[str, Any]:
+            """Update an existing area's title and/or tags. Only provided fields are changed. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            try:
+                tag_list = _parse_tag_list(tags)
+                return await self.tools.update_area(area_id=id, title=title, tags=tag_list)
+            except Exception as e:
+                logger.error(f"Error updating area: {e}")
+                raise
+
         # List-based tools
         @self.mcp.tool()
         async def get_inbox(
@@ -896,9 +968,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
@@ -918,9 +991,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
-                    return self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
@@ -941,6 +1015,7 @@ class ThingsMCPServer:
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
                     todos = await self.tools.get_todos_upcoming_in_days(days)
+                    pre_limit_total = len(todos)
 
                     # Apply limit if specified
                     if limit and len(todos) > limit:
@@ -950,15 +1025,14 @@ class ThingsMCPServer:
                         request_params = {'mode': mode, 'days': days}
                         optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                         response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                        return self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                        optimized_response = self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                        result = self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
+                        result['days'] = days
+                        return result
                     else:
-                        return {
-                            "data": todos,
-                            "meta": {
-                                "count": len(todos),
-                                "days": days
-                            }
-                        }
+                        result = self._read_result(todos, limit=limit, total=pre_limit_total)
+                        result['days'] = days
+                        return result
 
                 # Original behavior: get items from Things 3's Upcoming list
                 raw_data = await self.tools.get_upcoming(limit=limit)
@@ -968,9 +1042,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
@@ -990,9 +1065,10 @@ class ThingsMCPServer:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
@@ -1000,21 +1076,23 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects.")
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(limit=limit)
+                raw_data = await self.tools.get_someday(limit=limit, include_project_tasks=include_project_tasks)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
                     request_params = {'mode': mode, 'limit': limit}
                     optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    return self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
 
-                return raw_data
+                return self._read_result(raw_data, limit=limit)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
@@ -1023,10 +1101,13 @@ class ThingsMCPServer:
         async def get_logbook(
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
             period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get completed todos from Logbook. Supports limit (max 100) and period filters (e.g., '7d', '1w')."""
             try:
-                return await self.tools.get_logbook(limit=limit, period=period)
+                logbook_data = await self.tools.get_logbook(limit=limit, period=period)
+                result = self._read_result(logbook_data, mode='standard', limit=limit)
+                result['period'] = period
+                return result
             except Exception as e:
                 logger.error(f"Error getting logbook: {e}")
                 raise
@@ -1052,7 +1133,14 @@ class ThingsMCPServer:
             - get_trash(limit=100, offset=200) - Get items 201-300
             """
             try:
-                return await self.tools.get_trash(limit=limit, offset=offset)
+                trash_data = await self.tools.get_trash(limit=limit, offset=offset)
+                return self._read_result(
+                    trash_data,
+                    mode='standard',
+                    limit=limit,
+                    offset=offset,
+                    total=trash_data.get('total_count') if isinstance(trash_data, dict) else None,
+                )
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
                 raise
@@ -1061,33 +1149,40 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_due_in_days(
             days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos due within specified days (1-365). Uses efficient AppleScript filtering."""
             try:
-                return await self.tools.get_todos_due_in_days(days)
+                due_todos = await self.tools.get_todos_due_in_days(days)
+                result = self._read_result(due_todos, mode='standard')
+                result['days'] = days
+                return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
-                return {"error": str(e), "todos": []}
+                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
         
         @self.mcp.tool()
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos activating within specified days (1-365)."""
             try:
-                return await self.tools.get_todos_activating_in_days(days)
+                activating_todos = await self.tools.get_todos_activating_in_days(days)
+                result = self._read_result(activating_todos, mode='standard')
+                result['days'] = days
+                return result
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
-                return {"error": str(e), "todos": []}
+                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
         
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
             include_items: bool = Field(False, description="Include items list (True) or just counts (False)")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get all tags with item counts or full items. Use include_items=true for full item lists."""
             try:
-                return await self.tools.get_tags(include_items=include_items)
+                tags_data = await self.tools.get_tags(include_items=include_items)
+                return self._read_result(tags_data, mode='standard')
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
                 raise
@@ -1095,12 +1190,54 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get todos with a specific tag."""
             try:
-                return await self.tools.get_tagged_items(tag=tag)
+                tagged_items = await self.tools.get_tagged_items(tag=tag)
+                result = self._read_result(tagged_items, mode='standard')
+                result['tag'] = tag
+                return result
             except Exception as e:
                 logger.error(f"Error getting tagged items: {e}")
+                raise
+
+        @self.mcp.tool()
+        async def get_tag_usage(
+            only_unused: bool = Field(False, description="If true, only return tags with zero items (cleanup candidates)"),
+            mode: str = Field("standard", description="Response mode: summary, minimal, standard, or detailed")
+        ) -> Dict[str, Any]:
+            """Report how many items (todos, projects, and areas; open and total) use each tag, sorted by usage (highest first).
+
+            Useful for weekly-review tag cleanup: identify rarely-used or unused tags,
+            then remove them from remaining items or delete the tag manually in Things.
+
+            Args:
+                only_unused: If true, return only tags with zero items (open_count and total_count both 0).
+                mode: Response mode - 'summary' (tag_count/unused_count/top 5), 'minimal' (title+open_count only),
+                    'standard'/'detailed' (full rows with title, uuid, open_count, total_count, area_count).
+
+            Caveats:
+                - Title collisions: usage is keyed by tag title, not uuid. If two distinct
+                  tags (e.g. a parent tag and a same-named child tag) share the exact same
+                  title, their counts are merged into a single row and the reported uuid
+                  is whichever tag was returned last for that title by the underlying tag
+                  list.
+                - Area tags: tags applied to Areas are counted via `area_count` and are
+                  included in `total_count`, so a tag used only on an area will not be
+                  reported as unused. Areas have no open/closed state, so area usage never
+                  contributes to `open_count`.
+            """
+            try:
+                if mode not in ("summary", "minimal", "standard", "detailed"):
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}"
+                    }
+                usage_data = await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
+                return self._read_result(usage_data, mode=mode)
+            except Exception as e:
+                logger.error(f"Error getting tag usage: {e}")
                 raise
         
         # Search tools
@@ -1136,18 +1273,23 @@ class ThingsMCPServer:
                 
                 # Get raw data from tools layer
                 raw_data = await self.tools.search_todos(query=query, limit=final_limit)
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_todos', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=len(raw_data),
+                )
+
             except Exception as e:
                 logger.error(f"Error searching todos: {e}")
                 raise
@@ -1229,18 +1371,23 @@ class ThingsMCPServer:
                     deadline=deadline,
                     limit=final_limit
                 )
-                
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_advanced', response_mode, optimized_params
                 )
-                
+
                 # Add minimal optimization metadata
                 if was_modified:
                     optimized_response['optimized'] = True
-                
-                return optimized_response
-                
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    limit=final_limit,
+                    total=len(raw_data),
+                )
+
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")
                 raise
@@ -1248,10 +1395,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_recent(
             period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
-        ) -> List[Dict[str, Any]]:
+        ) -> Dict[str, Any]:
             """Get recently created items within a time period (e.g., '3d', '1w')."""
             try:
-                return await self.tools.get_recent(period=period)
+                recent_items = await self.tools.get_recent(period=period)
+                result = self._read_result(recent_items, mode='standard')
+                result['period'] = period
+                return result
             except Exception as e:
                 logger.error(f"Error getting recent items: {e}")
                 raise
@@ -1265,12 +1415,11 @@ class ThingsMCPServer:
             """Add tags to a todo. Only existing tags can be applied."""
             try:
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                tag_list = _parse_tag_list(tags) or []
                 result = await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
                 
                 # Enhance response with tag policy feedback
-                if (self.tools.tag_validation_service and 
-                    hasattr(result, 'get') and result.get('success')):
+                if self.tools.tag_validation_service and result.get('success'):
                     policy = self.tools.config.tag_creation_policy if self.tools.config else 'allow_all'
                     
                     # Add policy information to response
@@ -1282,10 +1431,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -1302,7 +1451,7 @@ class ThingsMCPServer:
             """Remove tags from a todo."""
             try:
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                tag_list = _parse_tag_list(tags) or []
                 return await self.tools.remove_tags(todo_id=todo_id, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error removing tags: {e}")
@@ -1404,13 +1553,14 @@ class ThingsMCPServer:
         async def get_server_capabilities(request: Optional[ServerCapabilitiesRequest] = None) -> Dict[str, Any]:
             """Get server capabilities, features, API coverage, and optimization settings. Returns structured information about available tools, response modes, and performance characteristics."""
             try:
+                total_tools = await self._registered_tool_count()
                 capabilities = {
                     "server_info": {
                         "name": "Things 3 MCP Server",
                         "version": __version__,
                         "platform": "macOS",
-                        "framework": "FastMCP 2.0",
-                        "total_tools": 27  # Updated count including new tools
+                        "framework": "FastMCP 3.x",
+                        "total_tools": total_tools
                     },
                     "features": {
                         "context_optimization": {
@@ -1456,7 +1606,7 @@ class ThingsMCPServer:
                         }
                     },
                     "api_coverage": {
-                        "total_tools": 27,
+                        "total_tools": total_tools,
                         "applescript_coverage_percentage": 45,
                         "workflow_operations": ["create", "read", "update", "delete", "move", "search"],
                         "list_operations": ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"],
@@ -1680,12 +1830,134 @@ class ThingsMCPServer:
 
         logger.info("All MCP tools registered successfully")
     
+    def _read_result(
+        self,
+        response: Union[Dict[str, Any], List[Dict[str, Any]]],
+        mode: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        total: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Normalize a read-tool response into a consistent structured-content shape.
+
+        FastMCP requires tool return values to be a dict (or a ``ToolResult``) so it can
+        populate both the human-readable text content and machine-readable
+        ``structured_content`` for the client. This helper guarantees that shape for every
+        read tool while preserving the existing text/JSON rendering produced by
+        ``context_manager.optimize_response`` (or a raw list, for tools that don't go
+        through the context manager).
+
+        The resulting envelope always contains:
+            - ``items``: the list of item dicts appropriate for the effective mode. In
+              ``summary`` mode this is intentionally a small preview (not the full list) to
+              avoid context explosion, matching the existing summary behaviour.
+            - ``count``: len(items)
+            - ``total``: total items available before any limit was applied (falls back to
+              ``count`` when the true pre-limit total isn't known/tracked).
+            - ``mode``: the effective response mode that was actually applied. If the
+              caller requested ``'auto'`` (or omitted ``mode``), this reports the concrete
+              mode resolved by ``context_manager.optimize_response`` (from ``meta['mode']``)
+              rather than echoing back ``'auto'``.
+            - ``requested_mode``: the mode originally requested by the caller (may be
+              ``'auto'`` or ``None``), preserved for callers that want to distinguish
+              "what was asked for" from "what was returned".
+            - ``limit`` / ``offset``: echoed back from the request, or None.
+
+        Any other keys already present on a dict ``response`` (e.g. ``meta``,
+        ``status_breakdown``, ``optimized``, error fields, etc.) are preserved so existing
+        text/JSON substance is unchanged.
+
+        Args:
+            response: Either the dict already produced by context_manager.optimize_response
+                (which may be a summary-style dict with a preview list, or a
+                {"data": [...], "meta": {...}} dict), or a raw list of item dicts for tools
+                that don't apply response-mode optimization.
+            mode: Requested response mode, if known (e.g. 'auto', 'summary', 'standard').
+                When this is 'auto' or None, the resolved effective mode is reported
+                instead: meta['mode'] if present, else a top-level 'mode' key (summary
+                responses carry no meta), else the requested value.
+            limit: The limit that was applied/requested, if any.
+            offset: The offset that was applied/requested, if any.
+            total: Total item count before limiting, if known/tracked separately from the
+                returned items (e.g. pagination endpoints like get_trash).
+
+        Returns:
+            A dict containing at least items/count/total/mode/limit/offset, plus any
+            pre-existing keys from a dict response.
+        """
+        if isinstance(response, list):
+            items = response
+            result: Dict[str, Any] = {
+                "items": items,
+                "count": len(items),
+                "total": total if total is not None else len(items),
+                "mode": mode,
+                "limit": limit,
+                "offset": offset,
+            }
+            return result
+
+        # response is already a dict (e.g. from context_manager.optimize_response,
+        # or a hand-built {"items": ..., ...} / {"data": ..., "meta": ...} payload).
+        result = dict(response)
+
+        if "items" in result and isinstance(result["items"], list):
+            items = result["items"]
+        elif "data" in result and isinstance(result["data"], list):
+            items = result["data"]
+        else:
+            # Summary-style responses (and other non-list-bearing dicts) don't carry a
+            # full item list - use whatever preview list is present (e.g.
+            # 'recent_preview', 'recent_projects', 'most_common') without inventing one,
+            # to avoid materializing full items in summary mode.
+            preview = (
+                result.get("recent_preview")
+                or result.get("recent_projects")
+                or result.get("tags")
+                or result.get("top")
+                or []
+            )
+            items = preview if isinstance(preview, list) else []
+
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+
+        # When the requested mode is 'auto' (or unspecified), the *effective* mode chosen
+        # by context_manager.optimize_response is recorded either in meta['mode'] (the
+        # {"data": ..., "meta": ...} shape) or as a top-level 'mode' key (the summary-shaped
+        # payload from create_summary_response, which carries no 'meta' at all). Prefer
+        # whichever of those is actually present so structured_content reflects what was
+        # returned, per docs, instead of echoing back the literal 'auto' request.
+        requested_mode = mode
+        if mode in (None, "auto"):
+            effective_mode = meta.get("mode") or result.get("mode") or mode
+        else:
+            effective_mode = mode or result.get("mode") or meta.get("mode")
+        effective_total = total
+        if effective_total is None:
+            effective_total = meta.get("total") if isinstance(meta.get("total"), int) else None
+        if effective_total is None:
+            effective_total = result.get("count") if isinstance(result.get("count"), int) else None
+        if effective_total is None:
+            effective_total = result.get("tag_count") if isinstance(result.get("tag_count"), int) else None
+        if effective_total is None:
+            effective_total = len(items)
+
+        result.setdefault("items", items)
+        result["count"] = len(items)
+        result["total"] = effective_total
+        result["mode"] = effective_mode
+        result["requested_mode"] = requested_mode
+        result["limit"] = limit
+        result["offset"] = offset
+
+        return result
+
     def _get_policy_description(self, policy) -> str:
         """Get human-readable description of tag creation policy.
-        
+
         Args:
             policy: Tag creation policy
-            
+
         Returns:
             Description string
         """

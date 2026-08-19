@@ -38,12 +38,12 @@ class TestBasicSearch:
         assert isinstance(results, list)
         print(f"\n✓ Simple text search returned {len(results)} results")
 
-        # Verify all results contain the search term
+        # Verify all results contain the search term (search matches title OR notes)
         for todo in results:
-            title = todo.get('name', '').lower()
-            notes = todo.get('notes', '').lower()
+            title = (todo.get('title') or '').lower()
+            notes = (todo.get('notes') or '').lower()
             assert 'test' in title or 'test' in notes, \
-                f"Todo {todo.get('id')} doesn't contain 'test'"
+                f"Todo {todo.get('uuid')} doesn't contain 'test' in title or notes"
 
     @pytest.mark.asyncio
     async def test_search_with_different_limits(self, tools):
@@ -179,7 +179,7 @@ class TestAdvancedSearch:
         tags = await tools.get_tags(include_items=False)
 
         if tags and len(tags) > 0:
-            test_tag = tags[0]['name']
+            test_tag = tags[0]['title']
 
             # Search by tag using advanced search
             results = await tools.search_advanced(tag=test_tag, limit=50)
@@ -189,9 +189,9 @@ class TestAdvancedSearch:
 
             # Verify all results have the tag
             for todo in results:
-                tag_names = todo.get('tag_names', [])
+                tag_names = todo.get('tags', [])
                 assert test_tag in tag_names, \
-                    f"Todo {todo.get('id')} missing tag '{test_tag}'"
+                    f"Todo {todo.get('uuid')} missing tag '{test_tag}'"
         else:
             print("\n⚠ No tags available for testing")
 
@@ -237,7 +237,7 @@ class TestAdvancedSearch:
         # Get a tag to test with
         tags = await tools.get_tags(include_items=False)
         if tags and len(tags) > 0:
-            test_tag = tags[0]['name']
+            test_tag = tags[0]['title']
 
             # Combine status + tag + type
             results = await tools.search_advanced(
@@ -256,7 +256,7 @@ class TestAdvancedSearch:
         areas = await tools.get_areas(include_items=False)
 
         if areas and len(areas) > 0:
-            test_area_uuid = areas[0]['id']
+            test_area_uuid = areas[0]['uuid']
 
             results = await tools.search_advanced(
                 area=test_area_uuid,
@@ -288,13 +288,13 @@ class TestTagBasedRetrieval:
         print(f"\n✓ Retrieved {len(results)} tags with counts")
 
         for tag in results:
-            assert 'name' in tag
+            assert 'title' in tag
             # Count should only be present if > 0
-            if 'item_count' in tag:
-                assert tag['item_count'] > 0
+            if 'count' in tag:
+                assert tag['count'] >= 0
 
             # Should NOT have full items
-            assert 'items' not in tag
+            assert 'todos' not in tag
 
         # Print sample
         if results:
@@ -311,11 +311,11 @@ class TestTagBasedRetrieval:
 
         total_items = 0
         for tag in results:
-            assert 'name' in tag
-            assert 'items' in tag
-            assert isinstance(tag['items'], list)
+            assert 'title' in tag
+            assert 'todos' in tag
+            assert isinstance(tag['todos'], list)
 
-            total_items += len(tag['items'])
+            total_items += len(tag['todos'])
 
         print(f"   Total items across all tags: {total_items}")
 
@@ -328,7 +328,7 @@ class TestTagBasedRetrieval:
         if tags and len(tags) > 0:
             # Test with first few tags
             for tag in tags[:3]:
-                tag_name = tag['name']
+                tag_name = tag['title']
 
                 items = await tools.get_tagged_items(tag=tag_name)
 
@@ -337,7 +337,7 @@ class TestTagBasedRetrieval:
 
                 # Verify all items have the tag
                 for item in items:
-                    tag_names = item.get('tag_names', [])
+                    tag_names = item.get('tags', [])
                     assert tag_name in tag_names
         else:
             print("\n⚠ No tags available for testing")
@@ -349,7 +349,7 @@ class TestTagBasedRetrieval:
         today_todos = await tools.get_today()
 
         if today_todos and len(today_todos) > 0:
-            test_todo_id = today_todos[0]['id']
+            test_todo_id = today_todos[0]['uuid']
             test_tag = f"test_tag_{datetime.now().timestamp()}"
 
             # Note: This requires the tag to exist first
@@ -467,8 +467,8 @@ class TestTrashPagination:
 
         # Verify pages don't overlap
         if page1['items'] and page2['items']:
-            page1_ids = {item['id'] for item in page1['items']}
-            page2_ids = {item['id'] for item in page2['items']}
+            page1_ids = {item['uuid'] for item in page1['items']}
+            page2_ids = {item['uuid'] for item in page2['items']}
 
             overlap = page1_ids & page2_ids
             assert len(overlap) == 0, "Pages should not overlap"

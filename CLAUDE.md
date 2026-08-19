@@ -13,7 +13,7 @@
 - **📊 Context Optimization** - Response modes provide 5-12x better performance than documented
 
 ### Architecture
-- **Framework**: FastMCP 2.0 (Python 3.8+)
+- **Framework**: FastMCP 3.x (Python 3.8+)
 - **Integration**: AppleScript via subprocess calls
 - **Testing**: pytest with mocked AppleScript operations  
 - **Platform**: macOS 12.0+ with Things 3 installed
@@ -204,6 +204,8 @@ Both bugs were discovered through comprehensive edge case testing:
 
 **Important**: Tags must be created in Things 3 before they can be used via the API. The AI assistant cannot create tags programmatically.
 
+The configured `tag_creation_policy` (allow_all / filter_silent / filter_warn / fail_on_unknown) applies uniformly to todos, projects, and areas - tags are validated and filtered before any write, not just for todos.
+
 ```python
 # Get all available tags
 tags = get_tags()  # Returns count-only by default
@@ -251,6 +253,33 @@ remove_tags(todo_id="abc123", tags="Work")   # Removes "Work"
 remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
 ```
 
+### Tag Usage Report (Cleanup)
+
+`get_tag_usage()` reports open/total/area item counts per tag in a single pass over
+todos, projects, and areas, sorted by usage (highest first) — useful for weekly-review
+tag cleanup:
+
+```python
+# Full usage report, sorted by open_count desc, then total_count desc, then title
+get_tag_usage()
+
+# Only tags with zero items anywhere (open, completed/canceled, or areas) - cleanup candidates
+get_tag_usage(only_unused=True)
+
+# Response modes: 'summary' (counts + top 5), 'minimal' (title+open_count),
+# 'standard'/'detailed' (full rows: title, uuid, open_count, total_count, area_count)
+get_tag_usage(mode="summary")
+```
+
+**Caveats:**
+- **Title collisions**: Usage is keyed by tag *title*, not uuid. If two distinct tags
+  share the exact same title (e.g. a parent tag and a same-named child tag), their
+  counts are merged into a single row and the reported `uuid` is whichever tag was
+  returned last for that title — it cannot be used to disambiguate the merged tags.
+- **Area tags**: Tags applied only to Areas are counted via `area_count` and included
+  in `total_count`, so an area-only tag will not show up as unused. Areas have no
+  open/closed state, so area usage never contributes to `open_count`.
+
 ### Tag Best Practices
 
 1. **Check Available Tags First**:
@@ -280,6 +309,27 @@ remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
    ```
 
 ## 🔧 Tool Usage Best Practices
+
+### Structured Output
+
+All read tools (`get_today`, `get_inbox`, `get_upcoming`, `get_anytime`, `get_someday`, `get_logbook`, `get_trash`, `get_todos`, `get_projects`, `get_areas`, `get_tags`, `get_tagged_items`, `get_recent`, `search_todos`, `search_advanced`, `get_todo_by_id`, `get_due_in_days`, `get_activating_in_days`, `get_tag_usage`) return both human-readable text and machine-readable `structured_content` (via FastMCP 3.x's automatic dict serialization). MCP clients that support structured output can read `structured_content` directly instead of re-parsing the text.
+
+The structured shape is consistent across list-returning tools:
+```json
+{"items": [...], "count": 3, "total": 42, "mode": "standard", "limit": 20, "offset": null}
+```
+- `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
+- `count` - `len(items)`
+- `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`
+
+Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
+
+**The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
+
+### Someday: opt-in project-task inheritance
+
+`get_someday(include_project_tasks?)` defaults to `include_project_tasks=false` and returns only items whose own start state is Someday (`things.someday()`). Things 3 also lets tasks inherit "Someday" from a parent project even when things.py reports their own start state as Anytime/other; on databases with many Someday projects this inherited set can be very large (in practice, many times larger than the native set) and, under response-mode truncation, would crowd out the native items. Pass `include_project_tasks=true` to also include those inherited tasks - each is marked `inheritedSomeday: true` in the response so callers can distinguish them. This only affects `get_someday`; `get_today`, `get_anytime`, and `get_upcoming` always exclude tasks that belong to a Someday project (matching Things UI behavior) regardless of this flag.
 
 ### Response Mode Selection
 
@@ -380,6 +430,17 @@ add_project(
     area_title="Personal",  # Convenient but requires unique names
     deadline="2025-12-31"
 )
+
+# Create a new area
+new_area = add_area(title="Side Projects")
+add_area(title="Side Projects", tags="work,priority")  # tags must already exist in Things 3
+
+# Rename an area and/or update its tags
+update_area(id=new_area["area_id"], title="Side Hustles")
+update_area(id=new_area["area_id"], tags="work,priority")  # replaces existing tags
+
+# Note: there is no delete_area tool - deleting an area also deletes its
+# projects, so area deletion is intentionally not exposed via this API.
 ```
 
 ### Working with Projects
@@ -751,6 +812,13 @@ PyPI project. Fix it under the `mcp-server-things` project's Publishing settings
 (repo `ebowman/mcp-server-things`, workflow `publish.yml`, environment `pypi`)
 and remove any stray publisher on other projects, then re-run the workflow.
 
+### 4. Build and attach the .mcpb bundle
+
+```bash
+scripts/build_mcpb.sh
+gh release upload vX.Y.Z dist/mcp-server-things-X.Y.Z.mcpb
+```
+
 ### Break-glass: manual upload
 
 Only if CI publishing is broken and the release must ship:
@@ -769,6 +837,8 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] Committed, pushed to `main`, tag pushed
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)
+- [ ] Built .mcpb (`scripts/build_mcpb.sh`) and attached `dist/*.mcpb` to the GitHub release
+- [ ] manifest tools list is generated — run `scripts/gen_manifest_tools.py --write` after adding/removing tools
 - [ ] AI reports the correct version when queried (`--version` / `get_server_capabilities`)
 
 ## Code Quality Improvements

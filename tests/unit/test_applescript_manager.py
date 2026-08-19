@@ -228,6 +228,11 @@ class TestURLSchemeExecution:
         """Test URL scheme execution without parameters."""
         action = "show"
 
+        # Make the test hermetic: the manager auto-loads a token from a gitignored
+        # .things-auth / ~/.things-auth if present, which would otherwise leak into
+        # the URL and make this assertion environment-dependent.
+        manager_with_mocks.auth_token = None
+
         with patch('asyncio.create_subprocess_exec') as mock_create:
             mock_process = AsyncMock()
             mock_process.communicate.return_value = (b"", b"")

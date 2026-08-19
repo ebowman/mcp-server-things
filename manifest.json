@@ -1,0 +1,246 @@
+{
+  "manifest_version": "0.3",
+  "name": "mcp-server-things",
+  "display_name": "Things 3 MCP",
+  "version": "0.0.0",
+  "description": "Model Context Protocol server for Things 3 task management integration",
+  "long_description": "This extension provides comprehensive task management capabilities through the Things 3 app via AppleScript. It allows you to view, create, update, and search todos, projects, areas, and tags, including checklist support and bulk operations.",
+  "author": {
+    "name": "Eric Bowman",
+    "email": "ebowman@boboco.ie",
+    "url": "https://github.com/ebowman/mcp-server-things"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "server/stub.py",
+    "mcp_config": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-things"
+      ],
+      "env": {
+        "THINGS_MCP_LOG_LEVEL": "${user_config.log_level}",
+        "THINGS_MCP_AI_CAN_CREATE_TAGS": "${user_config.ai_can_create_tags}",
+        "THINGS_MCP_APPLESCRIPT_TIMEOUT": "${user_config.applescript_timeout}",
+        "THINGS_MCP_TAG_VALIDATION_CASE_SENSITIVE": "${user_config.tag_validation_case_sensitive}",
+        "THINGS_MCP_MAX_TAGS_PER_ITEM": "${user_config.max_tags_per_item}"
+      }
+    }
+  },
+  "user_config": {
+    "log_level": {
+      "type": "string",
+      "title": "Log Level",
+      "description": "Logging verbosity: DEBUG, INFO, WARNING, ERROR, or CRITICAL",
+      "default": "INFO",
+      "required": false
+    },
+    "ai_can_create_tags": {
+      "type": "boolean",
+      "title": "Allow AI to Create Tags",
+      "description": "When enabled, the AI assistant may create new Things 3 tags as needed. When disabled, only existing tags can be used.",
+      "default": false,
+      "required": false
+    },
+    "applescript_timeout": {
+      "type": "number",
+      "title": "AppleScript Timeout (seconds)",
+      "description": "Timeout in seconds for AppleScript operations against Things 3 (1-300)",
+      "default": 30,
+      "required": false
+    },
+    "tag_validation_case_sensitive": {
+      "type": "boolean",
+      "title": "Case-Sensitive Tag Validation",
+      "description": "When enabled, tag names like \"Work\" and \"work\" are treated as different tags",
+      "default": false,
+      "required": false
+    },
+    "max_tags_per_item": {
+      "type": "number",
+      "title": "Max Tags Per Item",
+      "description": "Maximum number of tags allowed on a single todo or project (1-50)",
+      "default": 20,
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "add_area",
+      "description": "Create a new area."
+    },
+    {
+      "name": "add_checklist_items",
+      "description": "Add checklist items to an existing todo."
+    },
+    {
+      "name": "add_project",
+      "description": "Create a new project."
+    },
+    {
+      "name": "add_tags",
+      "description": "Add tags to a todo."
+    },
+    {
+      "name": "add_todo",
+      "description": "Create a new todo."
+    },
+    {
+      "name": "bulk_move_records",
+      "description": "Move multiple todos to the same destination efficiently."
+    },
+    {
+      "name": "bulk_update_todos",
+      "description": "Update multiple todos with the same changes in a single operation."
+    },
+    {
+      "name": "context_stats",
+      "description": "Get context usage statistics and optimization insights."
+    },
+    {
+      "name": "create_tag",
+      "description": "Create a new tag."
+    },
+    {
+      "name": "delete_todo",
+      "description": "Delete a todo by ID."
+    },
+    {
+      "name": "get_activating_in_days",
+      "description": "Get todos activating within specified days (1-365)."
+    },
+    {
+      "name": "get_anytime",
+      "description": "Get todos from Anytime list."
+    },
+    {
+      "name": "get_areas",
+      "description": "Get all areas with optional project/task inclusion."
+    },
+    {
+      "name": "get_due_in_days",
+      "description": "Get todos due within specified days (1-365)."
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get todos from Inbox."
+    },
+    {
+      "name": "get_logbook",
+      "description": "Get completed todos from Logbook."
+    },
+    {
+      "name": "get_projects",
+      "description": "Get all projects with optional task inclusion."
+    },
+    {
+      "name": "get_recent",
+      "description": "Get recently created items within a time period (e.g., '3d', '1w')."
+    },
+    {
+      "name": "get_server_capabilities",
+      "description": "Get server capabilities, features, API coverage, and optimization settings."
+    },
+    {
+      "name": "get_someday",
+      "description": "Get todos from Someday list."
+    },
+    {
+      "name": "get_tag_usage",
+      "description": "Report how many items (todos, projects, and areas; open and total) use each tag, sorted by usage (highest first)."
+    },
+    {
+      "name": "get_tagged_items",
+      "description": "Get todos with a specific tag."
+    },
+    {
+      "name": "get_tags",
+      "description": "Get all tags with item counts or full items."
+    },
+    {
+      "name": "get_today",
+      "description": "Get todos due today."
+    },
+    {
+      "name": "get_todo_by_id",
+      "description": "Get a specific todo by its ID."
+    },
+    {
+      "name": "get_todos",
+      "description": "Get todos with context-aware response optimization."
+    },
+    {
+      "name": "get_trash",
+      "description": "Get trashed todos with pagination support."
+    },
+    {
+      "name": "get_upcoming",
+      "description": "Get upcoming todos."
+    },
+    {
+      "name": "get_usage_recommendations",
+      "description": "Get usage recommendations for efficient MCP operations."
+    },
+    {
+      "name": "health_check",
+      "description": "Check server health and Things 3 connectivity."
+    },
+    {
+      "name": "move_record",
+      "description": "Move a todo to a different list, project, or area."
+    },
+    {
+      "name": "prepend_checklist_items",
+      "description": "Prepend checklist items to an existing todo."
+    },
+    {
+      "name": "queue_status",
+      "description": "Get operation queue status and statistics."
+    },
+    {
+      "name": "remove_tags",
+      "description": "Remove tags from a todo."
+    },
+    {
+      "name": "replace_checklist_items",
+      "description": "Replace all checklist items in a todo."
+    },
+    {
+      "name": "search_advanced",
+      "description": "Advanced search with multiple filters: status, type, tag, area, start_date, deadline."
+    },
+    {
+      "name": "search_todos",
+      "description": "Search todos by query term."
+    },
+    {
+      "name": "update_area",
+      "description": "Update an existing area's title and/or tags."
+    },
+    {
+      "name": "update_project",
+      "description": "Update an existing project."
+    },
+    {
+      "name": "update_todo",
+      "description": "Update an existing todo."
+    }
+  ],
+  "keywords": [
+    "things",
+    "things3",
+    "todo",
+    "task",
+    "project",
+    "productivity",
+    "macos",
+    "applescript"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin"
+    ]
+  }
+}

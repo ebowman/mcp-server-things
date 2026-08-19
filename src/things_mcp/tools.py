@@ -92,6 +92,10 @@ class ThingsTools:
         """Get all tags with counts or items - super fast with things.py."""
         return await self.read_ops.get_tags(include_items=include_items)
 
+    async def get_tag_usage(self, only_unused: bool = False, mode: str = 'standard') -> Dict[str, Any]:
+        """Get per-tag usage counts (open/total), sorted by usage, for tag cleanup."""
+        return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
+
     async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
         """Search todos directly in database with optional limit."""
         return await self.read_ops.search_todos(query=query, limit=limit)
@@ -117,9 +121,10 @@ class ThingsTools:
         """Get anytime items directly from database."""
         return await self.read_ops.get_anytime(limit=limit)
 
-    async def get_someday(self, limit: Optional[int] = None) -> List[Dict]:
+    async def get_someday(self, limit: Optional[int] = None,
+                           include_project_tasks: bool = False) -> List[Dict]:
         """Get someday items directly from database."""
-        return await self.read_ops.get_someday(limit=limit)
+        return await self.read_ops.get_someday(limit=limit, include_project_tasks=include_project_tasks)
 
     async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
         """Get completed items directly from database."""
@@ -186,6 +191,14 @@ class ThingsTools:
     async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
         """Update a project using AppleScript (write operation)."""
         return await self.write_ops.update_project(project_id=project_id, **kwargs)
+
+    async def add_area(self, title: str, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Add a new area using AppleScript (write operation)."""
+        return await self.write_ops.add_area(title=title, tags=tags)
+
+    async def update_area(self, area_id: str, **kwargs) -> Dict[str, Any]:
+        """Update an area using AppleScript (write operation)."""
+        return await self.write_ops.update_area(area_id=area_id, **kwargs)
 
     async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
         """Move a todo using AppleScript (write operation)."""

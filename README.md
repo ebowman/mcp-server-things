@@ -8,7 +8,44 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 ## Installation
 
-### Option 1: From PyPI (Recommended)
+> **Automation permission note:** Unlike servers that rely solely on the Things
+> URL scheme, this server drives Things 3 via AppleScript for most write
+> operations. The first time it does so, macOS will prompt you to grant your
+> MCP client (e.g. Claude Desktop) **Automation** access to Things 3 (System
+> Settings → Privacy & Security → Automation). This is a one-time prompt but
+> is required regardless of which installation option below you choose.
+
+### Option 0: One-click .mcpb (Claude Desktop)
+
+1. Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases)
+2. Double-click the `.mcpb` file to install it into Claude Desktop
+3. Approve the Automation permission prompt for Things 3 the first time the server writes a todo
+4. Done — no virtual environment or `PYTHONPATH` configuration required
+
+The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`). Note: the .mcpb/uvx path works from the next PyPI release onward — the currently published wheel predates the console-script fix that makes `uvx mcp-server-things` resolve correctly.
+
+### Option 1: uvx (Any MCP Client)
+
+With [uv](https://docs.astral.sh/uv/) installed (`brew install uv`), the package can be run directly without a manual virtual environment:
+
+```bash
+uvx mcp-server-things
+```
+
+Configure your MCP client to use `uvx` with `mcp-server-things` as the argument, e.g. for Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "things": {
+      "command": "uvx",
+      "args": ["mcp-server-things"]
+    }
+  }
+}
+```
+
+### Option 2: From PyPI
 
 1. Create and activate a virtual environment:
 ```bash
@@ -21,7 +58,7 @@ source venv/bin/activate  # On macOS/Linux
 pip install mcp-server-things
 ```
 
-### Option 2: From Source (Development)
+### Option 3: From Source (Development)
 
 1. Clone the repository:
 ```bash
@@ -114,6 +151,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - Get all projects and areas with optional task inclusion
 - Create new projects with initial todos
 - Update project metadata and status
+- Create and rename areas, including tags (`add_area`, `update_area`)
 - Organize todos within project hierarchies
 
 ### Built-in List Access
@@ -126,7 +164,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Trash**: Deleted items
 
 ### Advanced Features
-- **Tag Management**: Full tag support with AI creation control
+- **Tag Management**: Full tag support with AI creation control, plus usage reporting (`get_tag_usage`) for weekly-review cleanup
 - **Date-Range Queries**: Get todos due/activating within specific timeframes
 - **URL Schemes**: Native Things 3 URL scheme integration
 - **Health Monitoring**: System health checks and queue status monitoring
@@ -134,6 +172,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **Logging**: Structured logging with configurable levels
 - **Concurrency Support**: Multi-client safe operation with operation queuing
 - **Input Validation**: Configurable limits for titles, notes, and tags
+- **Structured Output**: Every read tool returns both human-readable text and machine-readable `structured_content` (via FastMCP 3.x) with a consistent `{items, count, total, mode, limit, offset}` shape (`{item: {...}}` for single-item lookups like `get_todo_by_id`), so clients can consume results programmatically without re-parsing text
 
 ## Requirements
 
@@ -256,13 +295,15 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ### Area Management
 - `get_areas(include_items?)` - List areas
+- `add_area(title, tags?)` - Create new area
+- `update_area(id, title?, tags?)` - Update existing area
 
 ### List Access
 - `get_inbox()` - Get Inbox todos
 - `get_today()` - Get Today's todos
 - `get_upcoming(days?)` - Get upcoming todos (with optional days filter)
 - `get_anytime()` - Get Anytime todos
-- `get_someday()` - Get Someday todos
+- `get_someday(include_project_tasks?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?)` - Get completed todos
 - `get_trash()` - Get trashed todos
 
@@ -274,6 +315,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `search_todos(query)` - Basic search
 - `search_advanced(...)` - Advanced search with filters
 - `get_tags(include_items?)` - List tags
+- `get_tag_usage(only_unused?, mode?)` - Per-tag open/total/area usage counts, sorted by usage, for cleanup. Caveats: tags sharing an identical title are merged into one row (uuid picks the last match), and area-only tags are counted via `area_count`/`total_count` but never affect `open_count`.
 - `create_tag(name)` - Create a new tag
 - `get_tagged_items(tag)` - Get items with specific tag
 - `add_tags(todo_id, tags)` - Add tags to a todo
