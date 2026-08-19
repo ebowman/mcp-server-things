@@ -70,6 +70,8 @@ Then ask your client "What's in my Things inbox?".
 <details>
 <summary>Advanced: pip, virtualenv, from source, existing installs</summary>
 
+Upgrading from an existing install? See [docs/UPGRADING.md](docs/UPGRADING.md).
+
 ### Option 1: From PyPI
 
 1. Create and activate a virtual environment:

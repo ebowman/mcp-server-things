@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -16,6 +17,51 @@ from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
 logger = logging.getLogger(__name__)
+
+
+def _legacy_launch_notice() -> Optional[str]:
+    """Return a one-line INFO tip when launched via a legacy install path.
+
+    Detects two legacy launch shapes that predate the 1.6.0 uvx-first install
+    story:
+
+    1. The legacy ``things-mcp`` console-script alias (``sys.argv[0]``'s
+       basename is ``"things-mcp"``).
+    2. A ``src/`` checkout run via ``PYTHONPATH`` (the imported
+       ``things_mcp`` package's ``__file__`` path contains a ``src`` path
+       segment), which is how the README's "Option 2: From Source" /
+       "For Source Installation" configs run the server.
+
+    This is advisory only - it never raises, regardless of how odd
+    ``sys.argv`` or the package's ``__file__`` look, since it must not be
+    able to affect server startup.
+
+    Returns:
+        A one-line message pointing at docs/UPGRADING.md if a legacy launch
+        path is detected, else None.
+    """
+    try:
+        argv0 = sys.argv[0] if sys.argv else ""
+        is_legacy_alias = os.path.basename(argv0) == "things-mcp"
+
+        is_src_checkout = False
+        try:
+            from . import __file__ as _pkg_file
+            if _pkg_file:
+                parts = Path(_pkg_file).resolve().parts
+                is_src_checkout = "src" in parts
+        except Exception:
+            is_src_checkout = False
+
+        if is_legacy_alias or is_src_checkout:
+            return (
+                "Tip: new install options (uvx, one-click .mcpb) and an "
+                "upgrade guide are available - see docs/UPGRADING.md"
+            )
+    except Exception:
+        return None
+
+    return None
 
 
 class ServerManager:
