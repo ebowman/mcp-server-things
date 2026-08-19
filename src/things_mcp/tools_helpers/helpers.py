@@ -90,35 +90,6 @@ class ToolsHelpers:
             raise ValueError(f"Invalid ISO date format '{iso_date}': {e}")
 
     @staticmethod
-    def convert_applescript_todo(todo: Dict) -> Dict:
-        """Convert AppleScript todo format to MCP API format.
-
-        Args:
-            todo: Todo dict from AppleScript
-
-        Returns:
-            Converted todo dict in MCP format
-        """
-        # Map AppleScript 'open' status to 'incomplete'
-        status = todo.get('status', 'open').lower()
-        if status == 'open':
-            status = 'incomplete'
-
-        return {
-            'uuid': todo.get('id'),
-            'title': todo.get('name'),
-            'notes': todo.get('notes'),
-            'status': status,
-            'tags': todo.get('tags', []),
-            'creationDate': todo.get('creation_date'),
-            'modificationDate': todo.get('modification_date'),
-            'activationDate': todo.get('activation_date'),
-            'dueDate': todo.get('due_date'),
-            'hasReminder': todo.get('has_reminder', False),
-            'reminderTime': todo.get('reminder_time')
-        }
-
-    @staticmethod
     def convert_todo(todo: Dict) -> Dict:
         """Convert things.py todo format to MCP API format.
 

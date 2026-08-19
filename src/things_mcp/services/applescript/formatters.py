@@ -373,24 +373,6 @@ class AppleScriptFormatters:
             logger.debug(f"Error extracting reminder time from '{activation_date_str}': {e}")
             return None
 
-    def enhance_record_with_reminder_info(self, record: Dict[str, Any]) -> None:
-        """Enhance a record with reminder detection fields.
-
-        Args:
-            record: The record dictionary to enhance with reminder information
-        """
-        if not isinstance(record, dict):
-            return
-
-        activation_date_str = record.get('activation_date')
-
-        # Add reminder detection fields
-        record['has_reminder'] = self.has_reminder_time(activation_date_str)
-        record['reminder_time'] = self.extract_reminder_time(activation_date_str)
-
-        logger.debug(f"Enhanced record {record.get('id', 'unknown')} with reminder info: "
-                    f"has_reminder={record['has_reminder']}, reminder_time={record['reminder_time']}")
-
     def get_applescript_date_formatter(self, date_property: str, fallback_value: str = "missing value") -> str:
         """Generate AppleScript code to format a date property as YYYY-MM-DD HH:MM:SS.
 

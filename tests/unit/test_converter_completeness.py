@@ -15,8 +15,10 @@ Ambiguity flagged (not resolved here): the bead brief for hq-f0w.10 asks for
 "convert_tag" coverage alongside convert_todo/convert_project/convert_area,
 but no such function exists on ToolsHelpers (or anywhere in
 tools_helpers/helpers.py) - grep confirms only convert_to_boolean,
-convert_iso_to_applescript_date, convert_applescript_todo, convert_todo,
-convert_project, and convert_area are defined. Tag conversion is inlined
+convert_iso_to_applescript_date, convert_todo, convert_project, and
+convert_area are defined (convert_applescript_todo was removed in
+hq-f0w.33 - the AppleScript read path it served was already dead).
+Tag conversion is inlined
 directly in read_operations.py's _get_tags_sync (title/shortcut/count/
 todos), not routed through a ToolsHelpers.convert_tag. This test file
 therefore covers convert_todo/convert_project/convert_area only; tag-field
