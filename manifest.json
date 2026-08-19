@@ -167,7 +167,7 @@
     },
     {
       "name": "get_todo_by_id",
-      "description": "Get a specific todo by its ID."
+      "description": "Get a specific Things item by its ID."
     },
     {
       "name": "get_todos",

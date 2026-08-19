@@ -685,7 +685,14 @@ class ThingsMCPServer:
         async def get_todo_by_id(
             todo_id: str = Field(..., description="ID of the todo to retrieve")
         ) -> Dict[str, Any]:
-            """Get a specific todo by its ID."""
+            """Get a specific Things item by its ID.
+
+            Resolves any Things item id, not just to-dos - projects and
+            headings resolve too. The returned item's `type` field
+            ('to-do', 'heading', or 'project') tells you which kind it is.
+            Trashed items also resolve, with `trashed: true` included in
+            the result.
+            """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)
                 return {"item": todo}

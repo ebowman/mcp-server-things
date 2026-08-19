@@ -265,10 +265,10 @@ class TestInvalidInputs:
     @pytest.mark.asyncio
     async def test_invalid_todo_id(self, tools_with_mock):
         """Test getting todo with non-existent ID."""
-        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
-            mock_todos.return_value = []  # No todos
+        with patch('things_mcp.tools_helpers.read_operations.things.get') as mock_get:
+            mock_get.return_value = None  # No item with this id
 
-            # Implementation raises ValueError for not found todos
+            # Implementation raises ValueError for not found ids
             with pytest.raises(ValueError, match="Todo not found"):
                 await tools_with_mock.get_todo_by_id("nonexistent-id")
 

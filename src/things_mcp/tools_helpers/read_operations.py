@@ -907,32 +907,52 @@ class ReadOperations:
             return []
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
-        """Get a specific todo by ID."""
+        """Get a specific Things item by ID.
+
+        Resolves any Things item id, not just to-dos - the returned item's
+        `type` field ('to-do', 'heading', or 'project') tells you which kind
+        it is. Trashed items also resolve; when trashed, the result includes
+        `trashed: True`. Raises ValueError if the id does not exist.
+        """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
 
     def _get_todo_by_id_sync(self, todo_id: str) -> Dict[str, Any]:
-        """Synchronous implementation."""
+        """Synchronous implementation.
+
+        Uses things.get(uuid), which does a direct-by-id lookup against the
+        whole database (any type, including trashed items) instead of a
+        linear scan over things.todos() (to-do only, excludes trashed). This
+        means projects, headings, and trashed items now resolve instead of
+        raising 'Todo not found'.
+        """
         try:
-            # Search all todos regardless of status (incomplete, completed, canceled)
-            all_todos = []
-            all_todos.extend(things.todos(status='incomplete'))
-            all_todos.extend(things.todos(status='completed'))
-            all_todos.extend(things.todos(status='canceled'))
+            item = things.get(todo_id)
 
-            for todo in all_todos:
-                if todo.get('uuid') == todo_id:
-                    converted = ToolsHelpers.convert_todo(todo)
+            if item is None:
+                raise ValueError(f"Todo not found: {todo_id}")
 
+            item_type = item.get('type', 'to-do')
+
+            if item_type == 'project':
+                converted = ToolsHelpers.convert_project(item)
+            else:
+                # 'to-do' and 'heading' both use convert_todo; convert_todo
+                # emits item.get('type', 'to-do') as-is, so a heading row
+                # (type == 'heading') is preserved correctly.
+                converted = ToolsHelpers.convert_todo(item)
+
+                if item_type == 'to-do':
                     try:
                         items = things.checklist_items(todo_id)
                         converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
                     except (KeyError, TypeError) as e:
                         logger.warning(f"Could not fetch checklist items for todo {todo_id}: {e}")
 
-                    return converted
+            if item.get('trashed'):
+                converted['trashed'] = True
 
-            raise ValueError(f"Todo not found: {todo_id}")
+            return converted
 
         except Exception as e:
             logger.error(f"Error in _get_todo_by_id_sync: {e}")
