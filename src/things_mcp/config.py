@@ -254,12 +254,43 @@ class ThingsMCPConfig(BaseSettings):
         default=False,
         description="Enable mock mode for testing without Things 3"
     )
-    
+
     mock_data_path: Optional[Path] = Field(
         default=None,
         description="Path to mock data file for testing"
     )
-    
+
+    # Transport configuration
+    transport: str = Field(
+        default="stdio",
+        description="MCP transport to use: 'stdio' (default) or 'http'"
+    )
+
+    host: str = Field(
+        default="127.0.0.1",
+        description="Host to bind to when transport='http'"
+    )
+
+    port: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+        description="Port to bind to when transport='http'"
+    )
+
+    @field_validator('transport', mode='before')
+    @classmethod
+    def validate_transport(cls, v):
+        """Validate the transport value is one of the supported options."""
+        if v is None:
+            return "stdio"
+        v_str = str(v).strip().lower()
+        if v_str not in ("stdio", "http"):
+            raise ValueError(
+                f"Invalid transport: {v!r}. Must be 'stdio' or 'http'."
+            )
+        return v_str
+
     @field_validator('log_file_path', mode='before')
     @classmethod
     def validate_log_file_path(cls, v):
