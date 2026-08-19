@@ -1333,15 +1333,13 @@ class ThingsMCPServer:
                 pre_limit_total = len(full_data)
                 raw_data = full_data[:limit] if limit else full_data
 
-                # Apply context-aware optimization if mode is specified
-                if mode:
-                    request_params = {'mode': mode, 'limit': limit}
-                    optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-
-                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
+                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
@@ -1361,15 +1359,13 @@ class ThingsMCPServer:
                 pre_limit_total = len(full_data)
                 raw_data = full_data[:limit] if limit else full_data
 
-                # Apply context-aware optimization if mode is specified
-                if mode:
-                    request_params = {'mode': mode, 'limit': limit}
-                    optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
-                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-
-                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
+                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
@@ -1397,18 +1393,16 @@ class ThingsMCPServer:
                     if limit and len(todos) > limit:
                         todos = todos[:limit]
 
-                    if mode:
-                        request_params = {'mode': mode, 'days': days}
-                        optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
-                        response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                        optimized_response = self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
-                        result = self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-                        result['days'] = days
-                        return result
-                    else:
-                        result = self._read_result(todos, limit=limit, total=pre_limit_total)
-                        result['days'] = days
-                        return result
+                    # Apply context-aware optimization, treating an omitted mode as
+                    # 'auto' so structured_content.mode always reports the concrete
+                    # resolved mode.
+                    request_params = {'mode': mode or 'auto', 'days': days}
+                    optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
+                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                    optimized_response = self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
+                    result = self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                    result['days'] = days
+                    return result
 
                 # Original behavior: get items from Things 3's Upcoming list.
                 # Fetch the full unbounded set first so `total` reflects the
@@ -1417,15 +1411,13 @@ class ThingsMCPServer:
                 pre_limit_total = len(full_data)
                 raw_data = full_data[:limit] if limit else full_data
 
-                # Apply context-aware optimization if mode is specified
-                if mode:
-                    request_params = {'mode': mode, 'limit': limit}
-                    optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-
-                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
+                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
@@ -1445,15 +1437,13 @@ class ThingsMCPServer:
                 pre_limit_total = len(full_data)
                 raw_data = full_data[:limit] if limit else full_data
 
-                # Apply context-aware optimization if mode is specified
-                if mode:
-                    request_params = {'mode': mode, 'limit': limit}
-                    optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-
-                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
+                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
@@ -1476,15 +1466,13 @@ class ThingsMCPServer:
                 pre_limit_total = len(full_data)
                 raw_data = full_data[:limit] if limit else full_data
 
-                # Apply context-aware optimization if mode is specified
-                if mode:
-                    request_params = {'mode': mode, 'limit': limit}
-                    optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
-                    response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                    optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
-
-                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
+                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
