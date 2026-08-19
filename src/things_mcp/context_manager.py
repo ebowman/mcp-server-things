@@ -786,6 +786,12 @@ class ContextAwareResponseManager:
                         "minimal": sorted(self.PROJECT_FIELD_SETS[ResponseMode.MINIMAL]),
                         "standard": sorted(self.PROJECT_FIELD_SETS[ResponseMode.STANDARD]),
                         "detailed": "All available fields"
+                    },
+                    "area_field_sets": {
+                        "summary": sorted(self.AREA_FIELD_SETS[ResponseMode.SUMMARY]),
+                        "minimal": sorted(self.AREA_FIELD_SETS[ResponseMode.MINIMAL]),
+                        "standard": sorted(self.AREA_FIELD_SETS[ResponseMode.STANDARD]),
+                        "detailed": "All available fields"
                     }
                 },
                 "smart_pagination": {

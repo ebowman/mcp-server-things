@@ -1075,7 +1075,7 @@ class ReadOperations:
             # Apply pagination
             paginated = trash_data[offset:offset + limit]
 
-            items = [ToolsHelpers.convert_todo(t) for t in paginated]
+            items = [convert_item(t) for t in paginated]
             items = _fill_project_from_heading(items)
 
             return {

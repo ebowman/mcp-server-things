@@ -110,6 +110,23 @@ class TestGetSomedayProjectRowsCarryArea:
         assert project_row.get('areaTitle') == 'Home'
 
 
+class TestGetTrashProjectRowsCarryArea:
+    @pytest.mark.asyncio
+    async def test_project_row_has_area_and_areaTitle(self, tools):
+        with patch('things_mcp.tools_helpers.read_operations.things.trash', return_value=MIXED):
+            result = await tools.get_trash(include_projects=True)
+        project_row = _by_uuid(result['items'], 'proj-1')
+        assert project_row.get('area') == 'area-1'
+        assert project_row.get('areaTitle') == 'Home'
+
+    @pytest.mark.asyncio
+    async def test_todo_row_unaffected(self, tools):
+        with patch('things_mcp.tools_helpers.read_operations.things.trash', return_value=MIXED):
+            result = await tools.get_trash(include_projects=True)
+        todo_row = _by_uuid(result['items'], 'todo-1')
+        assert todo_row == ToolsHelpers.convert_todo(TODO_ROW)
+
+
 class TestSearchAdvancedProjectRowsCarryArea:
     @pytest.mark.asyncio
     async def test_project_type_filter_returns_area(self, tools):

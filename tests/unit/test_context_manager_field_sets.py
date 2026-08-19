@@ -308,6 +308,18 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
         assert advertised["minimal"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.MINIMAL])
         assert advertised["standard"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.STANDARD])
 
+    def test_get_optimization_capabilities_area_field_sets_match_AREA_FIELD_SETS(self):
+        """get_optimization_capabilities() must also advertise the area
+        field sets (hq-f0w.45), derived from AREA_FIELD_SETS - previously
+        missing from the advertised capabilities (hq-f0w.37 review note)."""
+        engine = _engine()
+        capabilities = engine.get_optimization_capabilities()
+        advertised = capabilities["features"]["dynamic_field_filtering"]["area_field_sets"]
+
+        assert advertised["summary"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.SUMMARY])
+        assert advertised["minimal"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.MINIMAL])
+        assert advertised["standard"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.STANDARD])
+
 
 # A converted area row (ToolsHelpers.convert_area's fixed 4-key output).
 SAMPLE_AREA_ITEM = {
