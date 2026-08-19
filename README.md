@@ -6,33 +6,32 @@
 
 A Model Context Protocol (MCP) server that connects Claude and other AI assistants to Things 3 for natural language task management.
 
-## Installation
+## Prerequisites
 
-> **Automation permission note:** Unlike servers that rely solely on the Things
-> URL scheme, this server drives Things 3 via AppleScript for most write
-> operations. The first time it does so, macOS will prompt you to grant your
-> MCP client (e.g. Claude Desktop) **Automation** access to Things 3 (System
-> Settings → Privacy & Security → Automation). This is a one-time prompt but
-> is required regardless of which installation option below you choose.
+- macOS 12+
+- Things 3 installed and opened at least once
+- [uv](https://docs.astral.sh/uv/) (`brew install uv`)
+- macOS will ask for Automation permission for Things 3 on the first write — that's expected (AppleScript is what enables delete/move operations other servers lack).
 
-### Option 0: One-click .mcpb (Claude Desktop)
+## Install
 
-1. Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases)
-2. Double-click the `.mcpb` file to install it into Claude Desktop
-3. Approve the Automation permission prompt for Things 3 the first time the server writes a todo
-4. Done — no virtual environment or `PYTHONPATH` configuration required
+### Claude Desktop
+
+**Option A: One-click `.mcpb`**
+
+Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases) and double-click it to install into Claude Desktop.
 
 The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`). Note: the .mcpb/uvx path works from the next PyPI release onward — the currently published wheel predates the console-script fix that makes `uvx mcp-server-things` resolve correctly.
 
-### Option 1: uvx (Any MCP Client)
-
-With [uv](https://docs.astral.sh/uv/) installed (`brew install uv`), the package can be run directly without a manual virtual environment:
+**Option B: `config` CLI**
 
 ```bash
-uvx mcp-server-things
+mcp-server-things config --client claude-desktop --write
 ```
 
-Configure your MCP client to use `uvx` with `mcp-server-things` as the argument, e.g. for Claude Desktop:
+Safely adds/updates the `things` entry in your Claude Desktop config (`--force` overwrites an existing, different entry instead of refusing).
+
+**Option C: Manual JSON**
 
 ```json
 {
@@ -45,11 +44,33 @@ Configure your MCP client to use `uvx` with `mcp-server-things` as the argument,
 }
 ```
 
-**Shortcut:** instead of hand-editing JSON, run `mcp-server-things config --client claude-desktop --write` to safely add/update this entry in your Claude Desktop config (see [`config` CLI](#config-cli) below).
+### Claude Code
 
-For Claude Code, run `mcp-server-things config --client claude-code` to print the exact `claude mcp add-json` command(s) to register the server.
+```bash
+claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}'
+claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}' -s user
+```
 
-### Option 2: From PyPI
+`mcp-server-things config --client claude-code` prints these exact commands.
+
+### Any MCP client
+
+```json
+{
+  "command": "uvx",
+  "args": ["mcp-server-things"]
+}
+```
+
+## Verify
+
+Run `mcp-server-things doctor` (or `uvx mcp-server-things doctor`) to confirm Things 3, permissions, and the database are all reachable.
+Then ask your client "What's in my Things inbox?".
+
+<details>
+<summary>Advanced: pip, virtualenv, from source, existing installs</summary>
+
+### Option 1: From PyPI
 
 1. Create and activate a virtual environment:
 ```bash
@@ -62,7 +83,7 @@ source venv/bin/activate  # On macOS/Linux
 pip install mcp-server-things
 ```
 
-### Option 3: From Source (Development)
+### Option 2: From Source (Development)
 
 1. Clone the repository:
 ```bash
@@ -86,9 +107,9 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-## Claude Desktop Configuration
+### Claude Desktop Configuration
 
-### `config` CLI
+#### `config` CLI
 
 `mcp-server-things config --client <claude-desktop|claude-code|generic> [--via uvx|current-python] [--write] [--force]`
 prints the MCP client configuration for the requested client (or, for
@@ -100,7 +121,9 @@ the previous file first and refusing to clobber an existing, different
 `mcp-server-things config --client claude-code` instead of hand-editing JSON
 or memorizing the `claude mcp add-json` syntax.
 
-### For PyPI Installation
+**Shortcut for venv/pip installs:** `mcp-server-things config --client claude-desktop --via current-python` targets the currently-running interpreter (`sys.executable -m things_mcp`) instead of the default `uvx mcp-server-things`.
+
+#### For PyPI Installation
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -119,7 +142,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-### For Source Installation
+#### For Source Installation
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -139,11 +162,13 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 }
 ```
 
-**Notes:** 
+**Notes:**
 - **PyPI**: Replace `/path/to/your/venv/bin/python` with your virtual environment's Python path
 - **Source**: Replace `/path/to/mcp-server-things` with your actual installation path and include the `PYTHONPATH`
 - Use the full path to the Python executable in your virtual environment
 - See Configuration section below for environment variable options
+
+</details>
 
 ![Demo showing Claude creating tasks in Things 3](demo.gif)
 *Creating tasks with natural language through Claude*
@@ -203,54 +228,17 @@ Once installed, Claude (or other MCP clients) can automatically discover and use
 
 ## Configuration
 
-The server uses environment variables for configuration. You can set these variables in three ways:
-1. System environment variables
-2. A `.env` file (automatically loaded from the current directory)
-3. A custom `.env` file specified with `--env-file`
+The server uses environment variables for configuration, settable via system environment variables or a `.env` file (auto-loaded from the current directory, or pointed to with `--env-file`). The env vars that matter most:
 
-### Using the .env File
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THINGS_MCP_LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `THINGS_MCP_AI_CAN_CREATE_TAGS` | `false` | Whether the AI can create new tags (`false` = existing tags only) |
+| `THINGS_MCP_APPLESCRIPT_TIMEOUT` | `30.0` | AppleScript execution timeout in seconds (1-300) |
+| `THINGS_MCP_TRANSPORT` | `stdio` | Transport to use: `stdio` or `http` |
+| `THINGS_MCP_PORT` | `8000` | Port to bind to when `THINGS_MCP_TRANSPORT=http` |
 
-1. **Review the example configuration:**
-   ```bash
-   cat .env.example
-   ```
-
-2. **Create your own .env file:**
-   ```bash
-   cp .env.example .env
-   # Edit .env to customize settings
-   ```
-
-3. **Or use a custom location:**
-   ```bash
-   cp .env.example ~/my-things-config.env
-   python -m things_mcp --env-file ~/my-things-config.env
-   ```
-
-### Key Configuration Options
-
-```bash
-# Server identification
-THINGS_MCP_SERVER_NAME=things3-mcp-server
-
-# AppleScript execution
-THINGS_MCP_APPLESCRIPT_TIMEOUT=30.0       # Timeout in seconds (1-300)
-THINGS_MCP_APPLESCRIPT_RETRY_COUNT=3      # Retry attempts (0-10)
-
-# Tag management - Control AI tag creation
-THINGS_MCP_AI_CAN_CREATE_TAGS=false       # false = AI can only use existing tags
-THINGS_MCP_TAG_VALIDATION_CASE_SENSITIVE=false
-
-# Logging
-THINGS_MCP_LOG_LEVEL=INFO                 # DEBUG, INFO, WARNING, ERROR, CRITICAL
-THINGS_MCP_LOG_FILE_PATH=/path/to/file.log # Optional: log to file instead of console
-
-# Validation limits
-THINGS_MCP_MAX_TITLE_LENGTH=500
-THINGS_MCP_MAX_NOTES_LENGTH=10000
-THINGS_MCP_MAX_TAGS_PER_ITEM=20
-THINGS_MCP_SEARCH_RESULTS_LIMIT=100
-```
+See [`.env.example`](.env.example) for the full list of options, including validation limits, retry counts, the auth-token file, and `THINGS_MCP_HOST`.
 
 ### HTTP Transport
 
@@ -391,7 +379,7 @@ actually needs fixing). Use `mcp-server-things doctor --json` for
 machine-readable output, or `python -m things_mcp doctor` if you're running
 from source.
 
-#### Reads fail but writes work ("unable to open database file")
+### Reads fail but writes work ("unable to open database file")
 
 | Operation | Result |
 |---|---|
