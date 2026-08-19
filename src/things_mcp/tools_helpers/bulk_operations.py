@@ -10,6 +10,7 @@ from ..services.tag_service import TagValidationService
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
 from ..locale_aware_dates import locale_handler
 from .helpers import ToolsHelpers
+from .errors import write_error
 
 logger = logging.getLogger(__name__)
 
@@ -221,13 +222,13 @@ class BulkOperations:
             Formatted result dictionary
         """
         if not result.get('success'):
-            return {
-                "success": False,
-                "error": result.get('error', 'Unknown error'),
-                "updated_count": 0,
-                "failed_count": len(todo_ids),
-                "total_requested": len(todo_ids)
-            }
+            return write_error(
+                "APPLESCRIPT_ERROR", "Failed to perform bulk update",
+                details=result.get('error', 'Unknown error'),
+                updated_count=0,
+                failed_count=len(todo_ids),
+                total_requested=len(todo_ids)
+            )
 
         output = result.get('output', '')
 
@@ -325,11 +326,7 @@ class BulkOperations:
             todo_ids, kwargs, tag_validation, when_value = await self._validate_bulk_params(todo_ids, kwargs)
 
             if not todo_ids:
-                return {
-                    "success": False,
-                    "error": "No todo IDs provided",
-                    "updated_count": 0
-                }
+                return write_error("NO_TODO_IDS", "No todo IDs provided", updated_count=0)
 
             # when='evening' is only honoured via the Things URL scheme's
             # 'update' action (AppleScript's 'schedule' command has no way to
@@ -359,9 +356,7 @@ class BulkOperations:
             return create_validation_error_response(e)
         except Exception as e:
             logger.error(f"Error in bulk update: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to perform bulk update",
-                "updated_count": 0
-            }
+            return write_error(
+                "APPLESCRIPT_ERROR", "Failed to perform bulk update",
+                details=str(e), updated_count=0
+            )

@@ -156,8 +156,9 @@ class TestUpdateArea:
         result = await things_tools.update_area(area_id="BOGUS-ID", title="New Name")
 
         assert result["success"] is False
-        assert "Area not found" in result["error"]
-        assert "BOGUS-ID" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "Area not found" in result["message"]
+        assert "BOGUS-ID" in result["message"]
 
     @pytest.mark.asyncio
     async def test_update_area_nothing_to_update(self, things_tools, mock_applescript_manager):

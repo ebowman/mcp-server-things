@@ -24,6 +24,7 @@ from .boot_trace import boot_marker
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .tools_helpers.read_operations import read_error as _tools_read_error
+from .tools_helpers.errors import write_error as _tools_write_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
@@ -414,14 +415,13 @@ class ThingsMCPServer:
             # Check if AI can create tags based on configuration
             if not self.config.ai_can_create_tags:
                 # Provide informative response for AI guidance
-                return {
-                    "success": False,
-                    "error": "Tag creation is restricted to human users only",
-                    "message": "This system is configured to require manual tag creation by users. This helps maintain a clean and intentional tag structure.",
-                    "user_action": f"Please ask the user if they would like to create the tag '{tag_name}'",
-                    "existing_tags_hint": "You can use get_tags to show the user existing tags they can use instead."
-                }
-            
+                return self._write_error(
+                    "TAG_CREATION_RESTRICTED",
+                    "This system is configured to require manual tag creation by users. This helps maintain a clean and intentional tag structure.",
+                    user_action=f"Please ask the user if they would like to create the tag '{tag_name}'",
+                    existing_tags_hint="You can use get_tags to show the user existing tags they can use instead."
+                )
+
             # If AI can create tags, proceed
             try:
                 if self.tools.tag_validation_service:
@@ -434,26 +434,25 @@ class ThingsMCPServer:
                         }
                     else:
                         errors = result.get('errors', [])
-                        return {
-                            "success": False,
-                            "error": errors[0] if errors else f"Failed to create tag '{tag_name}'",
-                            "message": "Tag creation failed"
-                        }
+                        return self._write_error(
+                            "TAG_CREATION_FAILED",
+                            "Tag creation failed",
+                            details=errors[0] if errors else f"Failed to create tag '{tag_name}'"
+                        )
                 else:
                     # Fallback if no validation service
-                    return {
-                        "success": False,
-                        "error": "Tag validation service not available",
-                        "message": "Cannot create tags without validation service"
-                    }
+                    return self._write_error(
+                        "TAG_VALIDATION_SERVICE_UNAVAILABLE",
+                        "Cannot create tags without validation service"
+                    )
             except Exception as e:
                 logger.error(f"Error creating tag: {e}")
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "message": "An error occurred while creating the tag"
-                }
-        
+                return self._write_error(
+                    "APPLESCRIPT_ERROR",
+                    "An error occurred while creating the tag",
+                    details=str(e)
+                )
+
         @self.mcp.tool()
         async def add_todo(
             title: str = Field(..., min_length=1, description="Title of the todo"),
@@ -487,22 +486,14 @@ class ThingsMCPServer:
                         from things_mcp.parameter_validator import ParameterValidator
                         when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid when date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_WHEN", str(e), field="when")
 
                 if deadline:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
                         ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_DEADLINE", str(e), field="deadline")
 
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags)
@@ -638,22 +629,14 @@ class ThingsMCPServer:
                         from things_mcp.parameter_validator import ParameterValidator
                         when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid when date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_WHEN", str(e), field="when")
 
                 if deadline:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
                         ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_DEADLINE", str(e), field="deadline")
 
                 # Convert comma-separated tags to list. '' clears all tags,
                 # None (tags not provided) leaves tags unchanged.
@@ -773,32 +756,20 @@ class ThingsMCPServer:
                         from things_mcp.parameter_validator import ParameterValidator
                         when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid when date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_WHEN", str(e), field="when")
 
                 if deadline:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
                         ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_DEADLINE", str(e), field="deadline")
 
                 # Parse comma-separated IDs
                 id_list = [id.strip() for id in todo_ids.split(",") if id.strip()]
 
                 if not id_list:
-                    return {
-                        "success": False,
-                        "error": "No valid todo IDs provided",
-                        "updated_count": 0
-                    }
+                    return self._write_error("NO_TODO_IDS", "No valid todo IDs provided", updated_count=0)
 
                 # Convert comma-separated tags to list. '' clears all tags,
                 # None (tags not provided) leaves tags unchanged.
@@ -845,11 +816,10 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error in bulk update: {e}")
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "updated_count": 0
-                }
+                return self._write_error(
+                    "APPLESCRIPT_ERROR", "Failed to perform bulk update",
+                    details=str(e), updated_count=0
+                )
 
         @self.mcp.tool()
         async def add_checklist_items(
@@ -865,11 +835,7 @@ class ThingsMCPServer:
             """
             try:
                 if not items:
-                    return {
-                        "success": False,
-                        "error": "No valid checklist items provided",
-                        "message": "At least one checklist item is required"
-                    }
+                    return self._write_error("NO_CHECKLIST_ITEMS", "At least one checklist item is required")
 
                 result = await self.tools.add_checklist_items(todo_id=todo_id, items=items)
                 return result
@@ -891,11 +857,7 @@ class ThingsMCPServer:
             """
             try:
                 if not items:
-                    return {
-                        "success": False,
-                        "error": "No valid checklist items provided",
-                        "message": "At least one checklist item is required"
-                    }
+                    return self._write_error("NO_CHECKLIST_ITEMS", "At least one checklist item is required")
 
                 result = await self.tools.prepend_checklist_items(todo_id=todo_id, items=items)
                 return result
@@ -1089,22 +1051,14 @@ class ThingsMCPServer:
                         from things_mcp.parameter_validator import ParameterValidator
                         when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid when date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_WHEN", str(e), field="when")
 
                 if deadline:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
                         ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_DEADLINE", str(e), field="deadline")
 
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags)
@@ -1182,22 +1136,14 @@ class ThingsMCPServer:
                         from things_mcp.parameter_validator import ParameterValidator
                         when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid when date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_WHEN", str(e), field="when")
 
                 if deadline:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
                         ParameterValidator.validate_date_format(deadline, 'deadline', allow_relative=False)
                     except Exception as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline date",
-                            "message": str(e)
-                        }
+                        return self._write_error("INVALID_DEADLINE", str(e), field="deadline")
 
                 # Convert comma-separated tags to list. '' clears all tags,
                 # None (tags not provided) leaves tags unchanged.
@@ -2423,6 +2369,35 @@ class ThingsMCPServer:
             A dict with 'success', 'error', 'message', plus any extra fields.
         """
         return _tools_read_error(code, message, **extra)
+
+    @staticmethod
+    def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+        """Build the canonical structured-error shape for a write tool.
+
+        Every write tool's structured (non-raising) error path should return
+        this shape so MCP clients can rely on a single contract:
+        ``{"success": False, "error": "<UPPER_SNAKE_CODE>", "message": "<human text>", ...}``.
+
+        Delegates to ``tools_helpers.errors.write_error`` - the single
+        shared implementation used across this server-tool layer and the
+        tools layer (``WriteOperations``/``BulkOperations``), so they can
+        never diverge. Mirrors ``_read_error`` but uses UPPER_SNAKE_CASE
+        codes (matching the convention already established by
+        ``VALIDATION_ERROR`` / ``TARGET_COMPLETED`` / ``NO_VALID_TAGS``)
+        rather than the read-tool contract's lower_snake_case codes.
+
+        Args:
+            code: Short, stable, machine-readable UPPER_SNAKE_CASE error
+                code (e.g. 'INVALID_WHEN', 'INVALID_DEADLINE'). Stable
+                across releases - clients may switch on this value.
+            message: Human-readable explanation of the error.
+            **extra: Additional fields to merge into the result (e.g.
+                'field', 'invalid_value', 'hint').
+
+        Returns:
+            A dict with 'success', 'error', 'message', plus any extra fields.
+        """
+        return _tools_write_error(code, message, **extra)
 
     def _read_result(
         self,

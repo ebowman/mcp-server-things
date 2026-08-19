@@ -147,6 +147,50 @@ have automation or prompts that depend on exact output shape, check these:
   under `item`) instead of raising when the id resolves to a tag - a tag
   is a label, not a retrievable item; use `get_tags()`/`get_tagged_items()`
   for tags.
+- **Write tools' structured errors now use a single canonical shape too:
+  `{"success": false, "error": "<UPPER_SNAKE_CODE>", "message": "..."}`**
+  (hq-f0w.35, the write-tool counterpart of the read-tool change above).
+  Previously several write tools (`add_todo`/`update_todo`/
+  `bulk_update_todos`/`add_project`/`update_project` on a malformed
+  `when`/`deadline`; `create_tag`; `add_checklist_items`/
+  `prepend_checklist_items` on an empty `items` list; `add_area`/
+  `update_area`/`add_tags`/`remove_tags`/`delete_todo`'s AppleScript-failure
+  paths) put a human-readable sentence or a raw `str(exception)` directly
+  in `error` (e.g. `"Invalid when date"`, `"Tag creation is restricted to
+  human users only"`, `"No valid checklist items provided"`). `add_tags`
+  and `remove_tags` were a step further: their AppleScript-execution-failure
+  path put the raw AppleScript error text in `message` only, with **no**
+  `error` key present at all on failure - callers checking `"error" in
+  result` (rather than `result["success"]`) to detect failure would have
+  missed it entirely. All write tools now put a short, stable,
+  machine-readable UPPER_SNAKE_CASE code in `error` (e.g. `INVALID_WHEN`,
+  `INVALID_DEADLINE`, `NO_CHECKLIST_ITEMS`, `NO_TODO_IDS`,
+  `TAG_CREATION_RESTRICTED`, `TAG_CREATION_FAILED`, `APPLESCRIPT_ERROR`,
+  `NOT_FOUND`, `NO_FIELDS_PROVIDED`) and move the human-readable sentence to
+  `message`; dynamic AppleScript/exception text that used to live in `error`
+  now lives in a `details` field instead where applicable (`NOT_FOUND` is
+  the one exception - `update_area`'s "Area not found: `<id>`" text is
+  constructed/human-readable, not raw AppleScript passthrough, so it stays
+  in `message`). This now covers every AppleScript-execution-failure/
+  exception path in `server.py`, `write_operations.py`, and
+  `bulk_operations.py`, including `delete_todo`'s final "all attempts
+  failed" branch and `bulk_update_todos`'s outer exception handler at both
+  the tools layer and the MCP tool boundary. Codes that were already
+  established before this bead (`VALIDATION_ERROR`, `TARGET_COMPLETED`,
+  `NO_VALID_TAGS`, and `move_record`/`bulk_move_records`' pre-existing
+  UPPER_SNAKE codes) are unchanged. `delete_todo`'s `not_deletable`/
+  `not_found` codes are deliberately left lower_snake_case (they predate
+  this bead, share the `not_found` convention with the read-tool contract,
+  and have extensive existing test coverage); `scheduling/
+  todo_operations.py`'s ~26 remaining human-string/`str(e)`-leak sites are
+  tracked as a follow-up (hq-f0w.46), not migrated here - see CLAUDE.md's
+  "Structured error contract (write tools)" section for the full list of
+  intentional exceptions. What to do: if any caller pattern-matched on the
+  literal text previously in a write tool's `error` field, switch to
+  checking the new UPPER_SNAKE_CASE code and/or `success is False`; if any
+  caller checked `"error" in result` to detect an `add_tags`/`remove_tags`
+  AppleScript failure, note that path always has an `error` key now (it
+  didn't before); reading `message` for display text is unaffected.
 
 ## Recommended: switch to uvx
 

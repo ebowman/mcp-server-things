@@ -153,7 +153,8 @@ class TestBulkUpdateTodos:
             )
 
             assert result["success"] is False
-            assert "Things 3 not running" in result["error"]
+            assert result["error"] == "APPLESCRIPT_ERROR"
+            assert "Things 3 not running" in result["details"]
             assert result["updated_count"] == 0
             assert result["failed_count"] == 2
 
@@ -171,7 +172,8 @@ class TestBulkUpdateTodos:
             )
 
             assert result["success"] is False
-            assert "Unexpected error" in result["error"]
+            assert result["error"] == "APPLESCRIPT_ERROR"
+            assert "Unexpected error" in result["details"]
             assert result["updated_count"] == 0
 
     @pytest.mark.asyncio

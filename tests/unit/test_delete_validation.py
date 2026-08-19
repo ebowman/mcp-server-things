@@ -59,23 +59,26 @@ class TestDeleteValidation:
         result = await tools.delete_todo(None)
 
         assert result['success'] is False
-        assert 'required' in result['error'].lower()
-        assert 'todo_id' in result['error'].lower()
+        assert result['error'] == 'VALIDATION_ERROR'
+        assert 'required' in result['message'].lower()
+        assert result.get('field') == 'todo_id'
 
     async def test_delete_with_empty_string_fails(self, tools):
         """Test that delete_todo rejects empty string as todo_id."""
         result = await tools.delete_todo('')
 
         assert result['success'] is False
-        assert 'empty' in result['error'].lower() or 'required' in result['error'].lower()
-        assert 'todo_id' in result['error'].lower()
+        assert result['error'] == 'VALIDATION_ERROR'
+        assert 'empty' in result['message'].lower() or 'required' in result['message'].lower()
+        assert result.get('field') == 'todo_id'
 
     async def test_delete_with_whitespace_only_fails(self, tools):
         """Test that delete_todo rejects whitespace-only todo_id."""
         result = await tools.delete_todo('   ')
 
         assert result['success'] is False
-        assert 'empty' in result['error'].lower() or 'required' in result['error'].lower()
+        assert result['error'] == 'VALIDATION_ERROR'
+        assert 'empty' in result['message'].lower() or 'required' in result['message'].lower()
 
     async def test_delete_with_valid_id_succeeds(self, tools, mock_applescript):
         """Test that delete_todo works with valid todo_id."""
