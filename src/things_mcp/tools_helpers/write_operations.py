@@ -96,7 +96,9 @@ class WriteOperations:
             }
             return error_response, None, tag_validation
 
-        valid_tags = tag_validation.get('existing', []) + tag_validation.get('created', [])
+        valid_tags = list(dict.fromkeys(
+            tag_validation.get('existing', []) + tag_validation.get('created', [])
+        ))
         return None, valid_tags, tag_validation
 
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
@@ -446,18 +448,22 @@ class WriteOperations:
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(",")] if tags else []
 
-            tag_validation = await self._validate_tags_with_policy(tags)
-            
-            valid_tags = tag_validation['existing'] + tag_validation['created']
-            
+            error_response, valid_tags, tag_info = await self._prepare_tags(tags)
+
+            if error_response:
+                return error_response
+
+            if valid_tags is None:
+                valid_tags = tags
+
             if not valid_tags:
                 return {
                     "success": False,
                     "error": "NO_VALID_TAGS",
                     "message": "No valid tags to add",
-                    "tag_info": tag_validation
+                    "tag_info": tag_info
                 }
-            
+
             get_tags_script = f'''
             tell application "Things3"
                 set targetTodo to to do id "{todo_id}"
@@ -490,7 +496,7 @@ class WriteOperations:
             return {
                 "success": result.get('success', False),
                 "message": f"Added {len(valid_tags)} tags successfully" if result.get('success') else result.get('error', 'Failed to add tags'),
-                "tag_info": tag_validation
+                "tag_info": tag_info
             }
         except Exception as e:
             logger.error(f"Error adding tags: {e}")
