@@ -172,6 +172,43 @@ class TestAddTags:
             assert_balanced_quotes(set_tags_script)
 
     @pytest.mark.asyncio
+    async def test_add_tags_already_present_reports_zero_added(self, things_tools, mock_applescript_manager):
+        """Adding a tag the todo already has must not over-report: the count
+        reflects tags actually newly attached, not tags requested."""
+        mock_applescript_manager.execute_applescript.side_effect = [
+            {'success': True, 'output': 'urgent, work'},  # Current tags already include 'urgent'
+            {'success': True, 'output': 'tags_added'}
+        ]
+
+        with patch('things.tags') as mock_tags:
+            mock_tags.return_value = [{'uuid': 'tag1', 'title': 'urgent'}]
+
+            result = await things_tools.add_tags(todo_id='abc123', tags=['urgent'])
+
+            assert result['success'] is True
+            assert 'Added 0 tags successfully' in result['message']
+
+    @pytest.mark.asyncio
+    async def test_add_tags_mixed_new_and_present(self, things_tools, mock_applescript_manager):
+        """Only newly-attached tags count toward the reported total when some
+        requested tags are already present."""
+        mock_applescript_manager.execute_applescript.side_effect = [
+            {'success': True, 'output': 'urgent'},  # 'urgent' already present
+            {'success': True, 'output': 'tags_added'}
+        ]
+
+        with patch('things.tags') as mock_tags:
+            mock_tags.return_value = [
+                {'uuid': 'tag1', 'title': 'urgent'},
+                {'uuid': 'tag2', 'title': 'work'}
+            ]
+
+            result = await things_tools.add_tags(todo_id='abc123', tags=['urgent', 'work'])
+
+            assert result['success'] is True
+            assert 'Added 1 tags successfully' in result['message']
+
+    @pytest.mark.asyncio
     async def test_add_multiple_tags(self, things_tools, mock_applescript_manager):
         """Test adding multiple comma-separated tags."""
         mock_applescript_manager.execute_applescript.side_effect = [
@@ -344,6 +381,8 @@ class TestRemoveTags:
 
         assert result['success'] is True
         assert 'Removed 1 tags successfully' in result['message']
+        assert result['removed_count'] == 1
+        assert result['not_present'] == []
         # "urgent" must be gone from the emitted script, "work" must remain.
         calls = mock_applescript_manager.execute_applescript.call_args_list
         set_tags_script = calls[1].args[0]
@@ -365,6 +404,8 @@ class TestRemoveTags:
 
         assert result['success'] is True
         assert 'Removed 2 tags successfully' in result['message']
+        assert result['removed_count'] == 2
+        assert result['not_present'] == []
         calls = mock_applescript_manager.execute_applescript.call_args_list
         set_tags_script = calls[1].args[0]
         assert 'set tag names of targetTodo to "work, review"' in set_tags_script
@@ -442,9 +483,13 @@ class TestRemoveTags:
             tags=['nonexistent']
         )
 
-        # Should succeed (tag just not in list to remove) - and existing tags
-        # must be left completely unchanged.
+        # Should succeed (tag just not in list to remove) and report 0 removed,
+        # not the number of tags requested - existing tags are left
+        # completely unchanged.
         assert result['success'] is True
+        assert result['removed_count'] == 0
+        assert result['not_present'] == ['nonexistent']
+        assert 'Removed 0 tags successfully' in result['message']
         calls = mock_applescript_manager.execute_applescript.call_args_list
         set_tags_script = calls[1].args[0]
         assert 'set tag names of targetTodo to "work, urgent"' in set_tags_script
@@ -463,11 +508,51 @@ class TestRemoveTags:
         )
 
         assert result['success'] is True
+        assert result['removed_count'] == 2
+        assert result['not_present'] == []
         # Removing every current tag must clear the tag list, not just leave
         # the old tags untouched.
         calls = mock_applescript_manager.execute_applescript.call_args_list
         set_tags_script = calls[1].args[0]
         assert 'set tag names of targetTodo to ""' in set_tags_script
+
+    @pytest.mark.asyncio
+    async def test_remove_tags_mixed_present_and_absent(self, things_tools, mock_applescript_manager):
+        """removed_count reflects only tags actually present; absent ones are
+        listed in not_present without affecting success or the removed count."""
+        mock_applescript_manager.execute_applescript.side_effect = [
+            {'success': True, 'output': 'work, urgent'},
+            {'success': True, 'output': 'tags_updated'}
+        ]
+
+        result = await things_tools.remove_tags(
+            todo_id='abc123',
+            tags=['urgent', 'nonexistent']
+        )
+
+        assert result['success'] is True
+        assert result['removed_count'] == 1
+        assert result['not_present'] == ['nonexistent']
+        assert 'Removed 1 tags successfully' in result['message']
+
+    @pytest.mark.asyncio
+    async def test_remove_tags_write_failure_reports_zero_removed(self, things_tools, mock_applescript_manager):
+        """If the AppleScript write itself fails, nothing was actually
+        applied - removed_count must be 0, not the would-be computed count,
+        even though the read of current tags succeeded and the removal set
+        was non-empty."""
+        mock_applescript_manager.execute_applescript.side_effect = [
+            {'success': True, 'output': 'work, urgent'},  # Current tags read succeeds
+            {'success': False, 'error': 'AppleScript execution failed'}  # Write fails
+        ]
+
+        result = await things_tools.remove_tags(
+            todo_id='abc123',
+            tags=['urgent']
+        )
+
+        assert result['success'] is False
+        assert result['removed_count'] == 0
 
 
 class TestGetTaggedItems:

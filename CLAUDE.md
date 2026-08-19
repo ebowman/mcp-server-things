@@ -243,6 +243,22 @@ Both bugs were discovered through comprehensive edge case testing:
 
 The configured `tag_creation_policy` (allow_all / filter_silent / filter_warn / fail_on_unknown) applies uniformly to todos, projects, and areas - tags are validated and filtered before any write, not just for todos.
 
+**Tag names cannot contain a comma - the comma is always the tag separator.**
+Things' AppleScript tag API represents a todo's tags as a single comma-joined
+string (`tag names of targetTodo`), so a tag name containing a literal comma
+is indistinguishable from two separate tags and cannot round-trip through
+that API. Every tool that takes `tags` (`add_tags`, `remove_tags`, `add_todo`,
+`update_todo`, `update_project`, `update_area`, `bulk_update_todos`) accepts
+it as a comma-separated **string**, so `tags="a,b"` is always parsed into two
+tags ("a" and "b") before any validation runs - there is no way to pass a
+literal comma in a tag name through these tools, and no error is raised for
+it. `ParameterValidator.validate_tag_list` additionally rejects a comma
+*inside* an individual tag name with a structured `ValidationError` naming
+the offending tag, but this only matters for direct Python/API callers that
+pass a list (e.g. `["home, office"]`) - it is not reachable from any of the
+MCP tools above, since their string parameters are always split on `,`
+first.
+
 ```python
 # Get all available tags
 tags = get_tags()  # Returns count-only by default
@@ -288,6 +304,21 @@ remove_tags(todo_id="abc123", tags="urgent,review,old-tag")
 # Tag names are case-sensitive
 remove_tags(todo_id="abc123", tags="Work")   # Removes "Work"
 remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
+```
+
+**Removing a tag the todo doesn't have is a no-op, not an error.**
+`remove_tags` does *not* apply the configured `tag_creation_policy` - there is
+nothing to create or filter when removing, so a requested tag that isn't
+currently on the todo (whether or not it exists elsewhere in Things) is
+simply absent from the result. The response reports `removed_count` (the
+actual number of tags removed - a set difference against the todo's current
+tags, not the number requested) and `not_present` (any requested tags that
+weren't on the todo):
+
+```python
+# Todo currently has tags "urgent, work"
+remove_tags(todo_id="abc123", tags="urgent,nonexistent")
+# -> {"success": True, "removed_count": 1, "not_present": ["nonexistent"], ...}
 ```
 
 ### Tag Usage Report (Cleanup)

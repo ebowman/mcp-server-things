@@ -544,6 +544,15 @@ class ParameterValidator:
         Handles both comma-separated strings and lists.
         Filters out empty tags and trims whitespace.
 
+        Individual tag names containing a literal comma are rejected: Things'
+        AppleScript tag API represents a todo's tags as a single comma-joined
+        string (`tag names of targetTodo`), so a tag name containing a comma
+        is indistinguishable from two separate tags and cannot round-trip
+        through that API. This can only happen via list input (e.g.
+        `["home, office"]`) - comma-separated string input already splits on
+        `,` before this check runs, so a string-typed tag name can never
+        contain a comma by the time it reaches this branch.
+
         Args:
             tags: Tags as string (comma-separated), list, or None
             field_name: Name of the field for error messages
@@ -552,7 +561,8 @@ class ParameterValidator:
             List of validated tag strings or None if input was None
 
         Raises:
-            ValidationError: If tags format is invalid
+            ValidationError: If tags format is invalid, or if any individual
+                tag name contains a comma
         """
         if tags is None:
             return None
@@ -577,6 +587,16 @@ class ParameterValidator:
 
         if not tag_list:
             return None
+
+        for tag in tag_list:
+            if "," in tag:
+                raise ValidationError(
+                    field_name,
+                    f"tag name {tag!r} contains a comma, which Things' "
+                    "comma-joined AppleScript tag API cannot represent - "
+                    "rename the tag or remove the comma",
+                    tag
+                )
 
         return tag_list
 

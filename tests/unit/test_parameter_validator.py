@@ -380,6 +380,26 @@ class TestValidateTagList:
         result = ParameterValidator.validate_tag_list("  work  ,  home  ")
         assert result == ["work", "home"]
 
+    def test_tag_list_rejects_comma_in_list_element(self):
+        """A tag name containing a literal comma cannot round-trip through
+        Things' comma-joined AppleScript tag API, so it must be rejected with
+        a structured error naming the offending tag. This can only be
+        observed via list input - comma-separated string input already
+        splits on ',' before an individual tag name is ever formed."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_tag_list(["home, office", "urgent"])
+        assert "home, office" in str(exc_info.value)
+        assert exc_info.value.field == "tags"
+        assert exc_info.value.value == "home, office"
+
+    def test_tag_list_rejects_comma_in_list_element_custom_field_name(self):
+        """The offending tag and the caller-supplied field_name both surface
+        in the error for API callers that pass a non-default field_name."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_tag_list(["a,b"], field_name="update_tags")
+        assert exc_info.value.field == "update_tags"
+        assert "a,b" in str(exc_info.value)
+
 
 class TestValidateIdList:
     """Tests for ID list validation."""

@@ -1735,7 +1735,16 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo"),
             tags: str = Field(..., description="Comma-separated tags to add")
         ) -> Dict[str, Any]:
-            """Add tags to a todo. Only existing tags can be applied."""
+            """Add tags to a todo. Only existing tags can be applied.
+
+            The response `message` reports how many tags were newly attached
+            (tags already present on the todo are not double-counted). The
+            `tags` parameter is comma-separated, and the comma is the tag
+            separator - tag names cannot contain a comma. "a,b" is always
+            treated as two tags ("a" and "b"), never as one tag named "a,b";
+            there is no way to pass a literal comma in a tag name through
+            this string-based parameter.
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags) or []
@@ -1771,7 +1780,16 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo"),
             tags: str = Field(..., description="Comma-separated tags to remove")
         ) -> Dict[str, Any]:
-            """Remove tags from a todo."""
+            """Remove tags from a todo.
+
+            Removing a tag the todo doesn't currently have is a no-op, not an
+            error - it does not go through the configured tag_creation_policy
+            (there is nothing to create or filter when removing). The
+            response includes `removed_count` (the number of tags actually
+            removed - a set difference against the todo's current tags, not
+            the number requested) and `not_present` (any requested tags that
+            were not on the todo).
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags) or []
