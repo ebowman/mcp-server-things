@@ -5,7 +5,7 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.2] - 2026-08-19
 
 ### Fixed
 - **Generated uvx launch configs now pin a managed Python, fixing `.mcpb` startup failures in Claude Desktop** - the 1.6.1 `.mcpb`, launched via `uvx mcp-server-things`, could resolve an x86_64 Python from the host app's environment (e.g. a bundled miniconda); `cryptography==50.0.0` has no macOS x86_64 wheels, so `uvx` fell back to a maturin source build that fails without a Rust toolchain, silently killing server startup. `manifest.json`'s `server.mcp_config.args` and `client_config.build_server_config`'s `uvx` variant (used by `mcp-server-things config` and `--write`) now both emit `["--python-preference", "only-managed", "--python", "3.12", "mcp-server-things"]`, forcing uv to use its own managed, native-arch CPython instead of anything discovered on `PATH`. Trade-off: first launch may download a managed CPython (one-time). Plain `uvx mcp-server-things` remains in prose/troubleshooting examples for interactive use; only generated configs are hardened. Verified: `uvx --python-preference only-managed --python 3.12 mcp-server-things@1.6.1 doctor` passes all checks on affected hardware.
