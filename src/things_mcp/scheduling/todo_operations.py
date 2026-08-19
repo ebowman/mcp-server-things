@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from ..locale_aware_dates import locale_handler
 from ..things_import import LazyThingsProxy
@@ -325,6 +325,15 @@ class TodoOperations:
                 else:
                     area_id = resolution["id"]
 
+            if project_id:
+                target_error = self._check_project_target_not_completed(project_id)
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+
             script = self._build_create_todo_script(
                 title, notes, tags, deadline, area,
                 project='', checklist=checklist,
@@ -369,24 +378,89 @@ class TodoOperations:
                 "message": "Failed to add todo"
             }
 
-    def _check_heading_exists(self, heading: str, list_id: str = '', list_title: str = '') -> Optional[str]:
-        """Check whether `heading` exists as a heading in the target project.
+    def _check_project_target_not_completed(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """Reject a write into a completed/canceled project before it happens.
 
-        The Things URL scheme silently ignores a heading that doesn't exist in
-        the target project (the to-do still lands in the project, just not
-        under that heading) - this pre-check lets callers surface that as a
-        warning instead of silent data loss.
+        Adding or moving a to-do into a completed or canceled project
+        reopens that project in Things (a real, visible change to
+        pre-existing user data), which is very unlikely to be the caller's
+        intent. This is a read-only pre-check via things.py - it never
+        writes anything itself.
 
         Args:
-            heading: Heading title to look for.
+            project_id: A project UUID (areas have no status/completion
+                concept in Things, so this is only meaningful for projects -
+                callers must not call this for an area_id).
+
+        Returns:
+            A structured error dict ({"error": "TARGET_COMPLETED", ...}) if
+            the project's things.py status is 'completed' or 'canceled', or
+            None if the project is open/incomplete, or if its status could
+            not be determined (things.py lookup failed or returned nothing)
+            - in which case we stay silent rather than block a write on a
+            lookup glitch.
+        """
+        try:
+            record = things.get(project_id)
+        except Exception as e:
+            logger.warning(
+                f"things.py lookup failed while checking completed status for "
+                f"project {project_id} (allowing the write to proceed "
+                f"unchecked): {e}"
+            )
+            return None
+
+        if not record:
+            return None
+
+        status = record.get('status')
+        if status in ('completed', 'canceled'):
+            return {
+                "error": "TARGET_COMPLETED",
+                "message": (
+                    f"Target project is {status}; adding/moving into it would "
+                    "reopen it. Reopen it first or choose another target."
+                )
+            }
+        return None
+
+    def _check_heading_status(
+        self, heading: str, list_id: str = '', list_title: str = ''
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Resolve the target project once and report both the heading's
+        existence/completion status in a single things.tasks() query.
+
+        Combines what used to be two separate checks (_check_heading_exists
+        and _check_heading_target_not_completed) - both needed the same
+        project resolution and the same status=None things.tasks() heading
+        list, so doing them separately issued that query twice per call.
+
+        The Things URL scheme silently ignores a heading that doesn't exist
+        in the target project (the to-do still lands in the project, just
+        not under that heading); adding/moving into a completed/canceled
+        project or heading reopens it in Things (a real, visible change to
+        pre-existing user data). This is a read-only pre-check via
+        things.py - it never writes anything itself.
+
+        Args:
+            heading: Heading title to look for within the resolved project.
             list_id: Project/area id supplied by the caller, if any.
             list_title: Project/area title supplied by the caller, if any.
 
         Returns:
-            A warning string if the heading could not be confirmed to exist
-            in the resolved project, or None if it was found (or the target
-            project could not be resolved, in which case we stay silent
-            rather than risk a false-positive warning).
+            A (target_error, warning) tuple - at most one is non-None:
+            - target_error: a structured error dict
+              ({"error": "TARGET_COMPLETED", ...}) if the resolved project,
+              or the matched heading row, is completed/canceled. The write
+              must be rejected before it happens when this is set.
+            - warning: a warning string if the heading could not be
+              confirmed to exist in the resolved project (and the project
+              itself is not completed/canceled).
+            (None, None) if the heading was found and open, or if the
+            target project could not be resolved (e.g. an area target, or
+            an unresolvable list_title/list_id - those cases are reported
+            by their own resolution errors elsewhere) - don't guess in
+            either case.
         """
         project_id = None
         if list_id:
@@ -399,25 +473,47 @@ class TodoOperations:
                 project_id = resolution["id"]
 
         if not project_id:
-            # Either no project could be resolved (e.g. area target, or an
-            # unresolvable list_title/list_id - those cases are reported by
-            # their own resolution errors elsewhere) - don't guess.
-            return None
+            return None, None
+
+        project_error = self._check_project_target_not_completed(project_id)
+        if project_error:
+            return project_error, None
 
         try:
-            existing_headings = things.tasks(type='heading', project=project_id) or []
+            # status=None: things.tasks() defaults to status='incomplete', so
+            # a completed heading (e.g. a past-dated recurring heading like
+            # "Johan" in a project) would otherwise be invisible here and
+            # produce a false "heading not found" warning even though the
+            # URL-scheme move actually succeeds (same root cause/fix as the
+            # heading map built in hq-f0w.24).
+            existing_headings = things.tasks(type='heading', project=project_id, status=None) or []
         except Exception as e:
-            logger.debug(f"Error checking heading existence for project {project_id}: {e}")
-            return None
+            logger.warning(
+                f"things.py lookup failed while checking heading '{heading}' "
+                f"status in project {project_id} (skipping heading "
+                f"existence/completion check for this call): {e}"
+            )
+            return None, None
 
-        if any(h.get('title') == heading for h in existing_headings):
-            return None
+        matched = next((h for h in existing_headings if h.get('title') == heading), None)
+        if matched is None:
+            return None, (
+                f"Heading '{heading}' was not found in the target project; "
+                "Things will still create the to-do in the project but may not "
+                "place it under this heading."
+            )
 
-        return (
-            f"Heading '{heading}' was not found in the target project; "
-            "Things will still create the to-do in the project but may not "
-            "place it under this heading."
-        )
+        if matched.get('status') in ('completed', 'canceled'):
+            return {
+                "error": "TARGET_COMPLETED",
+                "message": (
+                    f"Target heading '{heading}' is {matched.get('status')}; "
+                    "adding/moving into it would reopen it. Reopen it first "
+                    "or choose another target."
+                )
+            }, None
+
+        return None, None
 
     async def _find_todo_ids_by_title(self, title: str) -> List[str]:
         """Return the ids of all (non-trashed) to-dos with the exact title.
@@ -573,12 +669,38 @@ class TodoOperations:
                 params['list-id'] = resolution["id"]
 
             heading = kwargs.get('heading') or ''
+
+            # When heading is absent, the heading-target pre-check below
+            # never runs, so a list_id/list_title resolving to a completed/
+            # canceled project would otherwise reach execute_url_scheme('add')
+            # unchecked (e.g. add_todo(list_id=<completed>, checklist_items=[...])
+            # or when='evening' with no heading) - both still take this
+            # URL-scheme path for reasons unrelated to the project target
+            # (checklist items / the "This Evening" flag), so the project
+            # itself must still be checked here. _check_project_target_not_completed
+            # is a no-op for an area id (things.get() on an area has no
+            # 'completed'/'canceled' status), so areas pass through.
+            if not heading and params.get('list-id'):
+                target_error = self._check_project_target_not_completed(params['list-id'])
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+
             warnings: List[str] = []
             if heading:
-                params['heading'] = heading
-                heading_warning = self._check_heading_exists(
+                target_error, heading_warning = self._check_heading_status(
                     heading, kwargs.get('list_id', ''), kwargs.get('list_title', '')
                 )
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+                params['heading'] = heading
                 if heading_warning:
                     warnings.append(heading_warning)
 
@@ -1179,6 +1301,15 @@ class TodoOperations:
                         project_id = resolution["id"]
                     else:
                         area_id = resolution["id"]
+
+                if project_id:
+                    target_error = self._check_project_target_not_completed(project_id)
+                    if target_error:
+                        return {
+                            "success": False,
+                            "error": target_error["error"],
+                            "message": target_error["message"]
+                        }
             else:
                 if list_id:
                     # Pre-check list_id the same way the non-heading move
@@ -1212,6 +1343,61 @@ class TodoOperations:
                             "message": "Failed to update todo"
                         }
                     effective_list_id_for_url = list_id_resolution["id"]
+
+            # When heading is given, pre-resolve which project the combined
+            # heading-completion check / heading-exists warning
+            # (_check_heading_status, further down) should be scoped to:
+            # the explicitly-requested list_id/list_title, or (if neither
+            # given) the to-do's current project. things.py reports
+            # project=None for a to-do whose parent is itself a heading (the
+            # PROJECT join is on TASK.project, which is NULL for heading
+            # children - the parent project only shows up on the heading
+            # record itself), so fall back to looking up the to-do's heading
+            # record's project in that case. The completed/canceled check
+            # itself must happen BEFORE the AppleScript write below so a
+            # completed/canceled target is rejected before anything is
+            # written, not after; the heading-exists warning is deferred to
+            # its usual spot further down since it never blocks a write.
+            effective_project_id: Optional[str] = None
+            heading_warning: Optional[str] = None
+            if heading:
+                effective_project_id = effective_list_id_for_url
+                if not effective_project_id:
+                    try:
+                        todo_record_for_project = things.get(todo_id)
+                    except Exception as e:
+                        logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
+                        todo_record_for_project = None
+                    if todo_record_for_project:
+                        effective_project_id = todo_record_for_project.get('project')
+                        if not effective_project_id and todo_record_for_project.get('heading'):
+                            try:
+                                heading_record_for_project = things.get(todo_record_for_project['heading'])
+                            except Exception as e:
+                                logger.debug(
+                                    f"Error looking up heading {todo_record_for_project['heading']} "
+                                    f"for project fallback: {e}"
+                                )
+                                heading_record_for_project = None
+                            if heading_record_for_project:
+                                effective_project_id = heading_record_for_project.get('project')
+
+                # Only pre-check when the target resolves to a project (not
+                # an area - list_id_resolution.kind == "area" is handled
+                # later as a warning, and areas have no completed/canceled
+                # status in Things).
+                if effective_project_id and not (
+                    list_id_resolution and list_id_resolution.get("kind") == "area"
+                ):
+                    target_error, heading_warning = self._check_heading_status(
+                        heading, list_id=effective_project_id
+                    )
+                    if target_error:
+                        return {
+                            "success": False,
+                            "error": target_error["error"],
+                            "message": target_error["message"]
+                        }
 
             # Apply the AppleScript-only fields first (title, notes, tags,
             # deadline, area, project, project_id/area_id, completed,
@@ -1270,39 +1456,16 @@ class TodoOperations:
                 if effective_list_id_for_url:
                     url_params['list-id'] = effective_list_id_for_url
 
-                # The remaining lookups and warnings in this block are all
+                # The remaining warnings in this block are all
                 # heading-placement concerns - skip them entirely when only
                 # when_is_evening triggered this branch (no heading requested).
+                # effective_project_id and heading_warning were already
+                # resolved (using the same explicit-list_id/list_title-else-
+                # current-project fallback, and the combined
+                # _check_heading_status call) in the pre-write block above,
+                # before the AppleScript write ran, so neither is
+                # recomputed here.
                 if heading:
-                    try:
-                        todo_record = things.get(todo_id)
-                    except Exception as e:
-                        logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
-                        todo_record = None
-
-                    # Resolve which project the heading check/warning should be
-                    # scoped to: the explicitly-requested list_id/list_title, or
-                    # (if neither given) the to-do's current project. things.py
-                    # reports project=None for a to-do whose parent is a heading
-                    # (the PROJECT join is on TASK.project, which is NULL for
-                    # heading children - the parent project only shows up on the
-                    # heading record itself), so fall back to looking up the
-                    # to-do's heading record's project in that case.
-                    effective_project_id = effective_list_id_for_url
-                    if not effective_project_id and todo_record:
-                        effective_project_id = todo_record.get('project')
-                        if not effective_project_id and todo_record.get('heading'):
-                            try:
-                                heading_record = things.get(todo_record['heading'])
-                            except Exception as e:
-                                logger.debug(
-                                    f"Error looking up heading {todo_record['heading']} "
-                                    f"for project fallback: {e}"
-                                )
-                                heading_record = None
-                            if heading_record:
-                                effective_project_id = heading_record.get('project')
-
                     if list_id_resolution and list_id_resolution.get("kind") == "area":
                         warnings.append(
                             f"list_id '{effective_list_id_for_url}' resolves to an area, "
@@ -1311,7 +1474,6 @@ class TodoOperations:
                             "under any heading."
                         )
                     elif effective_project_id:
-                        heading_warning = self._check_heading_exists(heading, list_id=effective_project_id)
                         if heading_warning:
                             warnings.append(heading_warning)
                     else:

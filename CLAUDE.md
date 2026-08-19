@@ -68,6 +68,7 @@ result = self.applescript_manager.execute_script(script)
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
 5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
+6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
 
 ### Boot Diagnostics (v1.5.0+)
 
@@ -835,6 +836,32 @@ happens once, via the AppleScript write (same write as any other
 AppleScript-only fields in the call) - `list_id`/`list_title` is not also
 sent on the following URL-scheme call that applies the evening schedule,
 which would otherwise re-apply the same move a second time.
+
+> ⚠️ **Adding/moving into a completed or canceled project or heading is
+> rejected, not silently allowed.** Things reopens a completed/canceled
+> project or heading the moment a to-do is added or moved into it - a real,
+> visible change to pre-existing user data, not merely a scheduling
+> side-effect. Both `add_todo` and `update_todo` pre-check the *status* of
+> the resolved target (via `things.py`, read-only, before any write) and, if
+> the matched heading or the resolved target project (`list_id`/`list_title`)
+> is `completed`/`canceled`, return a structured error **before** any
+> AppleScript or URL-scheme write is issued:
+> ```json
+> {"success": false, "error": "TARGET_COMPLETED", "message": "Target project is completed; adding/moving into it would reopen it. Reopen it first or choose another target."}
+> ```
+> There is currently no `allow_reopen`-style override - reopen the target
+> manually first (`update_project(id=..., completed="false")`), or choose a
+> different target. Areas have no completed/canceled concept in Things and
+> are never rejected by this check.
+>
+> **Edge case**: `update_todo(id=..., heading=...)` with no `list_id`/
+> `list_title` falls back to the to-do's *current* project for this check
+> (same current-project resolution the heading-exists warning already
+> uses). If a to-do already sits inside a project that was completed/
+> canceled *after* the to-do was filed there, it cannot be re-headed within
+> that project via `update_todo` either - the same `TARGET_COMPLETED` error
+> is returned. Reopen the project first, or move the to-do to a different
+> (open) project via `list_id`/`list_title`.
 
 **Status semantics (`completed`/`canceled`) - identical across `update_todo`, `bulk_update_todos`, and `update_project` (hq-f0w.22):**
 

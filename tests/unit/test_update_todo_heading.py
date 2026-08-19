@@ -194,7 +194,7 @@ class TestHeadingChildProjectResolution:
 
         tasks_calls = []
 
-        def fake_tasks(type=None, project=None):
+        def fake_tasks(type=None, project=None, status=None):
             tasks_calls.append((type, project))
             return [{"title": "Other"}]
 
