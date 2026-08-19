@@ -4,6 +4,8 @@ import logging
 from typing import Any, Dict, Optional
 from datetime import datetime, timedelta
 
+from ..utils.applescript_utils import AppleScriptTemplates
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,18 +16,24 @@ class ToolsHelpers:
     def escape_applescript_string(text: str) -> str:
         """Escape special characters in AppleScript strings.
 
+        Delegates to `AppleScriptTemplates.escape_string()` (the single
+        source of truth for AppleScript string escaping) so this and the
+        AppleScriptTemplates escaper stay in sync. Newlines/carriage
+        returns/tabs are escaped to their AppleScript literal escape
+        sequences (\\n, \\r, \\t), not collapsed to spaces or dropped.
+
         Args:
             text: String to escape
 
         Returns:
-            Escaped string safe for AppleScript
+            Escaped string safe for AppleScript, wrapped in double quotes
+            (a complete AppleScript string literal). Callers that need to
+            embed the escaped text inside a larger literal instead of
+            using it as a standalone literal should call
+            `AppleScriptTemplates.escape_string_inner()` directly rather
+            than stripping the quotes from this return value.
         """
-        # Escape backslashes first
-        text = text.replace('\\', '\\\\')
-        # Escape quotes
-        text = text.replace('"', '\\"')
-        # Return wrapped in quotes
-        return f'"{text}"'
+        return AppleScriptTemplates.escape_string(text)
 
     @staticmethod
     def convert_to_boolean(value: Any) -> Optional[bool]:

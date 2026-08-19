@@ -478,15 +478,14 @@ class WriteOperations:
 
             all_tags = list(dict.fromkeys(current_tags + valid_tags))
 
-            escaped_tags = [ToolsHelpers.escape_applescript_string(tag).strip('"') for tag in all_tags]
-            tag_string = ', '.join(escaped_tags)
+            escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(all_tags))
 
-            logger.debug(f"add_tags: all_tags={all_tags}, escaped_tags={escaped_tags}, tag_string='{tag_string}'")
+            logger.debug(f"add_tags: all_tags={all_tags}, escaped_tags_string={escaped_tags_string}")
 
             script = f'''
             tell application "Things3"
                 set targetTodo to to do id "{todo_id}"
-                set tag names of targetTodo to "{tag_string}"
+                set tag names of targetTodo to {escaped_tags_string}
                 return "tags_added"
             end tell
             '''
@@ -563,16 +562,14 @@ class WriteOperations:
             tags_to_remove_set = set(tags)
             remaining_tags = [tag for tag in current_tags if tag not in tags_to_remove_set]
 
-            escaped_tags = [ToolsHelpers.escape_applescript_string(tag).strip('"') for tag in remaining_tags]
-            tag_string = ', '.join(escaped_tags) if escaped_tags else ""
+            logger.debug(f"remove_tags: current={current_tags}, removing={tags}, remaining={remaining_tags}")
 
-            logger.debug(f"remove_tags: current={current_tags}, removing={tags}, remaining={remaining_tags}, tag_string='{tag_string}'")
-
-            if tag_string:
+            if remaining_tags:
+                escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(remaining_tags))
                 script = f'''
                 tell application "Things3"
                     set targetTodo to to do id "{todo_id}"
-                    set tag names of targetTodo to "{tag_string}"
+                    set tag names of targetTodo to {escaped_tags_string}
                     return "tags_removed"
                 end tell
                 '''

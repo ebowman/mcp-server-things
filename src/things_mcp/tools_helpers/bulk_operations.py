@@ -124,12 +124,12 @@ class BulkOperations:
                     script += f'        set status of targetTodo to open\n'
 
             if 'title' in kwargs and kwargs['title'] is not None:
-                escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title']).strip('"')
-                script += f'        set name of targetTodo to "{escaped_title}"\n'
+                escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title'])
+                script += f'        set name of targetTodo to {escaped_title}\n'
 
             if 'notes' in kwargs and kwargs['notes'] is not None:
-                escaped_notes = ToolsHelpers.escape_applescript_string(kwargs['notes']).strip('"')
-                script += f'        set notes of targetTodo to "{escaped_notes}"\n'
+                escaped_notes = ToolsHelpers.escape_applescript_string(kwargs['notes'])
+                script += f'        set notes of targetTodo to {escaped_notes}\n'
 
             if 'deadline' in kwargs:
                 deadline = kwargs['deadline']
@@ -153,9 +153,8 @@ class BulkOperations:
                 # Filter out None and empty strings
                 tags_value = [t for t in tags_value if t]
                 if tags_value:
-                    escaped_tags = [ToolsHelpers.escape_applescript_string(t).strip('"') for t in tags_value]
-                    tag_string = ', '.join(escaped_tags)
-                    script += f'        set tag names of targetTodo to "{tag_string}"\n'
+                    escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(tags_value))
+                    script += f'        set tag names of targetTodo to {escaped_tags_string}\n'
 
             script += '        set successCount to successCount + 1\n'
             script += '    on error errMsg\n'
