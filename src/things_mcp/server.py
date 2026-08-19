@@ -31,6 +31,22 @@ from .context_manager import ContextAwareResponseManager, ResponseMode
 logger = logging.getLogger(__name__)
 
 
+def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated tag string into a list of non-empty, stripped tag names.
+
+    Args:
+        tags: Comma-separated tag names (e.g. "work,urgent" or "a, ,b").
+
+    Returns:
+        A list of non-empty, stripped tag names, or None if `tags` is falsy or
+        contains no non-empty entries after stripping (e.g. None, "", " , ").
+    """
+    if not tags:
+        return None
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    return tag_list or None
+
+
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
@@ -382,7 +398,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 result = await self.tools.add_todo(
                     title=title,
                     notes=notes,
@@ -401,10 +417,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -450,7 +466,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -478,10 +494,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', '') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -537,7 +553,7 @@ class ThingsMCPServer:
                     }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -780,7 +796,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 # Convert newline-separated todos to list
                 todos_list = [todo.strip() for todo in todos.split("\n")] if todos else None
                 return await self.tools.add_project(
@@ -836,7 +852,7 @@ class ThingsMCPServer:
                         }
 
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -916,7 +932,7 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Create a new area. Areas represent life/work domains (e.g. Work, Personal) and can contain projects and todos. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
             try:
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 return await self.tools.add_area(title=title, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error adding area: {e}")
@@ -930,7 +946,7 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing area's title and/or tags. Only provided fields are changed. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
             try:
-                tag_list = [t.strip() for t in tags.split(",")] if tags else None
+                tag_list = _parse_tag_list(tags)
                 return await self.tools.update_area(area_id=id, title=title, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error updating area: {e}")
@@ -1399,12 +1415,11 @@ class ThingsMCPServer:
             """Add tags to a todo. Only existing tags can be applied."""
             try:
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                tag_list = _parse_tag_list(tags) or []
                 result = await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
                 
                 # Enhance response with tag policy feedback
-                if (self.tools.tag_validation_service and 
-                    hasattr(result, 'get') and result.get('success')):
+                if self.tools.tag_validation_service and result.get('success'):
                     policy = self.tools.config.tag_creation_policy if self.tools.config else 'allow_all'
                     
                     # Add policy information to response
@@ -1416,10 +1431,10 @@ class ThingsMCPServer:
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
-                        if tag_info.get('created_tags'):
-                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created_tags'])}"
-                        if tag_info.get('filtered_tags'):
-                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered_tags'])}"
+                        if tag_info.get('created'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Created new tags: {', '.join(tag_info['created'])}"
+                        if tag_info.get('filtered'):
+                            result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
                 
@@ -1436,7 +1451,7 @@ class ThingsMCPServer:
             """Remove tags from a todo."""
             try:
                 # Convert comma-separated tags to list
-                tag_list = [t.strip() for t in tags.split(",")] if tags else []
+                tag_list = _parse_tag_list(tags) or []
                 return await self.tools.remove_tags(todo_id=todo_id, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error removing tags: {e}")
