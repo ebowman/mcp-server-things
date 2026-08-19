@@ -198,6 +198,7 @@ explicitly cleared" by using the empty string (or an empty tag list for `tags`):
 | `deadline` | unchanged | clears the deadline (todo, project) |
 | `tags` | unchanged | clears all tags (todo, project, area) |
 | `when` | unchanged | **rejected** - use `when='anytime'` or `when='someday'` to unschedule instead |
+| `heading` (`update_todo` only) | unchanged | **rejected** - Things has no documented way to clear a heading via `update`; use `move_record()` instead |
 
 ```python
 # Clear notes and deadline, leave everything else (including tags) unchanged
@@ -625,6 +626,62 @@ falls back to treating `list_id` as a project id and proceeds via
 AppleScript alone (matching pre-1.7.0 behavior) rather than refusing the
 write - only a *successful* lookup that reports the id as unknown, or not a
 project/area, returns a structured error.
+
+**Moving an *existing* to-do under a heading**: `update_todo(id=..., heading=...)`
+moves an existing to-do under a heading. AppleScript has no way to do this -
+`update_todo` uses the Things URL scheme (`things:///update`) for the
+heading move, same as `add_todo`/checklist item management.
+
+```python
+# Move an existing to-do under a heading in its current project
+update_todo(id="abc123", heading="Research")
+
+# Move it into a different project AND place it under a heading there
+# (list-id + heading together in a single URL-scheme update)
+update_todo(id="abc123", heading="Research", list_id="project456")
+
+# Combine with ordinary AppleScript fields in the same call - both are applied
+update_todo(id="abc123", heading="Research", title="Renamed", notes="Updated notes")
+```
+
+**Auth token required**: unlike `add_todo`, `things:///update` requires the
+Things auth token (see "Auth token required" under Checklist Support below
+for how to configure one). Without one configured, `update_todo(heading=...)`
+returns `{"success": false, "error": "Things URL-scheme auth token not
+configured", "hint": ...}` and - because the auth check runs *before* any
+AppleScript write - none of the other fields passed in the same call (title,
+notes, tags, etc.) are applied either, so a failed heading move never
+partially updates the to-do.
+
+**`heading=''` (or whitespace-only) is rejected**: Things' URL scheme has no
+documented way to clear a to-do out of a heading via `update`, so
+`update_todo(id=..., heading="")` returns a structured error explaining that
+instead of guessing at behavior. To move a to-do out from under a heading,
+use `move_record()` to move it directly into the project (or another
+destination) instead.
+
+**Heading must already exist**: same as `add_todo`, if the named heading
+doesn't exist in the target project, Things silently ignores it - the to-do
+stays where it is (not moved under the heading), with no error from Things.
+`update_todo` pre-checks the heading against the target project's known
+headings and adds a `warnings` entry to the response when it can't confirm
+the heading exists. This check also correctly handles **re-filing a to-do
+that is already under a different heading**: `things.py` reports
+`project: None` for a to-do whose current parent is a heading (the project
+only appears on the heading record, not the to-do), so `update_todo` falls
+back to resolving the current project via the to-do's existing heading
+record rather than wrongly treating it as project-less.
+
+**`list_id` resolving to an area**: if `list_id` resolves to an area rather
+than a project, `update_todo` adds a `warnings` entry - Things' URL scheme
+ignores `heading` for area targets (the to-do moves into the area but is
+not placed under any heading).
+
+**No project**: if the to-do doesn't belong to a project (directly or via a
+parent heading) and `list_id` isn't also given, `heading` has no effect
+(Things' URL scheme silently ignores it) - `update_todo` adds a `warnings`
+entry in this case rather than failing outright, since Things itself
+doesn't surface an error either.
 
 **Status semantics (`completed`/`canceled`):**
 - `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.

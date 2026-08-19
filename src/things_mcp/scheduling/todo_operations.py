@@ -843,6 +843,26 @@ class TodoOperations:
         (an explicit empty list) clears all tags. title='' is rejected
         upstream (ParameterValidator.validate_update_params) and should
         never reach here.
+
+        heading (Optional[str]): moves the to-do under that heading within
+        its current project via the Things URL scheme (things:///update)
+        - AppleScript has no way to move a to-do under a heading. The URL
+        scheme requires the Things auth token; that check happens BEFORE
+        any AppleScript write so a missing token never results in a
+        partially-applied update. heading='' (or whitespace-only) is
+        rejected outright (Things' URL scheme has no documented way to
+        clear a to-do out of a heading via update - passing heading=''
+        would either be ignored or produce undefined behavior, so we
+        surface a structured error instead of guessing). If list_id is
+        also given, the to-do is moved to that project via 'list-id' in
+        the same URL, with 'heading' resolved within the destination
+        project; if list_id resolves to an area rather than a project, a
+        warning is added since Things ignores 'heading' for area targets.
+        A to-do whose current parent is itself a heading reports
+        project=None from things.py (the project only appears on the
+        heading record) - the current-project fallback for the
+        heading-exists check/warning resolves that via the to-do's
+        heading record.
         """
         try:
             # Extract parameters. title/area/project default to '' (falsy
@@ -856,6 +876,38 @@ class TodoOperations:
             deadline = kwargs.get('deadline', None)
             area = kwargs.get('area', '')
             project = kwargs.get('project', '')
+            heading = kwargs.get('heading', None)
+            list_id = kwargs.get('list_id', '')
+
+            # heading has no "clear" semantics via the URL scheme - reject an
+            # explicit empty (or whitespace-only) string rather than silently
+            # ignoring it or sending an ambiguous request to Things. This
+            # check runs before any AppleScript write so nothing is
+            # partially applied.
+            if heading is not None and heading.strip() == '':
+                return {
+                    "success": False,
+                    "error": (
+                        "heading cannot be empty; Things' URL scheme has no "
+                        "documented way to clear a to-do out of a heading via "
+                        "update - to move it out, use move_record() to move "
+                        "it directly into the project instead"
+                    ),
+                    "message": "Failed to update todo"
+                }
+
+            # heading is only honoured via the Things URL scheme, which
+            # requires the auth token. Fail fast BEFORE any AppleScript
+            # write so other fields are never partially applied.
+            if heading:
+                if not self.applescript.auth_token:
+                    from ..services.applescript_manager import AUTH_TOKEN_HINT
+                    return {
+                        "success": False,
+                        "error": "Things URL-scheme auth token not configured",
+                        "hint": AUTH_TOKEN_HINT,
+                        "message": "Failed to update todo"
+                    }
 
             # Convert status parameters
             completed = kwargs.get('completed', None)
@@ -873,36 +925,128 @@ class TodoOperations:
                     "message": "Invalid boolean value for status parameter"
                 }
 
-            # Build and execute script
-            script = self._build_update_script(todo_id, title, notes, tags, deadline,
-                                              area, project, completed, canceled)
-            result = await self.applescript.execute_applescript(script)
+            warnings: List[str] = []
 
-            if result.get("success"):
-                output = result.get("output", "").strip()
-                if output == "updated":
-                    # Schedule if when date provided
-                    if when:
-                        schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
+            # Apply the AppleScript-only fields first (title, notes, tags,
+            # deadline, area, project, completed, canceled). This mirrors the
+            # pre-existing unconditional behavior (the AppleScript write is
+            # always issued, even as a no-op "updated" round trip) EXCEPT
+            # when heading is the only field requested at all - in that one
+            # case skip the AppleScript step entirely and rely solely on the
+            # URL-scheme update below, since there is nothing else to write.
+            skip_applescript = heading and not any([
+                title, notes is not None, tags is not None, deadline is not None,
+                area, project, completed is not None, canceled is not None
+            ])
+
+            if not skip_applescript:
+                script = self._build_update_script(todo_id, title, notes, tags, deadline,
+                                                  area, project, completed, canceled)
+                result = await self.applescript.execute_applescript(script)
+
+                if result.get("success"):
+                    output = result.get("output", "").strip()
+                    if output != "updated":
                         return {
-                            "success": True,
-                            "message": "Todo updated and scheduled successfully",
-                            "scheduling": schedule_result
+                            "success": False,
+                            "error": output,
+                            "message": "Failed to update todo"
                         }
+                else:
                     return {
-                        "success": True,
-                        "message": "Todo updated successfully"
+                        "success": False,
+                        "error": result.get("output", "AppleScript execution failed"),
+                        "message": "Failed to update todo"
                     }
-                return {
-                    "success": False,
-                    "error": output,
-                    "message": "Failed to update todo"
+
+            if heading:
+                url_params: Dict[str, Any] = {'id': todo_id, 'heading': heading}
+                if list_id:
+                    url_params['list-id'] = list_id
+
+                try:
+                    todo_record = things.get(todo_id)
+                except Exception as e:
+                    logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
+                    todo_record = None
+
+                # Resolve which project the heading check/warning should be
+                # scoped to: the explicitly-requested list_id, or (if none
+                # given) the to-do's current project. things.py reports
+                # project=None for a to-do whose parent is a heading (the
+                # PROJECT join is on TASK.project, which is NULL for heading
+                # children - the parent project only shows up on the
+                # heading record itself), so fall back to looking up the
+                # to-do's heading record's project in that case.
+                effective_project_id = list_id
+                list_id_resolution = None
+                if not effective_project_id and todo_record:
+                    effective_project_id = todo_record.get('project')
+                    if not effective_project_id and todo_record.get('heading'):
+                        try:
+                            heading_record = things.get(todo_record['heading'])
+                        except Exception as e:
+                            logger.debug(
+                                f"Error looking up heading {todo_record['heading']} "
+                                f"for project fallback: {e}"
+                            )
+                            heading_record = None
+                        if heading_record:
+                            effective_project_id = heading_record.get('project')
+
+                if list_id:
+                    list_id_resolution = self._resolve_list_id(list_id)
+
+                if list_id_resolution and list_id_resolution.get("kind") == "area":
+                    warnings.append(
+                        f"list_id '{list_id}' resolves to an area, not a project; "
+                        "Things' URL scheme ignores 'heading' for area targets - "
+                        "the to-do will move into the area but not be placed under "
+                        "any heading."
+                    )
+                elif effective_project_id:
+                    heading_warning = self._check_heading_exists(heading, list_id=effective_project_id)
+                    if heading_warning:
+                        warnings.append(heading_warning)
+                else:
+                    warnings.append(
+                        "This to-do does not appear to belong to a project; Things' "
+                        "URL scheme silently ignores 'heading' for to-dos outside a "
+                        "project. Pass list_id to move it into a project with this "
+                        "heading."
+                    )
+
+                url_result = await self.applescript.execute_url_scheme('update', url_params)
+
+                if not url_result.get('success'):
+                    response = {
+                        "success": False,
+                        "error": url_result.get('error', 'Unknown error'),
+                        "message": "Failed to update todo heading"
+                    }
+                    if url_result.get('hint'):
+                        response['hint'] = url_result['hint']
+                    return response
+
+            # Schedule if when date provided
+            if when:
+                schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
+                response = {
+                    "success": True,
+                    "message": "Todo updated and scheduled successfully",
+                    "scheduling": schedule_result
                 }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to update todo"
+                if warnings:
+                    response["warnings"] = warnings
+                return response
+
+            response = {
+                "success": True,
+                "message": "Todo updated successfully"
             }
+            if warnings:
+                response["warnings"] = warnings
+            return response
 
         except Exception as e:
             logger.error(f"Error updating todo: {e}")

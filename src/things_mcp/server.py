@@ -475,7 +475,9 @@ class ThingsMCPServer:
             when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
             deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
-            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)"),
+            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
+            list_id: Optional[str] = Field(None, description="Project/area ID to move the to-do into when combined with heading (Things URL scheme supports moving + placing under a heading in one call). Only consulted when heading is also given")
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
@@ -485,6 +487,19 @@ class ThingsMCPServer:
             tags='' clears all tags. title='' is rejected with a validation
             error (titles cannot be cleared). when='' is also rejected -
             use when='anytime' or when='someday' to unschedule instead.
+
+            heading moves the to-do under that heading via the Things URL
+            scheme (things:///update) - AppleScript cannot do this. It
+            requires the Things auth token to be configured; without one
+            this returns {"success": False, "error": "...", "hint": "..."}
+            and no field (including title/notes/tags/etc. in the same call)
+            is applied. heading='' is rejected (no way to clear a heading
+            via update). The heading must already exist in the target
+            project or Things silently ignores it (ends up in the project,
+            not under the heading) - a warning is returned when the heading
+            could not be confirmed to exist. If the to-do has no project and
+            list_id is not also given, a warning is returned (URL-scheme
+            'heading' has no effect without a project).
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -533,11 +548,13 @@ class ThingsMCPServer:
                     when=when,
                     deadline=deadline,
                     completed=completed_bool,
-                    canceled=canceled_bool
+                    canceled=canceled_bool,
+                    heading=heading,
+                    list_id=list_id
                 )
-                
+
                 # Enhance response with tag validation feedback if available
-                if (tag_list and self.tools.tag_validation_service and 
+                if (tag_list and self.tools.tag_validation_service and
                     hasattr(result, 'get') and result.get('success')):
                     # Get tag validation info from the result
                     if 'tag_info' in result:
@@ -548,7 +565,7 @@ class ThingsMCPServer:
                             result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
-                
+
                 return result
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
