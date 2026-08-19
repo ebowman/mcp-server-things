@@ -67,6 +67,7 @@ result = self.applescript_manager.execute_script(script)
 2. **Large data timeouts**: Use response modes (summary, minimal) and pagination
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
+5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
 
 ### Boot Diagnostics (v1.5.0+)
 
@@ -934,7 +935,8 @@ replace_checklist_items(
    - Use comma-separated format: `"tag1,tag2"` not `"tag1, tag2"`
 
 2. **Date formats** - Use consistent formats:
-   - Dates: `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`
+   - `when` (scheduling): `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`, `'anytime'`, `'evening'` (alias `'tonight'` - schedules for This Evening; on `update_todo`/`bulk_update_todos` this requires the Things auth token, since only the Things URL scheme, not AppleScript, can set the Evening flag; not supported for projects)
+   - `deadline`: always `YYYY-MM-DD` - relative keywords like `'today'` are rejected on every tool (add/update/bulk)
 
 3. **Limits** - Respect parameter limits:
    - Search results: max 500

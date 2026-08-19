@@ -402,8 +402,8 @@ class ThingsMCPServer:
             title: str = Field(..., min_length=1, description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
             tags: Optional[str] = Field(None, description="Comma-separated tags (only existing tags applied)"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening), 'someday', 'anytime', or a date (e.g., '2024-12-25', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="Deadline for the todo. Must be YYYY-MM-DD - relative keywords like 'today' are rejected"),
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
@@ -415,7 +415,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -472,8 +472,8 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening; requires the Things URL-scheme auth token, see hint below), 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)"),
             heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
@@ -500,6 +500,18 @@ class ThingsMCPServer:
             could not be confirmed to exist. If the to-do has no project and
             list_id is not also given, a warning is returned (URL-scheme
             'heading' has no effect without a project).
+
+            when='evening' (alias 'tonight') schedules the to-do for This
+            Evening. Like heading, this is only possible via the Things URL
+            scheme (things:///update) and requires the Things auth token to
+            be configured; without one this returns {"success": False,
+            "error": "...", "hint": "..."} and no field in the same call is
+            applied. If the token IS configured and when='evening' is
+            combined with other fields (title/notes/tags/deadline/etc.) in
+            the same call, those AppleScript-only fields are applied FIRST,
+            then the URL-scheme evening schedule is applied second - if
+            that second URL-scheme call itself fails, the already-applied
+            fields are NOT rolled back (same ordering/caveat as heading).
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -508,7 +520,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -577,8 +589,8 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title for all todos. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes for all todos. Omit to leave unchanged; pass '' to clear notes on all todos"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags on all todos"),
-            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD). Omit to leave unchanged; pass '' to clear the deadline on all todos"),
+            when: Optional[str] = Field(None, description="Schedule date: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening; requires the Things URL-scheme auth token), 'someday', 'anytime', or a date (e.g., '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline for all todos. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the deadline on all todos"),
             completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
@@ -591,6 +603,16 @@ class ThingsMCPServer:
             tags. title='' is rejected with a validation error (titles
             cannot be cleared). when='' is also rejected - use
             when='anytime' or when='someday' to unschedule instead.
+            when='evening' (alias 'tonight') schedules every todo for This
+            Evening via the Things URL scheme and requires the Things auth
+            token to be configured; without one this returns
+            {"success": False, "error": "...", "hint": "..."} and no field
+            is applied to any todo. If the token IS configured, other
+            fields (title/notes/tags/deadline/etc.) are applied to each
+            todo via AppleScript FIRST, then the URL-scheme evening
+            schedule is applied second per todo - if the evening
+            scheduling call fails for a given todo, the other fields
+            already applied to that todo are NOT rolled back.
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -599,7 +621,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -866,8 +888,8 @@ class ThingsMCPServer:
             title: str = Field(..., min_length=1, description="Title of the project"),
             notes: Optional[str] = Field(None, description="Notes for the project"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="Deadline for the project"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). 'evening'/'tonight' is not supported for projects - Things has no This Evening concept for projects"),
+            deadline: Optional[str] = Field(None, description="Deadline for the project. Must be YYYY-MM-DD - relative keywords like 'today' are rejected"),
             area_id: Optional[str] = Field(None, description="ID of area to add to"),
             area_title: Optional[str] = Field(None, description="Title of area to add to"),
             todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
@@ -878,7 +900,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -921,8 +943,8 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). 'evening'/'tonight' is not supported for projects - Things has no This Evening concept for projects. Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             area_id: Optional[str] = Field(None, description="ID of area to move to"),
             area_title: Optional[str] = Field(None, description="Title of area to move to"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
@@ -949,7 +971,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
