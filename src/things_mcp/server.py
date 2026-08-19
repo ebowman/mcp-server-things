@@ -1190,7 +1190,7 @@ class ThingsMCPServer:
             only_unused: bool = Field(False, description="If true, only return tags with zero items (cleanup candidates)"),
             mode: str = Field("standard", description="Response mode: summary, minimal, standard, or detailed")
         ) -> Dict[str, Any]:
-            """Report how many items (todos and projects, open and total) use each tag, sorted by usage (highest first).
+            """Report how many items (todos, projects, and areas; open and total) use each tag, sorted by usage (highest first).
 
             Useful for weekly-review tag cleanup: identify rarely-used or unused tags,
             then remove them from remaining items or delete the tag manually in Things.
@@ -1198,7 +1198,18 @@ class ThingsMCPServer:
             Args:
                 only_unused: If true, return only tags with zero items (open_count and total_count both 0).
                 mode: Response mode - 'summary' (tag_count/unused_count/top 5), 'minimal' (title+open_count only),
-                    'standard'/'detailed' (full rows with title, uuid, open_count, total_count).
+                    'standard'/'detailed' (full rows with title, uuid, open_count, total_count, area_count).
+
+            Caveats:
+                - Title collisions: usage is keyed by tag title, not uuid. If two distinct
+                  tags (e.g. a parent tag and a same-named child tag) share the exact same
+                  title, their counts are merged into a single row and the reported uuid
+                  is whichever tag was returned last for that title by the underlying tag
+                  list.
+                - Area tags: tags applied to Areas are counted via `area_count` and are
+                  included in `total_count`, so a tag used only on an area will not be
+                  reported as unused. Areas have no open/closed state, so area usage never
+                  contributes to `open_count`.
             """
             try:
                 if mode not in ("summary", "minimal", "standard", "detailed"):

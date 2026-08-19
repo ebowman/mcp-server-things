@@ -255,20 +255,30 @@ remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
 
 ### Tag Usage Report (Cleanup)
 
-`get_tag_usage()` reports open/total item counts per tag in a single pass over todos
-and projects, sorted by usage (highest first) — useful for weekly-review tag cleanup:
+`get_tag_usage()` reports open/total/area item counts per tag in a single pass over
+todos, projects, and areas, sorted by usage (highest first) — useful for weekly-review
+tag cleanup:
 
 ```python
 # Full usage report, sorted by open_count desc, then total_count desc, then title
 get_tag_usage()
 
-# Only tags with zero items anywhere (open or completed/canceled) - cleanup candidates
+# Only tags with zero items anywhere (open, completed/canceled, or areas) - cleanup candidates
 get_tag_usage(only_unused=True)
 
 # Response modes: 'summary' (counts + top 5), 'minimal' (title+open_count),
-# 'standard'/'detailed' (full rows: title, uuid, open_count, total_count)
+# 'standard'/'detailed' (full rows: title, uuid, open_count, total_count, area_count)
 get_tag_usage(mode="summary")
 ```
+
+**Caveats:**
+- **Title collisions**: Usage is keyed by tag *title*, not uuid. If two distinct tags
+  share the exact same title (e.g. a parent tag and a same-named child tag), their
+  counts are merged into a single row and the reported `uuid` is whichever tag was
+  returned last for that title — it cannot be used to disambiguate the merged tags.
+- **Area tags**: Tags applied only to Areas are counted via `area_count` and included
+  in `total_count`, so an area-only tag will not show up as unused. Areas have no
+  open/closed state, so area usage never contributes to `open_count`.
 
 ### Tag Best Practices
 

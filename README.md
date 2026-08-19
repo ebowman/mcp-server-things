@@ -315,7 +315,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `search_todos(query)` - Basic search
 - `search_advanced(...)` - Advanced search with filters
 - `get_tags(include_items?)` - List tags
-- `get_tag_usage(only_unused?, mode?)` - Per-tag open/total usage counts, sorted by usage, for cleanup
+- `get_tag_usage(only_unused?, mode?)` - Per-tag open/total/area usage counts, sorted by usage, for cleanup. Caveats: tags sharing an identical title are merged into one row (uuid picks the last match), and area-only tags are counted via `area_count`/`total_count` but never affect `open_count`.
 - `create_tag(name)` - Create a new tag
 - `get_tagged_items(tag)` - Get items with specific tag
 - `add_tags(todo_id, tags)` - Add tags to a todo

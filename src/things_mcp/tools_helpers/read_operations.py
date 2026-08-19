@@ -325,10 +325,24 @@ class ReadOperations:
             return []
 
     async def get_tag_usage(self, only_unused: bool = False, mode: str = 'standard') -> Dict[str, Any]:
-        """Report per-tag usage counts (open/total) in a single pass over todos and projects.
+        """Report per-tag usage counts (open/total/area) in a single pass over todos,
+        projects, and areas.
 
-        Useful for weekly-review tag cleanup: surfaces every tag's open and total item
-        counts, sorted by usage (highest first), with an option to list only unused tags.
+        Useful for weekly-review tag cleanup: surfaces every tag's open, total, and
+        area item counts, sorted by usage (highest first), with an option to list only
+        unused tags.
+
+        Caveats:
+            - Title collisions: usage is keyed by tag *title*, not uuid. If a parent tag
+              and one of its child tags (or any two distinct tags) share the exact same
+              title, their usage counts are silently merged into a single row and the
+              reported `uuid` is whichever tag `things.tags()` returned last for that
+              title. This mirrors Things 3's own display (tags are shown by title), but
+              means merged rows cannot be disambiguated by uuid alone.
+            - Area tags: tags applied only to Areas (not to any todo or project) are now
+              counted via `area_count` and included in `total_count`, so they will not
+              appear as "unused" if used solely on an area. Areas have no open/closed
+              state, so area usage never contributes to `open_count`.
 
         Args:
             only_unused: If True, only include tags with total_count == 0.
@@ -338,7 +352,13 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_tag_usage_sync, only_unused, mode)
 
     def _get_tag_usage_sync(self, only_unused: bool, mode: str) -> Dict[str, Any]:
-        """Synchronous implementation using things.py, single pass over all items."""
+        """Synchronous implementation using things.py, single pass over all items.
+
+        Note on title collisions: usage is keyed by tag title (not uuid). If two tags
+        share the same title (e.g. a parent tag and a same-named child tag), their
+        counts are merged into one row and only one uuid is retained (see
+        `get_tag_usage` docstring for details).
+        """
         try:
             tags = things.tags()
 
@@ -351,22 +371,28 @@ class ReadOperations:
                     'uuid': tag.get('uuid'),
                     'open_count': 0,
                     'total_count': 0,
+                    'area_count': 0,
                 }
+
+            def get_entry(tag_title: str) -> Dict[str, Any]:
+                entry = usage.get(tag_title)
+                if entry is None:
+                    # Tag referenced on an item but not returned by things.tags();
+                    # track it anyway so counts aren't silently dropped.
+                    entry = {
+                        'title': tag_title,
+                        'uuid': None,
+                        'open_count': 0,
+                        'total_count': 0,
+                        'area_count': 0,
+                    }
+                    usage[tag_title] = entry
+                return entry
 
             def tally(items: List[Dict], is_open: bool) -> None:
                 for item in items:
                     for tag_title in (item.get('tags') or []):
-                        entry = usage.get(tag_title)
-                        if entry is None:
-                            # Tag referenced on an item but not returned by things.tags();
-                            # track it anyway so counts aren't silently dropped.
-                            entry = {
-                                'title': tag_title,
-                                'uuid': None,
-                                'open_count': 0,
-                                'total_count': 0,
-                            }
-                            usage[tag_title] = entry
+                        entry = get_entry(tag_title)
                         entry['total_count'] += 1
                         if is_open:
                             entry['open_count'] += 1
@@ -380,6 +406,15 @@ class ReadOperations:
             for status in ('incomplete', 'completed', 'canceled'):
                 projects = things.projects(status=status) or []
                 tally(projects, is_open=(status == 'incomplete'))
+
+            # Single pass over all areas. Areas have no open/closed state, so area
+            # usage counts toward total_count and area_count only, never open_count.
+            areas = things.areas() or []
+            for area in areas:
+                for tag_title in (area.get('tags') or []):
+                    entry = get_entry(tag_title)
+                    entry['total_count'] += 1
+                    entry['area_count'] += 1
 
             rows = list(usage.values())
 

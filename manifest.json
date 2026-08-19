@@ -147,7 +147,7 @@
     },
     {
       "name": "get_tag_usage",
-      "description": "Report how many items (todos and projects, open and total) use each tag, sorted by usage (highest first)."
+      "description": "Report how many items (todos, projects, and areas; open and total) use each tag, sorted by usage (highest first)."
     },
     {
       "name": "get_tagged_items",
