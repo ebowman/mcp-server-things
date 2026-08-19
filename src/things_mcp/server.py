@@ -23,6 +23,7 @@ from . import __version__
 from .boot_trace import boot_marker
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
+from .tools_helpers.read_operations import read_error as _tools_read_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
@@ -255,11 +256,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -267,11 +267,10 @@ class ThingsMCPServer:
 
                 # Validate status parameter
                 if status is not None and status not in ["incomplete", "completed", "canceled"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid status",
-                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
-                    }
+                    return self._read_error(
+                        "invalid_status",
+                        f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}",
+                    )
 
                 # Convert and validate limit parameter
                 actual_limit = None
@@ -287,17 +286,15 @@ class ThingsMCPServer:
 
                         # Validate range
                         if actual_limit < 1 or actual_limit > 500:
-                            return {
-                                "success": False,
-                                "error": "Invalid limit value",
-                                "message": f"Limit must be between 1 and 500, got {actual_limit}"
-                            }
+                            return self._read_error(
+                                "invalid_limit",
+                                f"Limit must be between 1 and 500, got {actual_limit}",
+                            )
                     except (ValueError, TypeError) as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid limit parameter",
-                            "message": f"Limit must be a number between 1 and 500, got '{limit}'"
-                        }
+                        return self._read_error(
+                            "invalid_limit",
+                            f"Limit must be a number between 1 and 500, got '{limit}'",
+                        )
 
                 # Prepare request parameters
                 request_params = {
@@ -855,11 +852,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -1037,11 +1033,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -1349,7 +1344,10 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
-                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
+                return self._read_error(
+                    "internal_error", str(e),
+                    todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
+                )
 
         @self.mcp.tool()
         async def get_activating_in_days(
@@ -1363,7 +1361,10 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
-                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
+                return self._read_error(
+                    "internal_error", str(e),
+                    todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
+                )
         
         # Tag management tools
         @self.mcp.tool()
@@ -1430,11 +1431,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 headings_result = await self.tools.get_project_headings(project_id=project_id)
                 if isinstance(headings_result, dict) and headings_result.get('error'):
@@ -1490,11 +1490,10 @@ class ThingsMCPServer:
             """
             try:
                 if mode not in ("summary", "minimal", "standard", "detailed"):
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}",
+                    )
                 usage_data = await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
                 return self._read_result(usage_data, mode=mode)
             except Exception as e:
@@ -1530,11 +1529,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -1542,20 +1540,18 @@ class ThingsMCPServer:
 
                 # Validate status parameter
                 if status is not None and status not in ["incomplete", "completed", "canceled"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid status",
-                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
-                    }
+                    return self._read_error(
+                        "invalid_status",
+                        f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}",
+                    )
 
                 # Reject empty/whitespace-only query - an empty substring matches
                 # every todo's title/notes, which is never a useful search result.
                 if not query or not query.strip():
-                    return {
-                        "success": False,
-                        "error": "Invalid query",
-                        "message": "query must not be empty or whitespace-only"
-                    }
+                    return self._read_error(
+                        "invalid_query",
+                        "query must not be empty or whitespace-only",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -1633,35 +1629,32 @@ class ThingsMCPServer:
                 
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                        "valid_modes": ["auto", "summary", "minimal", "standard", "detailed", "raw"]
-                    }
-                
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                        valid_modes=["auto", "summary", "minimal", "standard", "detailed", "raw"],
+                    )
+
                 # Validate date formats
                 if start_date:
                     try:
                         datetime.strptime(start_date, '%Y-%m-%d')
                     except ValueError:
-                        return {
-                            "success": False,
-                            "error": "Invalid start_date format",
-                            "message": f"start_date must be in YYYY-MM-DD format. Got: {start_date}",
-                            "example": "2024-12-25"
-                        }
-                
+                        return self._read_error(
+                            "invalid_start_date_format",
+                            f"start_date must be in YYYY-MM-DD format. Got: {start_date}",
+                            example="2024-12-25",
+                        )
+
                 if deadline:
                     try:
                         datetime.strptime(deadline, '%Y-%m-%d')
                     except ValueError:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline format",
-                            "message": f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
-                            "example": "2024-12-31"
-                        }
+                        return self._read_error(
+                            "invalid_deadline_format",
+                            f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
+                            example="2024-12-31",
+                        )
                 
                 # Prepare request parameters
                 request_params = {
@@ -2200,7 +2193,32 @@ class ThingsMCPServer:
         # get_upcoming(), get_logbook() instead for specific time-based queries.
 
         logger.info("All MCP tools registered successfully")
-    
+
+    @staticmethod
+    def _read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+        """Build the canonical structured-error shape for a read tool.
+
+        Every read tool's structured (non-raising) error path should return
+        this shape so MCP clients can rely on a single contract:
+        ``{"success": False, "error": "<snake_case_code>", "message": "<human text>", ...}``.
+
+        Delegates to ``tools_helpers.read_operations.read_error`` - the
+        single shared implementation used by both this server-tool layer and
+        the tools layer (``ReadOperations``), so the two can never diverge.
+
+        Args:
+            code: Short, stable, machine-readable snake_case error code (e.g.
+                'invalid_mode', 'unknown_tag', 'not_found'). Stable across
+                releases - clients may switch on this value.
+            message: Human-readable explanation of the error.
+            **extra: Additional fields to merge into the result (e.g. 'tag',
+                'suggestions', 'valid_modes', 'example').
+
+        Returns:
+            A dict with 'success', 'error', 'message', plus any extra fields.
+        """
+        return _tools_read_error(code, message, **extra)
+
     def _read_result(
         self,
         response: Union[Dict[str, Any], List[Dict[str, Any]]],

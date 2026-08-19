@@ -402,6 +402,21 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
 
+#### Structured error contract
+
+When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-range `limit`, an unknown tag, an id that doesn't resolve to the expected type, etc.) it returns a structured error **instead of** the items envelope above, in one canonical shape:
+
+```json
+{"success": false, "error": "invalid_mode", "message": "Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: bogus"}
+```
+
+- `success` - always `false` on a structured error.
+- `error` - a short, stable, machine-readable snake_case code (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`, `unknown_tag`, `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`). Safe to switch on; does not change wording across releases.
+- `message` - a human-readable explanation, safe to display but not safe to pattern-match on (wording may change).
+- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`).
+
+This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items` - reports errors identically, and the two layers cannot drift apart. `get_todo_by_id` is the one exception: it raises (surfaced by FastMCP as a `ToolError`, no `structured_content`) rather than returning a structured error, because it has no natural "envelope" shape to fall back to.
+
 ### Someday: opt-in project-task inheritance
 
 `get_someday(include_project_tasks?)` defaults to `include_project_tasks=false` and returns only items whose own start state is Someday (`things.someday()`). Things 3 also lets tasks inherit "Someday" from a parent project even when things.py reports their own start state as Anytime/other; on databases with many Someday projects this inherited set can be very large (in practice, many times larger than the native set) and, under response-mode truncation, would crowd out the native items. Pass `include_project_tasks=true` to also include those inherited tasks - each is marked `inheritedSomeday: true` in the response so callers can distinguish them. This only affects `get_someday`; `get_today`, `get_anytime`, and `get_upcoming` always exclude tasks that belong to a Someday project (matching Things UI behavior) regardless of this flag.

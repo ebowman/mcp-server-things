@@ -65,6 +65,29 @@ def _get_someday_project_ids() -> set:
         return set()
 
 
+def read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+    """Build the canonical structured-error shape for a read tool/operation.
+
+    Single source of truth for the read-tool error contract:
+    ``{"success": False, "error": "<snake_case_code>", "message": "<human text>", ...}``.
+    ``ThingsMCPServer._read_error`` (server.py) delegates to this function so
+    there is exactly one implementation shared by every read-tool structured
+    error path, at both the tools-layer (this module) and server-tool layer.
+
+    Args:
+        code: Short, stable, machine-readable snake_case error code (e.g.
+            'invalid_mode', 'unknown_tag', 'not_found'). Stable across
+            releases - clients may switch on this value.
+        message: Human-readable explanation of the error.
+        **extra: Additional fields to merge into the result (e.g. 'tag',
+            'suggestions', 'valid_modes', 'example').
+
+    Returns:
+        A dict with 'success', 'error', 'message', plus any extra fields.
+    """
+    return {"success": False, "error": code, "message": message, **extra}
+
+
 def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
     """Build a structured error for a tag that things.py did not recognize.
 
@@ -79,9 +102,11 @@ def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
         tag: The tag string that was requested and rejected by things.py.
 
     Returns:
-        Dict with success=False, error='unknown_tag', the offending tag, and
-        a (possibly empty) list of case-insensitive title matches from
-        things.tags() to help the caller find the correctly-cased tag.
+        Dict with success=False, error='unknown_tag', a human-readable
+        'message' (mentioning suggestions when any were found), the
+        offending tag, and a (possibly empty) list of case-insensitive
+        title matches from things.tags() to help the caller find the
+        correctly-cased tag.
     """
     suggestions: List[str] = []
     try:
@@ -95,12 +120,12 @@ def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"Error building tag suggestions for '{tag}': {e}")
 
-    return {
-        'success': False,
-        'error': 'unknown_tag',
-        'tag': tag,
-        'suggestions': suggestions,
-    }
+    if suggestions:
+        message = f"Unknown tag {tag!r}. Did you mean: {', '.join(suggestions)}?"
+    else:
+        message = f"Unknown tag {tag!r}."
+
+    return read_error('unknown_tag', message, tag=tag, suggestions=suggestions)
 
 
 def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]]) -> Optional[str]:
@@ -542,7 +567,7 @@ class ReadOperations:
 
         except Exception as e:
             logger.error(f"Error in _get_tag_usage_sync: {e}")
-            return {'error': str(e), 'tags': []}
+            return read_error('internal_error', str(e), tags=[])
 
     @staticmethod
     def _format_tag_usage_response(rows: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
@@ -992,7 +1017,8 @@ class ReadOperations:
             On success: {'items': [{'uuid', 'title', 'index', 'todoCount'}, ...]}
             in Things' own heading order.
             On failure (unknown id, or id resolves to something other than a
-            project): {'error': True, 'error_type': ..., 'message': ...}.
+            project): the canonical structured-error shape
+            {'success': False, 'error': ..., 'message': ...}.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_project_headings_sync, project_id)
@@ -1002,20 +1028,17 @@ class ReadOperations:
         try:
             project = things.get(project_id)
             if project is None:
-                return {
-                    'error': True,
-                    'error_type': 'not_found',
-                    'message': f"No item found with id: {project_id}",
-                }
+                return read_error(
+                    'not_found', f"No item found with id: {project_id}",
+                )
             if project.get('type') != 'project':
-                return {
-                    'error': True,
-                    'error_type': 'invalid_type',
-                    'message': (
+                return read_error(
+                    'invalid_type',
+                    (
                         f"Item {project_id} is a '{project.get('type')}', not a project. "
                         "get_project_headings only accepts project ids."
                     ),
-                }
+                )
 
             headings = things.tasks(type='heading', project=project_id) or []
 
@@ -1034,11 +1057,7 @@ class ReadOperations:
 
         except Exception as e:
             logger.error(f"Error in _get_project_headings_sync: {e}")
-            return {
-                'error': True,
-                'error_type': 'internal_error',
-                'message': str(e),
-            }
+            return read_error('internal_error', str(e))
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific Things item by ID.
@@ -1293,14 +1312,13 @@ class ReadOperations:
                     f"Invalid type '{todo_type}' in search_advanced; "
                     f"must be one of {sorted(valid_types)}"
                 )
-                return [{
-                    'error': True,
-                    'error_type': 'invalid_parameter',
-                    'message': (
+                return [read_error(
+                    'invalid_parameter',
+                    (
                         f"Invalid type '{todo_type}'. "
                         f"Must be one of: {', '.join(sorted(valid_types))}"
-                    )
-                }]
+                    ),
+                )]
 
             # Build things.py query parameters. Unlike things.py itself (which
             # defaults status to 'incomplete'), search_advanced with no status

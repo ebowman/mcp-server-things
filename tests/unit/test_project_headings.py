@@ -107,8 +107,8 @@ class TestGetProjectHeadingsErrors:
 
             result = await things_tools.get_project_headings(project_id="does-not-exist")
 
-            assert result.get('error') is True
-            assert 'error_type' in result
+            assert result.get('success') is False
+            assert result.get('error') == 'not_found'
             mock_tasks.assert_not_called()
 
     @pytest.mark.asyncio
@@ -121,7 +121,8 @@ class TestGetProjectHeadingsErrors:
 
             result = await things_tools.get_project_headings(project_id="area-1")
 
-            assert result.get('error') is True
+            assert result.get('success') is False
+            assert result.get('error') == 'invalid_type'
             mock_tasks.assert_not_called()
 
     @pytest.mark.asyncio
@@ -134,7 +135,8 @@ class TestGetProjectHeadingsErrors:
 
             result = await things_tools.get_project_headings(project_id="todo-1")
 
-            assert result.get('error') is True
+            assert result.get('success') is False
+            assert result.get('error') == 'invalid_type'
             mock_tasks.assert_not_called()
 
     @pytest.mark.asyncio
@@ -147,7 +149,8 @@ class TestGetProjectHeadingsErrors:
 
             result = await things_tools.get_project_headings(project_id="heading-1")
 
-            assert result.get('error') is True
+            assert result.get('success') is False
+            assert result.get('error') == 'invalid_type'
             mock_tasks.assert_not_called()
 
 
@@ -290,7 +293,7 @@ class TestGetProjectHeadingsStructuredContent:
 
         payload = result.structured_content
         assert payload.get('success') is False
-        assert payload.get('error') == 'Invalid mode'
+        assert payload.get('error') == 'invalid_mode'
 
     @pytest.mark.asyncio
     async def test_server_tool_propagates_structured_error(self):
@@ -304,8 +307,8 @@ class TestGetProjectHeadingsStructuredContent:
         mock_tools = MagicMock()
         mock_tools.tag_validation_service = None
         mock_tools.get_project_headings = AsyncMock(return_value={
-            'error': True,
-            'error_type': 'not_found',
+            'success': False,
+            'error': 'not_found',
             'message': 'No item found with id: does-not-exist',
         })
         server.tools = mock_tools
@@ -315,5 +318,5 @@ class TestGetProjectHeadingsStructuredContent:
             result = await client.call_tool("get_project_headings", {"project_id": "does-not-exist"})
 
         payload = result.structured_content
-        assert payload.get('error') is True
-        assert payload.get('error_type') == 'not_found'
+        assert payload.get('success') is False
+        assert payload.get('error') == 'not_found'

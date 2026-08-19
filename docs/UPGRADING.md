@@ -122,6 +122,26 @@ have automation or prompts that depend on exact output shape, check these:
   `None`) to preserve the old "leave unchanged" behavior; if any caller
   passed `title=''` or `when=''` expecting it to be silently ignored,
   expect a `VALIDATION_ERROR` response instead.
+- **Read tools' structured errors now use a single canonical shape:
+  `{"success": false, "error": "<snake_case_code>", "message": "..."}`.**
+  Previously the `error` field's meaning varied by tool: some tools (e.g.
+  `get_todos`/`get_projects`/`get_areas`/`search_todos`/`search_advanced`
+  on an invalid `mode`) put a human-readable sentence directly in `error`
+  (e.g. `"Invalid mode"`); `get_project_headings` used a different shape
+  entirely (`{"error": true, "error_type": "not_found", "message": "..."}`).
+  All read tools now put a short, stable, machine-readable code in `error`
+  (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`,
+  `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`) and
+  move the human-readable sentence to `message`; `unknown_tag` was already
+  code-shaped but previously carried no `message` at all - it now does too
+  (e.g. `"Unknown tag 'LLM-WIKI'. Did you mean: llm-wiki?"`). What to do: if
+  any caller pattern-matched on the literal text previously in `error` (e.g.
+  checked `error == "Invalid mode"` or `error is True`), switch to checking
+  the new code (e.g. `error == "invalid_mode"`) and/or `success is False`;
+  reading `message` for display text is unaffected, and any caller that
+  already read `message` off an `unknown_tag` error should note it is now
+  always present rather than absent. `get_todo_by_id` is unchanged — it
+  still raises rather than returning a structured error.
 
 ## Recommended: switch to uvx
 

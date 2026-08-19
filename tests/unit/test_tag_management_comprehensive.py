@@ -628,6 +628,7 @@ class TestGetTaggedItems:
             assert result == {
                 'success': False,
                 'error': 'unknown_tag',
+                'message': "Unknown tag 'nonexistent-tag'.",
                 'tag': 'nonexistent-tag',
                 'suggestions': [],
             }
