@@ -164,6 +164,20 @@ class ThingsMCPServer:
             signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
             signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
     
+    async def _registered_tool_count(self) -> int:
+        """Return the number of tools currently registered with the MCP server.
+
+        Computed at runtime from the FastMCP tool registry so this value never
+        drifts from the actual set of registered tools. Falls back defensively
+        if the registry call fails for any reason.
+        """
+        try:
+            tools = await self.mcp.list_tools()
+            return len(tools)
+        except Exception as e:
+            logger.debug(f"Failed to compute registered tool count from FastMCP registry: {e}")
+            return 0
+
     def _register_tools(self) -> None:
         """Register all MCP tools with the server."""
         
@@ -1513,13 +1527,14 @@ class ThingsMCPServer:
         async def get_server_capabilities(request: Optional[ServerCapabilitiesRequest] = None) -> Dict[str, Any]:
             """Get server capabilities, features, API coverage, and optimization settings. Returns structured information about available tools, response modes, and performance characteristics."""
             try:
+                total_tools = await self._registered_tool_count()
                 capabilities = {
                     "server_info": {
                         "name": "Things 3 MCP Server",
                         "version": __version__,
                         "platform": "macOS",
                         "framework": "FastMCP 3.x",
-                        "total_tools": 30  # Updated count including add_area/update_area/get_tag_usage
+                        "total_tools": total_tools
                     },
                     "features": {
                         "context_optimization": {
@@ -1565,7 +1580,7 @@ class ThingsMCPServer:
                         }
                     },
                     "api_coverage": {
-                        "total_tools": 30,
+                        "total_tools": total_tools,
                         "applescript_coverage_percentage": 45,
                         "workflow_operations": ["create", "read", "update", "delete", "move", "search"],
                         "list_operations": ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"],

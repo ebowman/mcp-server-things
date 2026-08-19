@@ -385,3 +385,28 @@ class TestGetSomedayIncludeProjectTasks:
         assert uuids == {"native1", "inherited1"}
         inherited_item = next(i for i in sc["items"] if i["uuid"] == "inherited1")
         assert inherited_item.get("inheritedSomeday") is True
+
+
+class TestServerCapabilitiesTotalTools:
+    """Verify get_server_capabilities.total_tools stays in sync with the real
+    number of tools registered with the FastMCP server (hq-d9q)."""
+
+    @pytest.mark.asyncio
+    async def test_total_tools_matches_registered_tool_count(self):
+        """The registered tool count from client.list_tools() must equal both
+        server_info.total_tools and api_coverage.total_tools in the
+        get_server_capabilities structured_content."""
+        server = _make_server_with_mock_tools()
+
+        client = Client(server.mcp)
+        async with client:
+            registered_tools = await client.list_tools()
+            result = await client.call_tool("get_server_capabilities", {})
+
+        sc = result.structured_content
+        assert sc is not None
+
+        registered_count = len(registered_tools)
+        assert registered_count > 0
+        assert sc["server_info"]["total_tools"] == registered_count
+        assert sc["api_coverage"]["total_tools"] == registered_count
