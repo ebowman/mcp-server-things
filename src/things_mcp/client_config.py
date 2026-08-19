@@ -36,6 +36,21 @@ DEFAULT_CLAUDE_DESKTOP_CONFIG_PATH = (
 
 _CLAUDE_CONFIG_PATH_ENV_VAR = "THINGS_MCP_CLAUDE_CONFIG_PATH"
 
+# Args for the generated `uvx` launch config. A stray x86_64/Rosetta Python
+# resolved from the host app's environment (e.g. Claude Desktop bundling a
+# miniconda) can leave `uvx` selecting an interpreter for which
+# `cryptography` has no prebuilt wheel, forcing a maturin source build that
+# fails without a Rust toolchain and silently kills server startup.
+# `--python-preference only-managed --python 3.12` forces uv to use its own
+# managed, native-arch CPython instead of anything discovered on PATH.
+UVX_ARGS = [
+    "--python-preference",
+    "only-managed",
+    "--python",
+    "3.12",
+    "mcp-server-things",
+]
+
 
 class ClientConfigError(Exception):
     """Raised when a config request cannot be satisfied (refusal or error).
@@ -71,7 +86,7 @@ def build_server_config(via: str = "uvx") -> dict:
         ValueError: If ``via`` is not one of the supported choices.
     """
     if via == "uvx":
-        return {"command": "uvx", "args": ["mcp-server-things"]}
+        return {"command": "uvx", "args": list(UVX_ARGS)}
     if via == "current-python":
         return {"command": sys.executable, "args": ["-m", "things_mcp"]}
     raise ValueError(f"Unknown via option: {via!r} (expected one of {VIA_CHOICES})")

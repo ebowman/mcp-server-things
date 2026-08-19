@@ -90,11 +90,15 @@ manage a virtual environment or Python path for this server.
   "mcpServers": {
     "things": {
       "command": "uvx",
-      "args": ["mcp-server-things"]
+      "args": ["--python-preference", "only-managed", "--python", "3.12", "mcp-server-things"]
     }
   }
 }
 ```
+
+The generated config pins uv's managed Python (`--python-preference
+only-managed`) so a stray Intel/Rosetta Python on your PATH can't break the
+install; first launch may download a managed CPython.
 
 The fastest way to make this switch for Claude Desktop is the `config` CLI
 shortcut, which safely merges the entry into your existing config (backing up
@@ -108,7 +112,7 @@ mcp-server-things config --client claude-desktop --write
 For Claude Code, add the server with one command:
 
 ```bash
-claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}'
+claude mcp add-json things '{"command":"uvx","args":["--python-preference","only-managed","--python","3.12","mcp-server-things"]}'
 ```
 
 **Note:** the `uvx mcp-server-things` path requires release 1.6.0 or later
