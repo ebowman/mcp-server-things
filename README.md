@@ -391,6 +391,59 @@ actually needs fixing). Use `mcp-server-things doctor --json` for
 machine-readable output, or `python -m things_mcp doctor` if you're running
 from source.
 
+#### Reads fail but writes work ("unable to open database file")
+
+| Operation | Result |
+|---|---|
+| Read tools (`get_today`, `get_inbox`, `search_todos`, ...) | Fail instantly with `unable to open database file` |
+| Write tools (`add_todo`, `update_todo`, ...) | Work normally |
+| URL-scheme features needing the auth token | Also fail (the token is read from the same database) |
+
+**Cause:** Under Claude Desktop, MCP servers are spawned via
+`/Applications/Claude.app/Contents/Helpers/disclaimer`, which disclaims TCC
+(privacy/permissions) responsibility for the process it launches. As a
+result, the spawned server does **not** inherit Claude Desktop's Full Disk
+Access grant, even though Claude.app itself has it. The Things 3 SQLite
+database lives under the TCC-protected
+`~/Library/Group Containers/JLMPQHK86H.com.culturedcode.ThingsMac/ThingsData-*/Things Database.thingsdatabase/main.sqlite`
+(confirmed via `things.database.Database().filepath` - the same read path
+this server uses for every read tool), so any process without Full Disk
+Access gets `unable to open database file` immediately. Granting Full Disk
+Access to Claude.app does **not** fix this, since the disclaimer helper is
+what actually launches the server process.
+
+**Fix ladder** (try in order):
+
+1. **Recommended:** Run the server with HTTP transport from a Terminal,
+   which already has disk access, instead of letting Claude Desktop spawn it
+   directly:
+   ```bash
+   THINGS_MCP_TRANSPORT=http THINGS_MCP_PORT=8000 uvx mcp-server-things
+   ```
+   Then point Claude Code at it:
+   ```bash
+   claude mcp add --transport http things http://127.0.0.1:8000/mcp
+   ```
+   Stdio-only clients (including Claude Desktop) can bridge to the HTTP
+   server with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
+   ```bash
+   npx mcp-remote http://127.0.0.1:8000/mcp
+   ```
+2. Grant Full Disk Access directly to the actual launched binary (e.g. the
+   `uvx` executable or the venv `python` in uv's cache) via System Settings ->
+   Privacy & Security -> Full Disk Access. This works but is fragile - the
+   grant can silently break when Homebrew/uv updates the binary, and the FDA
+   picker sometimes greys out these paths, requiring drag-and-drop from
+   Finder to add them.
+3. Run `mcp-server-things doctor` to confirm the fix - the "Database
+   readable" row reports PASS once Full Disk Access (or the HTTP transport
+   workaround) is in place.
+
+This is the same failure mode reported upstream in
+[hald/things-mcp#62](https://github.com/hald/things-mcp/issues/62); we've
+verified it applies here too since we read the Things database via the same
+`things.py` library and code path.
+
 ### Common Issues
 
 #### Permission Denied Errors
