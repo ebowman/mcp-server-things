@@ -1166,9 +1166,14 @@ class ReadOperations:
         """Get a specific Things item by ID.
 
         Resolves any Things item id, not just to-dos - the returned item's
-        `type` field ('to-do', 'heading', or 'project') tells you which kind
-        it is. Trashed items also resolve; when trashed, the result includes
-        `trashed: True`. Raises ValueError if the id does not exist.
+        `type` field ('to-do', 'heading', 'project', or 'area') tells you
+        which kind it is. Trashed items also resolve; when trashed, the
+        result includes `trashed: True`. A tag id resolves to a structured
+        error (`error: 'invalid_type'`) rather than an item, since a tag is
+        a label, not a retrievable item - use `get_tags()`/`get_tagged_items()`
+        for tags instead. Raises ValueError if the id does not exist at all.
+        As it always has, a to-do result always carries a `checklist` key
+        (a list, `[]` when the to-do has no checklist).
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
@@ -1181,6 +1186,24 @@ class ReadOperations:
         linear scan over things.todos() (to-do only, excludes trashed). This
         means projects, headings, and trashed items now resolve instead of
         raising 'Todo not found'.
+
+        things.get() falls through tasks() -> areas() -> tags() in turn, so
+        it also resolves area and tag uuids (things.py 1.0.1). Areas dispatch
+        to convert_area (type 'area'). Tags are not items with content of
+        their own - things.get() returns a bare {'uuid', 'type': 'tag',
+        'title', 'shortcut'} row for them - so a tag id returns a structured
+        invalid_type error instead of a thin/misleading item; use
+        get_tags()/get_tagged_items() for tags.
+
+        things.get(uuid) internally forces include_items=True for any
+        single-uuid lookup (things.py tasks(), 1.0.1), so a to-do's
+        `checklist` key - when the to-do actually has a checklist - is
+        already the full list of checklist item dicts; no separate
+        things.checklist_items() re-fetch is needed. things.py omits the
+        `checklist` key entirely (rather than emitting an empty list) for a
+        to-do with no checklist, but get_todo_by_id has always guaranteed a
+        `checklist` list is present in its result (see docs/UPGRADING.md),
+        so that case is normalized to `checklist: []` here.
         """
         try:
             item = things.get(todo_id)
@@ -1190,7 +1213,18 @@ class ReadOperations:
 
             item_type = item.get('type', 'to-do')
 
-            if item_type == 'project':
+            if item_type == 'tag':
+                return read_error(
+                    'invalid_type',
+                    (
+                        f"Item {todo_id} is a tag, not a retrievable item. "
+                        "Use get_tags() or get_tagged_items() for tags."
+                    ),
+                )
+
+            if item_type == 'area':
+                converted = ToolsHelpers.convert_area(item)
+            elif item_type == 'project':
                 converted = ToolsHelpers.convert_project(item)
             else:
                 # 'to-do' and 'heading' both use convert_todo; convert_todo
@@ -1212,12 +1246,23 @@ class ReadOperations:
                     except Exception as e:
                         logger.debug(f"Error resolving heading project for todo {todo_id}: {e}")
 
+                # things.get() already forces include_items=True, so
+                # item['checklist'] (when present) is already the full list
+                # of checklist item dicts, not the has-checklist bool that
+                # things.tasks() returns without include_items. Normalize to
+                # the same {'title', 'status'} shape used elsewhere (e.g.
+                # get_todos(include_items=True)) rather than passing through
+                # the raw things.py rows (which also carry uuid/type/
+                # created/modified/stop_date). get_todo_by_id has always
+                # fetched checklist items for to-dos (see docs/UPGRADING.md),
+                # so a to-do with no checklist column (things.py omits the
+                # key entirely rather than emitting an empty list) still
+                # gets an explicit checklist: [] here, not a missing key.
                 if item_type == 'to-do':
-                    try:
-                        items = things.checklist_items(todo_id)
-                        converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
-                    except (KeyError, TypeError) as e:
-                        logger.warning(f"Could not fetch checklist items for todo {todo_id}: {e}")
+                    raw_checklist = item.get('checklist')
+                    converted['checklist'] = [
+                        {'title': i.get('title'), 'status': i.get('status')} for i in raw_checklist
+                    ] if isinstance(raw_checklist, list) else []
 
             if item.get('trashed'):
                 converted['trashed'] = True

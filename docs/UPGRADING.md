@@ -140,8 +140,13 @@ have automation or prompts that depend on exact output shape, check these:
   the new code (e.g. `error == "invalid_mode"`) and/or `success is False`;
   reading `message` for display text is unaffected, and any caller that
   already read `message` off an `unknown_tag` error should note it is now
-  always present rather than absent. `get_todo_by_id` is unchanged — it
-  still raises rather than returning a structured error.
+  always present rather than absent. `get_todo_by_id` still raises
+  (`ValueError`, surfaced as a FastMCP `ToolError`) for an id that doesn't
+  exist at all, but as of hq-f0w.23 it now returns a structured
+  `invalid_type` error (at the top level of the tool response, not nested
+  under `item`) instead of raising when the id resolves to a tag - a tag
+  is a label, not a retrievable item; use `get_tags()`/`get_tagged_items()`
+  for tags.
 
 ## Recommended: switch to uvx
 

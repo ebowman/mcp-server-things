@@ -797,14 +797,22 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get a specific Things item by its ID.
 
-            Resolves any Things item id, not just to-dos - projects and
-            headings resolve too. The returned item's `type` field
-            ('to-do', 'heading', or 'project') tells you which kind it is.
-            Trashed items also resolve, with `trashed: true` included in
-            the result.
+            Resolves any Things item id, not just to-dos - projects, headings,
+            and areas resolve too. The returned item's `type` field
+            ('to-do', 'heading', 'project', or 'area') tells you which kind
+            it is. Trashed items also resolve, with `trashed: true` included
+            in the result.
+
+            A tag id returns the canonical structured error at the top level
+            (`{"success": false, "error": "invalid_type", "message": ...}`,
+            not nested under `item`) instead of an item - a tag is a label,
+            not a retrievable item; use `get_tags()` or `get_tagged_items()`
+            for tags. An id that does not exist at all raises an error.
             """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)
+                if isinstance(todo, dict) and todo.get('success') is False:
+                    return todo
                 return {"item": todo}
             except Exception as e:
                 logger.error(f"Error getting todo by ID: {e}")
