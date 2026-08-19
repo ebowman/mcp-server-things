@@ -111,10 +111,10 @@ For Claude Code, add the server with one command:
 claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}'
 ```
 
-**Note:** the `uvx mcp-server-things` path requires the 1.6.0 PyPI release
-(it depends on the `things-mcp`/`mcp-server-things` wheel entry-point fix
-described above). Until 1.6.0 is published, keep your existing venv-based
-config — it will continue to work unchanged.
+**Note:** the `uvx mcp-server-things` path requires release 1.6.0 or later
+(earlier published wheels had a broken console-script entry point). Your
+existing venv-based config also continues to work unchanged if you prefer
+not to switch.
 
 ## Verify
 

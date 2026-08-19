@@ -21,7 +21,7 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases) and double-click it to install into Claude Desktop.
 
-The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`). Note: the .mcpb/uvx path works from the next PyPI release onward — the currently published wheel predates the console-script fix that makes `uvx mcp-server-things` resolve correctly.
+The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`).
 
 **Option B: `config` CLI**
 
