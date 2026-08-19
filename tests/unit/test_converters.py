@@ -296,6 +296,40 @@ class TestConvertProject:
         assert "completionDate" not in converted
         assert "cancellationDate" not in converted
 
+    def test_project_emits_start_startDate_index_todayIndex(self):
+        """convert_project emits start/startDate/index/todayIndex the same
+        way convert_todo emits them for to-dos (hq-f0w.29)."""
+        converted = ToolsHelpers.convert_project(PROJECT_WITH_AREA)
+
+        assert converted["start"] == "Someday"
+        assert "startDate" not in converted  # PROJECT_WITH_AREA's start_date is None
+        assert converted["index"] == -99972
+        assert converted["todayIndex"] == 0
+
+        row_with_start_date = dict(PROJECT_WITH_AREA)
+        row_with_start_date["start_date"] = "2026-01-01"
+        converted_with_start_date = ToolsHelpers.convert_project(row_with_start_date)
+        assert converted_with_start_date["startDate"] == "2026-01-01"
+
+    def test_project_reminder_time_is_emitted_as_reminderTime(self):
+        """things.py emits 'reminder_time' on a small subset of project rows
+        (live: 8/67 projects, e.g. '09:00') and convert_project surfaces it
+        as 'reminderTime' (hq-f0w.29)."""
+        row = dict(PROJECT_WITH_AREA)
+        row["reminder_time"] = "09:00"
+
+        converted = ToolsHelpers.convert_project(row)
+
+        assert converted["reminderTime"] == "09:00"
+
+    def test_project_missing_start_defaults_to_none_but_key_present(self):
+        """Rows lacking 'start' -> None, but the key is still present,
+        matching convert_todo's always_present handling of 'start'."""
+        converted = ToolsHelpers.convert_project({"uuid": "x", "title": "t"})
+
+        assert converted["start"] is None
+        assert "reminderTime" not in converted
+
     def test_completed_project_derives_completion_date(self):
         converted = ToolsHelpers.convert_project(COMPLETED_PROJECT)
 

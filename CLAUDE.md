@@ -461,11 +461,12 @@ isn't under a heading/project respectively); other fields are omitted when `null
   and where it lives) without pulling notes or checklist detail
 - **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
   `modificationDate`, `creationDate`, `tags`, `project`, `projectTitle`,
-  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`
+  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`,
+  `reminderTime`
 - **`detailed`** / **`raw`**: all fields, including `hasChecklist` (bool - only a
   real `checklist` list of items when `include_items=true` was requested),
   `completionDate`/`cancellationDate` (derived from things.py's single
-  `stop_date` field by `status`), `index`, `todayIndex`
+  `stop_date` field by `status`), `index`, `todayIndex`, `reminderTime`
 
 Note: `area` was removed from the todo field sets (a to-do row from things.py
 never actually carries an `area` key - only projects do; the field was always
@@ -473,7 +474,17 @@ absent in practice). Heading info (`heading`/`headingTitle`) comes directly from
 the Things database via things.py; when a read is served by the AppleScript path
 (`get_todos(project_uuid=...)`), these fields are filled in best-effort by a
 secondary things.py lookup after the AppleScript fetch and are omitted/`null` if
-that lookup fails.
+that lookup fails. `reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
+is only present on the small subset of to-dos/projects that actually carry a
+reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
+
+`ToolsHelpers.convert_project` emits the same STANDARD/DETAILED-mode field set
+as convert_todo where the concepts overlap - `start`, `startDate`, `index`,
+`todayIndex`, and `reminderTime` are all emitted on projects the same way they
+are on todos (hq-f0w.29), in addition to the project-specific `area`/
+`areaTitle` fields. Because context_manager.py's mode field-filtering is shared
+across todo/project/area rows, the `standard`/`detailed` field lists above
+apply to projects too.
 
 ### Performance Tips
 

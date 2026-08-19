@@ -125,10 +125,12 @@ class ToolsHelpers:
         things.py's real to-do key set (captured live, 2026-08-19) is:
         uuid, type, title, status, notes, start, start_date, deadline,
         stop_date, created, modified, index, today_index, tags, project,
-        project_title, heading, heading_title, checklist. Notably there is
-        NO 'completion_date'/'cancellation_date'/'area' key on to-do rows -
-        `stop_date` carries both, disambiguated by `status`. `checklist` (when
-        present) is a bool "has a checklist" flag, not a list of items.
+        project_title, heading, heading_title, checklist, reminder_time
+        (optional - present on a small subset of rows, live: 8/1699 todos).
+        Notably there is NO 'completion_date'/'cancellation_date'/'area' key
+        on to-do rows - `stop_date` carries both, disambiguated by `status`.
+        `checklist` (when present) is a bool "has a checklist" flag, not a
+        list of items.
 
         Args:
             todo: Todo dict from things.py (uses snake_case field names). Also
@@ -180,6 +182,7 @@ class ToolsHelpers:
             'hasChecklist': has_checklist,
             'index': todo.get('index'),
             'todayIndex': todo.get('today_index'),
+            'reminderTime': todo.get('reminder_time'),
         }
         if checklist_items is not None:
             converted['checklist'] = checklist_items
@@ -206,13 +209,20 @@ class ToolsHelpers:
         things.py project rows carry `stop_date` (not separate
         completion_date/cancellation_date keys), same as to-do rows -
         disambiguated by `status`. `area`/`area_title` are only present when
-        the project actually belongs to an area.
+        the project actually belongs to an area. `reminderTime` is emitted
+        the same way as on to-dos (things.py's `reminder_time`, present on a
+        small subset of rows - live: 8/67 projects). `start`/`startDate`/
+        `index`/`todayIndex` are emitted the same way convert_todo emits
+        them for to-dos.
 
         Args:
             project: Project dict from things.py (uses snake_case field names)
 
         Returns:
-            Converted project dict in MCP format (uses camelCase field names)
+            Converted project dict in MCP format (uses camelCase field names).
+            `start` is always present (None when things.py doesn't supply
+            it), matching convert_todo's always_present handling of the
+            same field.
         """
         status = project.get('status')
         stop_date = project.get('stop_date')
@@ -229,15 +239,26 @@ class ToolsHelpers:
             'tags': project.get('tags', []),
             'area': project.get('area'),
             'areaTitle': project.get('area_title'),
+            'start': project.get('start'),  # Inbox | Anytime | Someday
             'creationDate': project.get('created'),  # things.py: 'created'
             'modificationDate': project.get('modified'),  # things.py: 'modified'
             'completionDate': completion_date,
             'cancellationDate': cancellation_date,
-            'dueDate': project.get('deadline')  # things.py: 'deadline'
+            'dueDate': project.get('deadline'),  # things.py: 'deadline'
+            'startDate': project.get('start_date'),  # things.py: 'start_date'
+            'index': project.get('index'),
+            'todayIndex': project.get('today_index'),
+            'reminderTime': project.get('reminder_time'),
         }
 
-        # Remove None values
-        return {k: v for k, v in converted.items() if v is not None}
+        # Remove None values, but keep 'start' explicit (as None) so callers
+        # can rely on the key being present, matching convert_todo's
+        # always_present handling of the same field.
+        always_present = {'start'}
+        return {
+            k: v for k, v in converted.items()
+            if v is not None or k in always_present
+        }
 
     @staticmethod
     def convert_area(area: Dict) -> Dict:

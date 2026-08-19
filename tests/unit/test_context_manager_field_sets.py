@@ -33,6 +33,7 @@ SAMPLE_ITEM = {
     'index': -100,
     'todayIndex': 0,
     'hasChecklist': False,
+    'reminderTime': '09:00',
 }
 
 
@@ -56,6 +57,26 @@ class TestFieldFilteringByMode:
 
         for key in ('type', 'start', 'projectTitle', 'heading', 'headingTitle'):
             assert key in filtered, f"STANDARD mode missing new field: {key}"
+
+    def test_standard_mode_includes_reminderTime(self):
+        """reminderTime (hq-f0w.29) is included in STANDARD, matching the
+        other schedule-related fields (start/startDate)."""
+        engine = _engine()
+        filtered = engine._apply_field_filtering([SAMPLE_ITEM], ResponseMode.STANDARD)[0]
+
+        assert filtered.get('reminderTime') == '09:00'
+
+    def test_summary_mode_excludes_reminderTime(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering([SAMPLE_ITEM], ResponseMode.SUMMARY)[0]
+
+        assert 'reminderTime' not in filtered
+
+    def test_minimal_mode_excludes_reminderTime(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering([SAMPLE_ITEM], ResponseMode.MINIMAL)[0]
+
+        assert 'reminderTime' not in filtered
 
     def test_standard_mode_excludes_area(self):
         """'area' was removed from the todo STANDARD field set - things.py
@@ -133,6 +154,7 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
             start_date="2026-01-01",
             deadline="2026-02-01",
             stop_date="2026-01-15 10:00:00",
+            reminder_time="09:00",
         )
         # inherited_someday is applied post-hoc, not a make_todo() kwarg -
         # convert_todo only emits 'inheritedSomeday' when this raw key is
@@ -151,6 +173,7 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
             start_date="2026-01-01",
             deadline="2026-03-01",
             stop_date="2026-02-15 09:00:00",
+            reminder_time="09:00",
         )
         return set(ToolsHelpers.convert_project(project).keys())
 

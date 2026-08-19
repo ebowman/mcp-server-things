@@ -35,8 +35,6 @@ allowlists were removed along with it. The EXPECTED_KEYS contracts below
 (Check 1) are unaffected and remain the coverage mechanism for this file.
 """
 
-import pytest
-
 from things_mcp.tools_helpers.helpers import ToolsHelpers
 
 from fixtures.things_realistic import (
@@ -107,6 +105,7 @@ def _fully_populated_project(status: str, stop_date: str) -> dict:
         start_date="2026-01-01",
         deadline="2026-03-01",
         stop_date=stop_date,
+        reminder_time="09:00",
     )
 
 
@@ -124,13 +123,13 @@ EXPECTED_TODO_KEYS = {
     "uuid", "title", "type", "notes", "status", "tags", "start",
     "creationDate", "modificationDate", "completionDate", "cancellationDate",
     "dueDate", "startDate", "project", "projectTitle", "heading",
-    "headingTitle", "hasChecklist", "index", "todayIndex",
+    "headingTitle", "hasChecklist", "index", "todayIndex", "reminderTime",
 }
 
 EXPECTED_PROJECT_KEYS = {
     "uuid", "title", "type", "notes", "status", "tags", "area", "areaTitle",
     "creationDate", "modificationDate", "completionDate", "cancellationDate",
-    "dueDate",
+    "dueDate", "start", "startDate", "index", "todayIndex", "reminderTime",
 }
 
 EXPECTED_AREA_KEYS = {"uuid", "title", "type", "tags"}
@@ -156,13 +155,10 @@ class TestConvertTodoKeyCompleteness:
         expected = (EXPECTED_TODO_KEYS - {"cancellationDate"}) | {"inheritedSomeday", "checklist"}
         assert converted.keys() == expected
 
-    @pytest.mark.xfail(strict=True, reason="hq-f0w.29")
     def test_reminder_time_is_emitted_as_reminderTime(self):
-        """things.py does emit 'reminder_time' on rows that have a reminder
-        (live: 8/1699 todos, e.g. '09:00') but convert_todo currently drops
-        it entirely - no 'reminderTime' key is emitted. Tracked in
-        hq-f0w.29; this pins the gap so the fix is visible when landed
-        (this test will start passing and must be un-xfailed then)."""
+        """things.py emits 'reminder_time' on rows that have a reminder
+        (live: 8/1699 todos, e.g. '09:00') and convert_todo now surfaces it
+        as 'reminderTime' (hq-f0w.29)."""
         converted = ToolsHelpers.convert_todo(FULLY_POPULATED_TODO)
         assert converted.get("reminderTime") == "09:00"
 
