@@ -9,7 +9,6 @@ from .services.validation_service import ValidationService
 from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
-from .response_optimizer import ResponseOptimizer, FieldOptimizationPolicy
 from .operation_queue import get_operation_queue, Priority
 from .tools_helpers import ToolsHelpers, ReadOperations, WriteOperations, BulkOperations
 
@@ -41,9 +40,6 @@ class ThingsTools:
         self.validation_service = ValidationService(applescript_manager)
         self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
 
-        # Initialize response optimizer
-        self.response_optimizer = ResponseOptimizer(FieldOptimizationPolicy.STANDARD)
-
         # Initialize tag validation service if config is provided
         self.tag_validation_service = None
         if config:
@@ -54,8 +50,7 @@ class ThingsTools:
 
         # Initialize operation modules (Facade Pattern)
         self.read_ops = ReadOperations(
-            applescript_manager=applescript_manager,
-            response_optimizer=self.response_optimizer
+            applescript_manager=applescript_manager
         )
 
         self.write_ops = WriteOperations(

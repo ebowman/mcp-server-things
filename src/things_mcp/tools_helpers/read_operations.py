@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy
 from ..services.applescript_manager import AppleScriptManager
-from ..response_optimizer import ResponseOptimizer
 from .helpers import ToolsHelpers
 
 # Lazily-importing proxy for things.py -- avoids the module-level,
@@ -227,15 +226,13 @@ def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
-    def __init__(self, applescript_manager: AppleScriptManager, response_optimizer: ResponseOptimizer):
+    def __init__(self, applescript_manager: AppleScriptManager):
         """Initialize read operations.
 
         Args:
             applescript_manager: AppleScript manager for fallback queries
-            response_optimizer: Response optimizer for field optimization
         """
         self.applescript = applescript_manager
-        self.response_optimizer = response_optimizer
 
     async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
                        status: Optional[str] = 'incomplete') -> List[Dict]:
@@ -548,7 +545,7 @@ class ReadOperations:
     @staticmethod
     def _format_tag_usage_response(rows: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
         """Apply response-mode shaping to tag usage rows (custom schema; not routed
-        through the generic ResponseOptimizer/context_manager machinery, which assumes
+        through the generic context_manager field-filtering machinery, which assumes
         a todo/project field schema that doesn't fit tag-usage rows)."""
         unused_count = sum(1 for r in rows if r['total_count'] == 0)
 

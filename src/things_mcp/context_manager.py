@@ -494,6 +494,29 @@ class ContextAwareResponseManager:
     # SUMMARY (see hq-f0w.6 review history).
     HEADING_FIELDS = {'uuid', 'title', 'index', 'todoCount'}
 
+    # Field sets by mode for the shared todo/project/area schema. Keys follow
+    # ToolsHelpers.convert_todo / convert_project's camelCase output (see
+    # hq-f0w.4). 'area' was dropped from the STANDARD todo set - things.py
+    # to-do rows never carry an 'area' key (only projects do), so it was
+    # always absent. This is the single source of truth for these sets;
+    # get_optimization_capabilities() below reads it directly rather than
+    # maintaining a second, driftable copy.
+    TODO_FIELD_SETS = {
+        ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
+        ResponseMode.MINIMAL: {
+            # Minimum needed to still locate a todo: identity, status,
+            # kind, and where it lives (start state + parent project).
+            'uuid', 'title', 'status', 'type', 'start', 'project',
+            'dueDate', 'modificationDate', 'creationDate'
+        },
+        ResponseMode.STANDARD: {
+            'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
+            'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
+            'start', 'startDate', 'inheritedSomeday'
+        },
+        ResponseMode.DETAILED: None  # Include all fields
+    }
+
     def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode,
                                method_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Apply field-level filtering based on response mode.
@@ -516,27 +539,7 @@ class ContextAwareResponseManager:
                 return data
             return [{k: v for k, v in item.items() if k in allowed_fields} for item in data]
 
-        # Define field sets by mode. Keys follow ToolsHelpers.convert_todo /
-        # convert_project's camelCase output (see hq-f0w.4). 'area' was
-        # dropped from the STANDARD todo set - things.py to-do rows never
-        # carry an 'area' key (only projects do), so it was always absent.
-        field_sets = {
-            ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
-            ResponseMode.MINIMAL: {
-                # Minimum needed to still locate a todo: identity, status,
-                # kind, and where it lives (start state + parent project).
-                'uuid', 'title', 'status', 'type', 'start', 'project',
-                'dueDate', 'modificationDate', 'creationDate'
-            },
-            ResponseMode.STANDARD: {
-                'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
-                'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
-                'start', 'startDate', 'inheritedSomeday'
-            },
-            ResponseMode.DETAILED: None  # Include all fields
-        }
-
-        allowed_fields = field_sets.get(mode)
+        allowed_fields = self.TODO_FIELD_SETS.get(mode)
         if allowed_fields is None:
             return data  # No filtering for detailed mode
         
@@ -666,9 +669,9 @@ class ContextAwareResponseManager:
                     "enabled": True,
                     "description": "Filters fields based on response mode to reduce size",
                     "field_sets": {
-                        "summary": ["id", "name", "status"],
-                        "minimal": ["id", "name", "status", "due_date", "modification_date"],
-                        "standard": "Essential workflow fields",
+                        "summary": sorted(self.TODO_FIELD_SETS[ResponseMode.SUMMARY]),
+                        "minimal": sorted(self.TODO_FIELD_SETS[ResponseMode.MINIMAL]),
+                        "standard": sorted(self.TODO_FIELD_SETS[ResponseMode.STANDARD]),
                         "detailed": "All available fields"
                     }
                 },
