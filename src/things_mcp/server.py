@@ -481,8 +481,9 @@ class ThingsMCPServer:
             deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)"),
-            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
-            list_id: Optional[str] = Field(None, description="Project/area ID to move the to-do into when combined with heading (Things URL scheme supports moving + placing under a heading in one call). Only consulted when heading is also given")
+            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's/list_title's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
+            list_id: Optional[str] = Field(None, description="Project or area ID to move the to-do into. Combined with heading, moves + places under that heading in one call via the Things URL scheme. Without heading, moves the to-do directly into that project/area via AppleScript ('project id'/'area id') - cannot target inbox/today/anytime/someday (use move_record for those). Takes precedence over list_title if both are given"),
+            list_title: Optional[str] = Field(None, description="Project or area title to move the to-do into (resolved to an id the same way as add_todo's list_title). Only consulted when list_id is not given. Works the same whether or not heading is also given - resolved and used as the move target either way. Errors if the title matches zero or more than one project/area")
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
@@ -492,6 +493,19 @@ class ThingsMCPServer:
             tags='' clears all tags. title='' is rejected with a validation
             error (titles cannot be cleared). when='' is also rejected -
             use when='anytime' or when='someday' to unschedule instead.
+
+            list_id/list_title move the to-do into a project or area.
+            Without heading, this happens via AppleScript in the same write
+            as the other AppleScript-only fields (title/notes/tags/etc.) -
+            it can move a to-do INTO a project or area but CANNOT place it
+            in the inbox/today/anytime/someday lists; use move_record() for
+            those destinations. With heading also given, the move instead
+            happens via the Things URL scheme together with the
+            heading placement (see below). list_id takes precedence over
+            list_title if both are given; an unresolvable list_id/list_title
+            (unknown id, or a title matching zero or more than one
+            project/area) is a structured error and no field in the same
+            call is applied.
 
             heading moves the to-do under that heading via the Things URL
             scheme (things:///update) - AppleScript cannot do this. It
@@ -503,8 +517,9 @@ class ThingsMCPServer:
             project or Things silently ignores it (ends up in the project,
             not under the heading) - a warning is returned when the heading
             could not be confirmed to exist. If the to-do has no project and
-            list_id is not also given, a warning is returned (URL-scheme
-            'heading' has no effect without a project).
+            neither list_id nor list_title is also given, a warning is
+            returned (URL-scheme 'heading' has no effect without a
+            project).
 
             when='evening' (alias 'tonight') schedules the to-do for This
             Evening. Like heading, this is only possible via the Things URL
@@ -517,6 +532,11 @@ class ThingsMCPServer:
             then the URL-scheme evening schedule is applied second - if
             that second URL-scheme call itself fails, the already-applied
             fields are NOT rolled back (same ordering/caveat as heading).
+            when='evening' combined with list_id/list_title but NO heading
+            moves the to-do via the AppleScript write only (first field
+            group above) - list_id/list_title is not also sent on the
+            evening URL-scheme call, since that would re-apply the same
+            move a second time.
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -567,7 +587,8 @@ class ThingsMCPServer:
                     completed=completed_bool,
                     canceled=canceled_bool,
                     heading=heading,
-                    list_id=list_id
+                    list_id=list_id,
+                    list_title=list_title
                 )
 
                 # Enhance response with tag validation feedback if available

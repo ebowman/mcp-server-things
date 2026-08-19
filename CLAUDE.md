@@ -712,6 +712,11 @@ update_todo(id="abc123", heading="Research")
 # (list-id + heading together in a single URL-scheme update)
 update_todo(id="abc123", heading="Research", list_id="project456")
 
+# list_title works the same way when list_id isn't known - resolved to an
+# id via an exact-title match (same as list_title without heading) before
+# being sent as 'list-id' alongside 'heading'
+update_todo(id="abc123", heading="Research", list_title="Website Redesign")
+
 # Combine with ordinary AppleScript fields in the same call - both are applied
 update_todo(id="abc123", heading="Research", title="Renamed", notes="Updated notes")
 ```
@@ -744,16 +749,69 @@ only appears on the heading record, not the to-do), so `update_todo` falls
 back to resolving the current project via the to-do's existing heading
 record rather than wrongly treating it as project-less.
 
-**`list_id` resolving to an area**: if `list_id` resolves to an area rather
-than a project, `update_todo` adds a `warnings` entry - Things' URL scheme
-ignores `heading` for area targets (the to-do moves into the area but is
-not placed under any heading).
+**`list_id`/`list_title` resolving to an area**: if the resolved id refers to
+an area rather than a project, `update_todo` adds a `warnings` entry -
+Things' URL scheme ignores `heading` for area targets (the to-do moves into
+the area but is not placed under any heading).
+
+**Unresolvable `list_id`/`list_title` on the heading path**: an unknown
+`list_id` (or one that refers to neither a project nor an area), or a
+`list_title` matching zero or more than one project/area, is pre-checked
+the same way as the non-heading move below and returns a structured error
+*before* any write - it is never sent to Things unresolved. This pre-check
+runs before the AppleScript write, so e.g. `update_todo(id=..., heading=...,
+list_id="bogus", title="New")` returns the structured error without applying
+`title` (or any other field in the same call) first - same "no partial
+update on a failed move" guarantee as the non-heading move path. The same
+DB-unreadable fallback documented for `add_todo`'s `list_id` above also
+applies here: if the `things.get()` lookup itself raises, `list_id` falls
+back to being treated as a project id rather than failing the whole call.
 
 **No project**: if the to-do doesn't belong to a project (directly or via a
-parent heading) and `list_id` isn't also given, `heading` has no effect
-(Things' URL scheme silently ignores it) - `update_todo` adds a `warnings`
-entry in this case rather than failing outright, since Things itself
-doesn't surface an error either.
+parent heading) and neither `list_id` nor `list_title` is also given,
+`heading` has no effect (Things' URL scheme silently ignores it) -
+`update_todo` adds a `warnings` entry in this case rather than failing
+outright, since Things itself doesn't surface an error either.
+
+**Moving an existing to-do to a project or area** (without a heading):
+`update_todo(id=..., list_id=...)` (or `list_title=...`) moves the to-do
+directly into that project or area via AppleScript - resolved the same way
+as `add_todo`'s `list_id`/`list_title` (`list_id` is looked up via
+`things.get()` to tell project from area; `list_title` does an exact-title
+match against both projects and areas). This is a **plain AppleScript
+move**, applied in the same write as any other AppleScript-only fields
+passed in the same call (title, notes, tags, deadline, etc.) - it does not
+require the Things auth token. `list_id` takes precedence over `list_title`
+if both are given. An unresolvable `list_id` (unknown id, or one that
+refers to something other than a project/area) or `list_title` (no match,
+or ambiguous - matches more than one project/area) returns a structured
+error and no field in the same call is applied.
+
+```python
+# Move a to-do into a project
+update_todo(id="abc123", list_id="project456")
+
+# Move a to-do into an area, by title
+update_todo(id="abc123", list_title="Personal")
+
+# Combine with other AppleScript fields in the same write
+update_todo(id="abc123", list_id="project456", title="Renamed", tags="urgent")
+```
+
+**What `update_todo` cannot move a to-do to**: `list_id`/`list_title` (with
+or without `heading`) can only target a project or area - `update_todo` has
+no way to move a to-do into the inbox, today, anytime, or someday lists.
+Use `move_record()` for those destinations (see "Destination Formats"
+above). When `heading` IS also given, `list_id`/`list_title` are instead
+resolved and consumed by the URL-scheme heading-placement path described
+above (a single `things:///update` call moves-and-places-under-heading
+together), rather than by a separate plain AppleScript move.
+
+**`when='evening'` + `list_id`/`list_title` with no `heading`**: the move
+happens once, via the AppleScript write (same write as any other
+AppleScript-only fields in the call) - `list_id`/`list_title` is not also
+sent on the following URL-scheme call that applies the evening schedule,
+which would otherwise re-apply the same move a second time.
 
 **Status semantics (`completed`/`canceled`):**
 - `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
