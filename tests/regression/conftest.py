@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from regression.helpers import sandbox_title, ts
+from regression.seed import create_seed_set
 
 _OSASCRIPT_PROBE_TIMEOUT_SECS = 5
 
@@ -284,6 +285,7 @@ class Sandbox:
         self.project_id: Optional[str] = None
         self.project_title: Optional[str] = None
         self.heading_title: Optional[str] = None
+        self.heading_id: Optional[str] = None
 
         self.project_b_id: Optional[str] = None
         self.project_b_title: Optional[str] = None
@@ -342,6 +344,7 @@ def sandbox(request, live_server, mcp):
         if t.get("title") == heading_title
     ]
     session.heading_title = heading_title if headings else None
+    session.heading_id = headings[0]["uuid"] if headings else None
 
     # Track the seed to-do(s) actually produced, not just the expected one.
     for t in things.tasks(project=session.project_id, type="to-do") or []:
@@ -405,6 +408,21 @@ def sandbox(request, live_server, mcp):
 
     request.addfinalizer(_teardown)
     return session
+
+
+@pytest.fixture(scope="session")
+def seeded(sandbox, mcp):
+    """Session-scoped: creates the deterministic seed set (hq-gbl.6) once,
+    via `regression.seed.create_seed_set`. Every created id is tracked on
+    `sandbox` by `create_seed_set` itself (including ids created outside
+    the sandbox project - inbox, area, project B - which live outside the
+    sandbox project subtree and would not otherwise be found by the
+    session teardown's per-project child sweep), so no additional teardown
+    is needed here - `sandbox`'s own finalizer (registered when `sandbox`
+    was first requested, which happens implicitly via this fixture's own
+    dependency) handles cleanup.
+    """
+    return create_seed_set(mcp, sandbox)
 
 
 def _teardown_sandbox(session: Sandbox) -> None:
