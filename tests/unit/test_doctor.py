@@ -221,6 +221,36 @@ class TestCheckEnvironment:
         assert result.status == doctor.STATUS_INFO
         assert "python=" in result.detail
 
+    def test_unknown_when_things_not_in_sys_modules_and_no_import_attempted(self, monkeypatch):
+        # Simulate the "import still stalled/not completed" case: 'things' is
+        # absent from sys.modules. Guard that check_environment does NOT
+        # attempt to import it itself (that bare import is exactly the hang
+        # this check exists to avoid) by making any such import explode.
+        monkeypatch.delitem(sys.modules, "things", raising=False)
+
+        real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+        def _guarded_import(name, *args, **kwargs):
+            if name == "things" or name.startswith("things."):
+                raise AssertionError("check_environment must not import 'things'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _guarded_import)
+
+        result = doctor.check_environment()
+
+        assert result.status == doctor.STATUS_INFO
+        assert "things=unknown (import not completed)" in result.detail
+
+    def test_version_from_sys_modules_when_already_imported(self, monkeypatch):
+        fake_things = SimpleNamespace(__version__="9.9.9")
+        monkeypatch.setitem(sys.modules, "things", fake_things)
+
+        result = doctor.check_environment()
+
+        assert result.status == doctor.STATUS_INFO
+        assert "things=9.9.9" in result.detail
+
 
 # ---------------------------------------------------------------------------
 # has_failure / exit code logic

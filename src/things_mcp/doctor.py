@@ -250,7 +250,11 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
             name,
             STATUS_WARN,
             detail=f"Database read timed out after {timeout}s",
-            hint="Large database or first Spotlight scan - re-run doctor; if it keeps timing out, see TCC troubleshooting.",
+            hint=(
+                "Large database or first Spotlight scan - re-run doctor; if it keeps "
+                "timing out (especially alongside 'unable to open database file' "
+                "symptoms), see README Troubleshooting 'Reads fail but writes work'."
+            ),
         )
 
     if "error" in result_holder:
@@ -318,7 +322,22 @@ def check_auth_token() -> CheckResult:
 
 
 def check_environment() -> CheckResult:
-    """Report Python, fastmcp, things.py, and server versions. Always INFO."""
+    """Report Python, fastmcp, things.py, and server versions. Always INFO.
+
+    The ``things`` package version is read from ``sys.modules`` without
+    importing it. ``things`` performs an unbounded filesystem glob at import
+    time (the same stall that :func:`check_database_readable` guards against
+    with a bounded background-thread timeout); if that check's worker thread
+    is still stuck inside the import when this check runs, a bare
+    ``import things`` here would block on Python's per-module import lock
+    with no timeout of its own, hanging doctor on exactly the machines it
+    exists to diagnose. Reading ``sys.modules`` instead is a non-blocking
+    probe: if the import already completed (in this process - e.g. via the
+    database-readable check, which runs before this check in
+    :func:`run_all_checks`), the version is available; otherwise (not yet
+    imported, still stalled, or failed) we report "unknown (import not
+    completed)" without triggering an import ourselves.
+    """
     name = "Environment"
     py_version = sys.version.split()[0]
 
@@ -329,12 +348,11 @@ def check_environment() -> CheckResult:
     except Exception:  # noqa: BLE001 - version probe only
         fastmcp_version = "not installed"
 
-    try:
-        import things as things_pkg
-
+    things_pkg = sys.modules.get("things")
+    if things_pkg is not None:
         things_version = getattr(things_pkg, "__version__", "unknown")
-    except Exception:  # noqa: BLE001 - version probe only
-        things_version = "not installed"
+    else:
+        things_version = "unknown (import not completed)"
 
     from . import __version__ as server_version
 
