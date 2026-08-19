@@ -8,12 +8,38 @@ All tests use the cleanup_test_todos fixture to ensure no test data remains
 after test execution.
 """
 
+import os
 import pytest
 from datetime import datetime, date, timedelta
 from freezegun import freeze_time
 
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+# This module's tests each construct a real AppleScriptManager directly
+# (inline, not via a shared fixture), bypassing the gated real_things_tools/
+# cleanup_test_todos fixtures in conftest.py. A plain `from conftest import
+# ...` can't be used here: tests/integration/conftest.py and
+# tests/live/conftest.py are both bare modules named "conftest" (no
+# __init__.py anywhere under tests/), so importing by that name is
+# ambiguous and can resolve to the wrong one when both directories are
+# collected in the same session (e.g. `pytest tests/integration tests/live`)
+# - so this module defines its own local guard instead of importing
+# conftest.py's. Mark the whole module live and skip it outright at
+# collection time unless opted in; the same guard is also called at the top
+# of each test below as a second line of defence.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("THINGS_MCP_LIVE_TESTS") != "1",
+        reason="live Things 3 tests are opt-in (THINGS_MCP_LIVE_TESTS=1)",
+    ),
+]
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip("requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 to opt in (this fixture performs real writes/deletes against a live Things 3 database)")
 
 
 class TestTodayQueries:
@@ -22,6 +48,7 @@ class TestTodayQueries:
     @pytest.mark.asyncio
     async def test_get_today_returns_today_todos(self, cleanup_test_todos):
         """Verify get_today() returns todos scheduled for today."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -49,6 +76,7 @@ class TestTodayQueries:
     @pytest.mark.asyncio
     async def test_get_today_excludes_tomorrow(self, cleanup_test_todos):
         """Verify get_today() excludes todos scheduled for tomorrow."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -87,6 +115,7 @@ class TestUpcomingQueries:
     @pytest.mark.asyncio
     async def test_get_upcoming_in_7_days(self, cleanup_test_todos):
         """Verify get_upcoming(7) returns todos within 7 days."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -133,6 +162,7 @@ class TestUpcomingQueries:
     @pytest.mark.asyncio
     async def test_get_upcoming_in_30_days(self, cleanup_test_todos):
         """Verify get_upcoming(30) returns todos within 30 days."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -161,6 +191,7 @@ class TestUpcomingQueries:
     @pytest.mark.asyncio
     async def test_get_upcoming_excludes_past(self, cleanup_test_todos):
         """Verify get_upcoming() excludes past todos."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -201,6 +232,7 @@ class TestDeadlineQueries:
     @pytest.mark.asyncio
     async def test_search_by_deadline(self, cleanup_test_todos):
         """Verify searching by specific deadline date."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -228,6 +260,7 @@ class TestDeadlineQueries:
     @pytest.mark.asyncio
     async def test_get_due_in_7_days(self, cleanup_test_todos):
         """Verify get_due_in_days(7) returns todos with deadlines within 7 days."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -266,6 +299,7 @@ class TestDeadlineQueries:
     @pytest.mark.asyncio
     async def test_deadline_and_start_date_separate(self, cleanup_test_todos):
         """Verify deadline search doesn't mix with start_date."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -307,6 +341,7 @@ class TestLogbookQueries:
     @pytest.mark.asyncio
     async def test_logbook_by_period(self, cleanup_test_todos):
         """Verify get_logbook(period='3d') returns recently completed todos."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -332,6 +367,7 @@ class TestLogbookQueries:
     @pytest.mark.asyncio
     async def test_logbook_excludes_incomplete(self, cleanup_test_todos):
         """Verify logbook only returns completed todos."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 

@@ -86,7 +86,8 @@ def mock_applescript_manager_no_token():
         if action in {"update", "update-project"}:
             return {
                 "success": False,
-                "error": "Things URL-scheme auth token not configured",
+                "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                "message": "Things URL-scheme auth token not configured",
                 "hint": AUTH_TOKEN_HINT,
             }
         return {"success": True, "url": f"things:///{action}"}
@@ -237,7 +238,8 @@ class TestUpdateTodoEveningNoToken:
         result = await ops_no_token.update_todo("abc123", when="evening")
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         assert result["hint"] == AUTH_TOKEN_HINT
         # No AppleScript write at all - nothing partially applied.
         mock_applescript_manager_no_token.execute_applescript.assert_not_awaited()
@@ -262,7 +264,8 @@ class TestUpdateProjectEveningRejected:
         result = await ops.add_project(title="proj", when="evening")
 
         assert result["success"] is False
-        assert "not supported for projects" in result["error"]
+        assert result["error"] == "UNSUPPORTED_FOR_PROJECTS"
+        assert "not supported for projects" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -271,7 +274,8 @@ class TestUpdateProjectEveningRejected:
         result = await ops.update_project("proj123", when="evening")
 
         assert result["success"] is False
-        assert "not supported for projects" in result["error"]
+        assert result["error"] == "UNSUPPORTED_FOR_PROJECTS"
+        assert "not supported for projects" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
 
@@ -311,7 +315,8 @@ class TestBulkUpdateTodosEvening:
         result = await bulk_ops_no_token.bulk_update_todos(todo_ids=["id1", "id2"], when="evening")
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         assert result["hint"] == AUTH_TOKEN_HINT
         # Checked BEFORE any AppleScript write across the whole batch.
         mock_applescript_manager_no_token.execute_applescript.assert_not_awaited()

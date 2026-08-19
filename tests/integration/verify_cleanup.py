@@ -11,11 +11,27 @@ Usage:
 """
 
 import asyncio
+import os
 import sys
 from datetime import datetime, timedelta
 
 from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.tools import ThingsTools
+
+# This is a standalone __main__ script (no test_*.py name, not collected
+# by pytest) that constructs a real AppleScriptManager and reads/writes
+# against a live Things 3 database. It is invoked manually, not via the
+# pytest suite, so it is not subject to the THINGS_MCP_LIVE_TESTS pytest
+# gate used elsewhere in tests/integration - guard it directly instead so
+# running it by accident (e.g. from a script or CI step) fails fast with a
+# clear message rather than silently touching a live database.
+if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+    print(
+        "This script performs real reads/writes against a live Things 3 "
+        "database. Set THINGS_MCP_LIVE_TESTS=1 to opt in.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 async def find_test_todos(tools: ThingsTools) -> list:

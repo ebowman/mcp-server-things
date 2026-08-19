@@ -12,6 +12,7 @@ from ..parameter_validator import ParameterValidator, ValidationError, create_va
 from ..utils.applescript_utils import AppleScriptTemplates
 from ..things_import import LazyThingsProxy
 from .helpers import ToolsHelpers
+from .errors import write_error
 
 # Lazily-importing proxy for things.py - avoids the module-level, unbounded
 # glob.iglob() scan that a plain `import things` would perform at server
@@ -101,12 +102,12 @@ class WriteOperations:
         tag_validation = await self._validate_tags_with_policy(tags)
 
         if tag_validation.get('errors'):
-            error_response = {
-                "success": False,
-                "error": "; ".join(tag_validation['errors']),
-                "message": "Tag validation failed",
-                "tag_info": tag_validation
-            }
+            error_response = write_error(
+                "TAG_VALIDATION_FAILED",
+                "Tag validation failed",
+                errors=tag_validation['errors'],
+                tag_info=tag_validation
+            )
             return error_response, None, tag_validation
 
         valid_tags = list(dict.fromkeys(
@@ -135,11 +136,7 @@ class WriteOperations:
             return result
         except Exception as e:
             logger.error(f"Error adding todo: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add todo"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to add todo", details=str(e))
 
     async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
         """Update a todo using AppleScript."""
@@ -188,11 +185,7 @@ class WriteOperations:
             return result
         except Exception as e:
             logger.error(f"Error updating todo: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to update todo"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to update todo", details=str(e))
 
     async def delete_todo(self, todo_id: str) -> Dict[str, Any]:
         """Delete (trash) a to-do or project using AppleScript.
@@ -278,18 +271,16 @@ class WriteOperations:
                     "message": "Todo moved to Trash successfully"
                 }
 
-            return {
-                "success": False,
-                "error": result.get('error', 'Failed to delete todo'),
-                "message": result.get('error', 'Failed to delete todo')
-            }
+            return write_error(
+                "APPLESCRIPT_ERROR", "Failed to delete todo",
+                details=result.get('error', 'Failed to delete todo')
+            )
+        except ValidationError as e:
+            logger.error(f"Validation error in delete_todo: {e}")
+            return create_validation_error_response(e)
         except Exception as e:
             logger.error(f"Error deleting todo: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to delete todo"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to delete todo", details=str(e))
 
     def _resolve_delete_item_type(self, todo_id: str) -> Any:
         """Resolve an id's type via things.get() for delete_todo's script selection.
@@ -405,11 +396,7 @@ class WriteOperations:
             return result
         except Exception as e:
             logger.error(f"Error adding project: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add project"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to add project", details=str(e))
 
     async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
         """Update a project using AppleScript.
@@ -470,11 +457,7 @@ class WriteOperations:
             return result
         except Exception as e:
             logger.error(f"Error updating project: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to update project"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to update project", details=str(e))
 
     async def add_area(self, title: str, tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """Add a new area using AppleScript.
@@ -540,23 +523,14 @@ class WriteOperations:
                     if tag_info:
                         response['tag_info'] = tag_info
                     return response
-                return {
-                    "success": False,
-                    "error": output,
-                    "message": "Failed to create area"
-                }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to create area"
-            }
+                return write_error("APPLESCRIPT_ERROR", "Failed to create area", details=output)
+            return write_error(
+                "APPLESCRIPT_ERROR", "Failed to create area",
+                details=result.get("output", "AppleScript execution failed")
+            )
         except Exception as e:
             logger.error(f"Error adding area: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add area"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to add area", details=str(e))
 
     async def update_area(self, area_id: str, title: Optional[str] = None,
                            tags: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -588,11 +562,7 @@ class WriteOperations:
             return create_validation_error_response(e)
 
         if title is None and tags is None:
-            return {
-                "success": False,
-                "error": "No fields provided to update",
-                "message": "Nothing to update"
-            }
+            return write_error("NO_FIELDS_PROVIDED", "Nothing to update")
 
         try:
             is_explicit_tags_clear = tags is not None and len(tags) == 0
@@ -657,28 +627,15 @@ class WriteOperations:
                         response['tag_info'] = tag_info
                     return response
                 if "area id" in output.lower() or "can't get area" in output.lower() or "doesn't understand" in output.lower():
-                    return {
-                        "success": False,
-                        "error": f"Area not found: {area_id}",
-                        "message": "Failed to update area"
-                    }
-                return {
-                    "success": False,
-                    "error": output,
-                    "message": "Failed to update area"
-                }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to update area"
-            }
+                    return write_error("NOT_FOUND", f"Area not found: {area_id}")
+                return write_error("APPLESCRIPT_ERROR", "Failed to update area", details=output)
+            return write_error(
+                "APPLESCRIPT_ERROR", "Failed to update area",
+                details=result.get("output", "AppleScript execution failed")
+            )
         except Exception as e:
             logger.error(f"Error updating area: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to update area"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to update area", details=str(e))
 
     async def move_record(self, todo_id: str, destination_list: str) -> Dict[str, Any]:
         """Move a todo using AppleScript."""
@@ -686,11 +643,7 @@ class WriteOperations:
             return await self.move_operations.move_record(todo_id, destination_list)
         except Exception as e:
             logger.error(f"Error moving record: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to move record"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to move record", details=str(e))
 
     async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Add tags to a todo using AppleScript."""
@@ -707,12 +660,7 @@ class WriteOperations:
                 valid_tags = tags
 
             if not valid_tags:
-                return {
-                    "success": False,
-                    "error": "NO_VALID_TAGS",
-                    "message": "No valid tags to add",
-                    "tag_info": tag_info
-                }
+                return write_error("NO_VALID_TAGS", "No valid tags to add", tag_info=tag_info)
 
             get_tags_script = f'''
             tell application "Things3"
@@ -743,18 +691,20 @@ class WriteOperations:
 
             logger.debug(f"add_tags: Generated script:\n{script}")
             result = await self.applescript.execute_applescript(script)
-            return {
-                "success": result.get('success', False),
-                "message": f"Added {added_count} tags successfully" if result.get('success') else result.get('error', 'Failed to add tags'),
-                "tag_info": tag_info
-            }
+            if result.get('success'):
+                return {
+                    "success": True,
+                    "message": f"Added {added_count} tags successfully",
+                    "tag_info": tag_info
+                }
+            return write_error(
+                "APPLESCRIPT_ERROR",
+                result.get('error', 'Failed to add tags'),
+                tag_info=tag_info
+            )
         except Exception as e:
             logger.error(f"Error adding tags: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add tags"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to add tags", details=str(e))
 
     async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Add checklist items to an existing todo."""
@@ -762,11 +712,7 @@ class WriteOperations:
             return await self.reliable_scheduler.add_checklist_items(todo_id, items)
         except Exception as e:
             logger.error(f"Error adding checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add checklist items"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to add checklist items", details=str(e))
 
     async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Prepend checklist items to an existing todo."""
@@ -774,11 +720,7 @@ class WriteOperations:
             return await self.reliable_scheduler.prepend_checklist_items(todo_id, items)
         except Exception as e:
             logger.error(f"Error prepending checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to prepend checklist items"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to prepend checklist items", details=str(e))
 
     async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Replace all checklist items in a todo."""
@@ -786,11 +728,7 @@ class WriteOperations:
             return await self.reliable_scheduler.replace_checklist_items(todo_id, items)
         except Exception as e:
             logger.error(f"Error replacing checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to replace checklist items"
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to replace checklist items", details=str(e))
 
     async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Remove tags from a todo using AppleScript.
@@ -853,17 +791,19 @@ class WriteOperations:
             # if the AppleScript write itself failed, nothing was actually
             # applied, so report 0 removed rather than the would-be count.
             effective_removed_count = removed_count if write_succeeded else 0
-            return {
-                "success": write_succeeded,
-                "message": f"Removed {removed_count} tags successfully" if write_succeeded else result.get('error', 'Failed to remove tags'),
-                "removed_count": effective_removed_count,
-                "not_present": not_present
-            }
+            if write_succeeded:
+                return {
+                    "success": True,
+                    "message": f"Removed {removed_count} tags successfully",
+                    "removed_count": effective_removed_count,
+                    "not_present": not_present
+                }
+            return write_error(
+                "APPLESCRIPT_ERROR",
+                result.get('error', 'Failed to remove tags'),
+                removed_count=effective_removed_count,
+                not_present=not_present
+            )
         except Exception as e:
             logger.error(f"Error removing tags: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to remove tags",
-                "removed_count": 0
-            }
+            return write_error("APPLESCRIPT_ERROR", "Failed to remove tags", details=str(e), removed_count=0)

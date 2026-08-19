@@ -660,8 +660,10 @@ class TestTagEdgeCases:
         """Test handling of empty tag string."""
         result = await things_tools.add_tags(todo_id='abc123', tags='')
 
-        # Should fail with no valid tags
+        # Should fail with no valid tags, rejected before any AppleScript is built
         assert result['success'] is False
+        assert result['error'] == 'NO_VALID_TAGS'
+        mock_applescript_manager.execute_applescript.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_tags_with_special_characters(self, things_tools, mock_applescript_manager):

@@ -307,3 +307,190 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
         assert advertised["summary"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.SUMMARY])
         assert advertised["minimal"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.MINIMAL])
         assert advertised["standard"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.STANDARD])
+
+    def test_get_optimization_capabilities_area_field_sets_match_AREA_FIELD_SETS(self):
+        """get_optimization_capabilities() must also advertise the area
+        field sets (hq-f0w.45), derived from AREA_FIELD_SETS - previously
+        missing from the advertised capabilities (hq-f0w.37 review note)."""
+        engine = _engine()
+        capabilities = engine.get_optimization_capabilities()
+        advertised = capabilities["features"]["dynamic_field_filtering"]["area_field_sets"]
+
+        assert advertised["summary"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.SUMMARY])
+        assert advertised["minimal"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.MINIMAL])
+        assert advertised["standard"] == sorted(engine.AREA_FIELD_SETS[ResponseMode.STANDARD])
+
+
+# A converted area row (ToolsHelpers.convert_area's fixed 4-key output).
+SAMPLE_AREA_ITEM = {
+    'uuid': 'area-1',
+    'title': 'Sample area',
+    'type': 'area',
+    'tags': ['work'],
+}
+
+
+class TestAreaFieldSets:
+    """hq-f0w.37: get_areas(mode='minimal') was silently dropping an area's
+    tags because it fell through to TODO_FIELD_SETS' MINIMAL set (which
+    lacks 'tags'). AREA_FIELD_SETS is used instead when
+    method_name == 'get_areas', and - unlike TODO_FIELD_SETS/
+    PROJECT_FIELD_SETS - is identical across summary/minimal/standard
+    because convert_area's output schema is a fixed 4 keys."""
+
+    def test_area_minimal_mode_keeps_tags(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_AREA_ITEM], ResponseMode.MINIMAL, method_name='get_areas'
+        )[0]
+        assert filtered.get('tags') == ['work']
+
+    def test_area_summary_mode_keeps_tags(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_AREA_ITEM], ResponseMode.SUMMARY, method_name='get_areas'
+        )[0]
+        assert filtered.get('tags') == ['work']
+
+    def test_area_standard_mode_matches_all_area_keys(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_AREA_ITEM], ResponseMode.STANDARD, method_name='get_areas'
+        )[0]
+        assert filtered == SAMPLE_AREA_ITEM
+
+    def test_area_detailed_mode_returns_all_fields(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_AREA_ITEM], ResponseMode.DETAILED, method_name='get_areas'
+        )[0]
+        assert filtered == SAMPLE_AREA_ITEM
+
+    def test_area_field_sets_are_subset_of_real_converter_output_keys(self):
+        """Every field named in AREA_FIELD_SETS must be a key convert_area
+        actually produces."""
+        engine = _engine()
+        real_keys = set(ToolsHelpers.convert_area({'uuid': 'x', 'title': 'y'}).keys())
+        for mode, allowed_fields in engine.AREA_FIELD_SETS.items():
+            if allowed_fields is None:
+                continue
+            unknown = allowed_fields - real_keys
+            assert not unknown, (
+                f"{mode}: AREA_FIELD_SETS references keys never produced by convert_area: {unknown}"
+            )
+
+
+class TestIncludeItemsNestedKeysSurvive:
+    """hq-f0w.37: get_areas(include_items=True) and
+    get_projects(include_items=True) build nested 'projects'/'todos' lists
+    directly in read_operations.py, independent of response mode. Before
+    this fix, MINIMAL/STANDARD field sets never listed 'projects'/'todos',
+    so _apply_field_filtering silently dropped them - only DETAILED/RAW
+    (which skip filtering entirely) kept them."""
+
+    def test_get_areas_minimal_keeps_nested_projects_key(self):
+        engine = _engine()
+        area_with_projects = dict(SAMPLE_AREA_ITEM, projects=[{'uuid': 'p1', 'title': 'P1'}])
+        filtered = engine._apply_field_filtering(
+            [area_with_projects], ResponseMode.MINIMAL, method_name='get_areas'
+        )[0]
+        assert filtered.get('projects') == [{'uuid': 'p1', 'title': 'P1'}]
+
+    def test_get_areas_standard_keeps_nested_todos_key(self):
+        engine = _engine()
+        area_with_todos = dict(SAMPLE_AREA_ITEM, todos=[{'uuid': 't1', 'title': 'T1'}])
+        filtered = engine._apply_field_filtering(
+            [area_with_todos], ResponseMode.STANDARD, method_name='get_areas'
+        )[0]
+        assert filtered.get('todos') == [{'uuid': 't1', 'title': 'T1'}]
+
+    def test_get_projects_minimal_keeps_nested_todos_key(self):
+        engine = _engine()
+        project_with_todos = dict(SAMPLE_PROJECT_ITEM, todos=[{'uuid': 't1', 'title': 'T1'}])
+        filtered = engine._apply_field_filtering(
+            [project_with_todos], ResponseMode.MINIMAL, method_name='get_projects'
+        )[0]
+        assert filtered.get('todos') == [{'uuid': 't1', 'title': 'T1'}]
+
+    def test_get_projects_standard_keeps_nested_todos_key(self):
+        engine = _engine()
+        project_with_todos = dict(SAMPLE_PROJECT_ITEM, todos=[{'uuid': 't1', 'title': 'T1'}])
+        filtered = engine._apply_field_filtering(
+            [project_with_todos], ResponseMode.STANDARD, method_name='get_projects'
+        )[0]
+        assert filtered.get('todos') == [{'uuid': 't1', 'title': 'T1'}]
+
+    def test_nested_keys_not_added_when_absent(self):
+        """A row without 'projects'/'todos' keys must not spontaneously
+        gain them."""
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_AREA_ITEM], ResponseMode.MINIMAL, method_name='get_areas'
+        )[0]
+        assert 'projects' not in filtered
+        assert 'todos' not in filtered
+
+    def test_nested_keys_not_leaked_into_unrelated_methods(self):
+        """The nested-key preservation is scoped to method_name in
+        {'get_areas', 'get_projects'} - a todo row from get_today carrying a
+        stray 'todos' key (shouldn't happen, but guard against it) must not
+        have that key preserved by this mechanism."""
+        engine = _engine()
+        todo_with_stray_key = dict(SAMPLE_ITEM, todos=[{'uuid': 'x'}])
+        filtered = engine._apply_field_filtering(
+            [todo_with_stray_key], ResponseMode.MINIMAL, method_name='get_today'
+        )[0]
+        assert 'todos' not in filtered
+
+
+class TestMixedListProjectRowDispatch:
+    """hq-f0w.37: rows with type == 'project' inside nominally todo-shaped
+    lists (get_today/get_anytime/get_upcoming/get_someday with
+    include_projects=True, search_advanced) must be filtered against
+    PROJECT_FIELD_SETS (carrying area/areaTitle), not TODO_FIELD_SETS,
+    regardless of method_name."""
+
+    def test_project_row_in_get_today_list_keeps_area(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.STANDARD, method_name='get_today'
+        )[0]
+        assert filtered.get('area') == 'area-uuid'
+        assert filtered.get('areaTitle') == 'My Area'
+
+    def test_project_row_in_get_today_list_keeps_area_under_minimal(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.MINIMAL, method_name='get_today'
+        )[0]
+        assert filtered.get('area') == 'area-uuid'
+
+    def test_todo_row_in_same_list_still_uses_todo_field_set(self):
+        """A mixed list containing both a todo row and a project row must
+        filter each according to its own type, not a single method-wide
+        choice."""
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_ITEM, SAMPLE_PROJECT_ITEM], ResponseMode.STANDARD, method_name='get_today'
+        )
+        todo_row, project_row = filtered
+        assert 'area' not in todo_row
+        assert 'project' in todo_row
+        assert project_row.get('area') == 'area-uuid'
+
+    def test_project_row_in_search_advanced_keeps_area(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.STANDARD, method_name='search_advanced'
+        )[0]
+        assert filtered.get('area') == 'area-uuid'
+
+    def test_project_row_in_get_projects_list_unaffected(self):
+        """Sanity check: method_name == 'get_projects' with a project row
+        still resolves to PROJECT_FIELD_SETS as before (no regression from
+        adding the per-row dispatch)."""
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.MINIMAL, method_name='get_projects'
+        )[0]
+        assert filtered.get('area') == 'area-uuid'

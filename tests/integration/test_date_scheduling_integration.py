@@ -22,12 +22,38 @@ Safety Features:
 - Tests are idempotent (can run multiple times)
 """
 
+import os
 import pytest
 from datetime import datetime, date, timedelta
 from typing import List, Dict
 
 from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.tools import ThingsTools
+
+# This module's local `applescript_manager` fixture constructs a real
+# AppleScriptManager directly, bypassing the gated real_things_tools/
+# cleanup_test_todos fixtures in conftest.py. A plain `from conftest import
+# ...` can't be used here: tests/integration/conftest.py and
+# tests/live/conftest.py are both bare modules named "conftest" (no
+# __init__.py anywhere under tests/), so importing by that name is
+# ambiguous and can resolve to the wrong one when both directories are
+# collected in the same session (e.g. `pytest tests/integration tests/live`)
+# - so this module defines its own local guard instead of importing
+# conftest.py's. Mark the whole module live and skip it outright at
+# collection time unless opted in; the same guard is also called inside
+# the local fixture below as a second line of defence.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("THINGS_MCP_LIVE_TESTS") != "1",
+        reason="live Things 3 tests are opt-in (THINGS_MCP_LIVE_TESTS=1)",
+    ),
+]
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip("requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 to opt in (this fixture performs real writes/deletes against a live Things 3 database)")
 
 
 # ============================================================================
@@ -37,6 +63,7 @@ from things_mcp.tools import ThingsTools
 @pytest.fixture
 def applescript_manager():
     """Create real AppleScript manager for integration tests."""
+    _require_live_tests_env()
     return AppleScriptManager()
 
 

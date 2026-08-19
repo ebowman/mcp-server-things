@@ -1,6 +1,7 @@
 """Todo and project creation/update operations."""
 
 import asyncio
+import json
 import logging
 import time
 from typing import Dict, Any, List, Optional, Tuple
@@ -8,6 +9,15 @@ from typing import Dict, Any, List, Optional, Tuple
 from ..locale_aware_dates import locale_handler
 from ..things_import import LazyThingsProxy
 from ..utils.applescript_utils import AppleScriptTemplates
+# write_error is imported lazily (inside each call site, like the existing
+# `from ..services.applescript_manager import AUTH_TOKEN_HINT` pattern in
+# this file) rather than at module level: tools_helpers/__init__.py eagerly
+# imports write_operations.py -> pure_applescript_scheduler.py ->
+# scheduling/__init__.py -> this module, so a top-level
+# `from ..tools_helpers.errors import write_error` here is a circular
+# import (errors.py itself has no such dependency - see its docstring -
+# but importing through the tools_helpers package triggers the whole
+# package's __init__.py first).
 
 # Lazily-importing proxy for things.py -- avoids the module-level,
 # unbounded glob.iglob() scan that a plain `import things` would perform
@@ -17,6 +27,15 @@ from ..utils.applescript_utils import AppleScriptTemplates
 things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
+
+
+def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+    """Thin wrapper around tools_helpers.errors.write_error that performs
+    the import lazily on first call, to avoid the circular import
+    described above. Imported once per call rather than cached at module
+    scope so this stays a trivial, side-effect-free forwarding call."""
+    from ..tools_helpers.errors import write_error
+    return write_error(code, message, **extra)
 
 
 class TodoOperations:
@@ -175,9 +194,9 @@ class TodoOperations:
             pre-bead behavior of assuming list_id is a project id - rather
             than refusing the write entirely, since add_todo(list_id=...)
             used to work via AppleScript alone with no things.py database
-            dependency. {"error": "..."} is only returned when the lookup
-            *succeeds* and definitively reports the id as unknown or not a
-            project/area.
+            dependency. A write_error()-shaped dict (code "NOT_FOUND") is
+            only returned when the lookup *succeeds* and definitively
+            reports the id as unknown or not a project/area.
         """
         try:
             record = things.get(list_id)
@@ -189,7 +208,10 @@ class TodoOperations:
             return {"kind": "project", "id": list_id, "fallback": True}
 
         if not record:
-            return {"error": f"list_id '{list_id}' does not match any known project or area"}
+            return _write_error(
+                "NOT_FOUND",
+                f"list_id '{list_id}' does not match any known project or area",
+            )
 
         record_type = record.get('type')
         if record_type == 'project':
@@ -197,7 +219,10 @@ class TodoOperations:
         if record_type == 'area':
             return {"kind": "area", "id": list_id}
 
-        return {"error": f"list_id '{list_id}' refers to a '{record_type}', not a project or area"}
+        return _write_error(
+            "NOT_FOUND",
+            f"list_id '{list_id}' refers to a '{record_type}', not a project or area",
+        )
 
     def _resolve_list_title(self, list_title: str) -> Dict[str, Any]:
         """Resolve a list_title (project or area title) to an id via things.py.
@@ -212,7 +237,9 @@ class TodoOperations:
 
         Returns:
             {"kind": "project"|"area", "id": "..."} on a single unambiguous
-            match, or {"error": "..."} if there is no match or more than one.
+            match, or a write_error()-shaped dict if there is no match
+            (code "NOT_FOUND") or more than one (code "AMBIGUOUS_TARGET",
+            with the matching "kind:id" strings in the "ids" extra field).
         """
         try:
             matching_projects = [p for p in (things.projects() or []) if p.get('title') == list_title]
@@ -230,11 +257,19 @@ class TodoOperations:
                   [("area", a['uuid']) for a in matching_areas]
 
         if not matches:
-            return {"error": f"list_title '{list_title}' does not match any project or area"}
+            return _write_error(
+                "NOT_FOUND",
+                f"list_title '{list_title}' does not match any project or area",
+            )
 
         if len(matches) > 1:
-            ids = ", ".join(f"{kind}:{mid}" for kind, mid in matches)
-            return {"error": f"list_title '{list_title}' is ambiguous - matches multiple projects/areas: {ids}"}
+            ids = [f"{kind}:{mid}" for kind, mid in matches]
+            return _write_error(
+                "AMBIGUOUS_TARGET",
+                f"list_title '{list_title}' is ambiguous - matches multiple "
+                f"projects/areas: {', '.join(ids)}",
+                ids=ids,
+            )
 
         kind, matched_id = matches[0]
         return {"kind": kind, "id": matched_id}
@@ -264,11 +299,11 @@ class TodoOperations:
             # A heading can only be honoured via the Things URL scheme (Things 3
             # AppleScript has no heading class). Require a target project.
             if heading and not project and not list_title:
-                return {
-                    "success": False,
-                    "error": "heading requires a target project (list_id or list_title)",
-                    "message": "Failed to add todo"
-                }
+                return _write_error(
+                    "VALIDATION_ERROR",
+                    "heading requires a target project (list_id or list_title)",
+                    field="heading",
+                )
 
             # Things 3's AppleScript 'schedule' command only accepts a date
             # object - it has no way to set the "This Evening" flag (verified
@@ -303,11 +338,7 @@ class TodoOperations:
             if project:
                 resolution = self._resolve_list_id(project)
                 if "error" in resolution:
-                    return {
-                        "success": False,
-                        "error": resolution["error"],
-                        "message": "Failed to add todo"
-                    }
+                    return resolution
                 if resolution["kind"] == "project":
                     project_id = resolution["id"]
                 else:
@@ -315,11 +346,7 @@ class TodoOperations:
             elif list_title:
                 resolution = self._resolve_list_title(list_title)
                 if "error" in resolution:
-                    return {
-                        "success": False,
-                        "error": resolution["error"],
-                        "message": "Failed to add todo"
-                    }
+                    return resolution
                 if resolution["kind"] == "project":
                     project_id = resolution["id"]
                 else:
@@ -328,11 +355,7 @@ class TodoOperations:
             if project_id:
                 target_error = self._check_project_target_not_completed(project_id)
                 if target_error:
-                    return {
-                        "success": False,
-                        "error": target_error["error"],
-                        "message": target_error["message"]
-                    }
+                    return target_error
 
             script = self._build_create_todo_script(
                 title, notes, tags, deadline, area,
@@ -359,24 +382,17 @@ class TodoOperations:
                         response["message"] = "Todo created successfully"
 
                     return response
-                return {
-                    "success": False,
-                    "error": todo_id,
-                    "message": "Failed to create todo"
-                }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to create todo"
-            }
+                return _write_error(
+                    "APPLESCRIPT_ERROR", "Failed to create todo", details=todo_id
+                )
+            return _write_error(
+                "APPLESCRIPT_ERROR", "Failed to create todo",
+                details=result.get("output", "AppleScript execution failed"),
+            )
 
         except Exception as e:
             logger.error(f"Error adding todo: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add todo"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to add todo", details=str(e))
 
     def _check_project_target_not_completed(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Reject a write into a completed/canceled project before it happens.
@@ -393,8 +409,8 @@ class TodoOperations:
                 callers must not call this for an area_id).
 
         Returns:
-            A structured error dict ({"error": "TARGET_COMPLETED", ...}) if
-            the project's things.py status is 'completed' or 'canceled', or
+            A write_error()-shaped dict (code "TARGET_COMPLETED") if the
+            project's things.py status is 'completed' or 'canceled', or
             None if the project is open/incomplete, or if its status could
             not be determined (things.py lookup failed or returned nothing)
             - in which case we stay silent rather than block a write on a
@@ -415,13 +431,11 @@ class TodoOperations:
 
         status = record.get('status')
         if status in ('completed', 'canceled'):
-            return {
-                "error": "TARGET_COMPLETED",
-                "message": (
-                    f"Target project is {status}; adding/moving into it would "
-                    "reopen it. Reopen it first or choose another target."
-                )
-            }
+            return _write_error(
+                "TARGET_COMPLETED",
+                f"Target project is {status}; adding/moving into it would "
+                "reopen it. Reopen it first or choose another target.",
+            )
         return None
 
     def _check_heading_status(
@@ -449,10 +463,10 @@ class TodoOperations:
 
         Returns:
             A (target_error, warning) tuple - at most one is non-None:
-            - target_error: a structured error dict
-              ({"error": "TARGET_COMPLETED", ...}) if the resolved project,
-              or the matched heading row, is completed/canceled. The write
-              must be rejected before it happens when this is set.
+            - target_error: a write_error()-shaped dict (code
+              "TARGET_COMPLETED") if the resolved project, or the matched
+              heading row, is completed/canceled. The write must be
+              rejected before it happens when this is set.
             - warning: a warning string if the heading could not be
               confirmed to exist in the resolved project (and the project
               itself is not completed/canceled).
@@ -504,14 +518,12 @@ class TodoOperations:
             )
 
         if matched.get('status') in ('completed', 'canceled'):
-            return {
-                "error": "TARGET_COMPLETED",
-                "message": (
-                    f"Target heading '{heading}' is {matched.get('status')}; "
-                    "adding/moving into it would reopen it. Reopen it first "
-                    "or choose another target."
-                )
-            }, None
+            return _write_error(
+                "TARGET_COMPLETED",
+                f"Target heading '{heading}' is {matched.get('status')}; "
+                "adding/moving into it would reopen it. Reopen it first "
+                "or choose another target.",
+            ), None
 
         return None, None
 
@@ -659,11 +671,7 @@ class TodoOperations:
                 # and the to-do lands in the Inbox instead of erroring.
                 resolution = self._resolve_list_title(kwargs['list_title'])
                 if "error" in resolution:
-                    return {
-                        "success": False,
-                        "error": resolution["error"],
-                        "message": "Failed to add todo"
-                    }
+                    return resolution
                 # 'list-id' accepts both project and area ids in the Things
                 # URL scheme, so a single resolved id works for either kind.
                 params['list-id'] = resolution["id"]
@@ -683,11 +691,7 @@ class TodoOperations:
             if not heading and params.get('list-id'):
                 target_error = self._check_project_target_not_completed(params['list-id'])
                 if target_error:
-                    return {
-                        "success": False,
-                        "error": target_error["error"],
-                        "message": target_error["message"]
-                    }
+                    return target_error
 
             warnings: List[str] = []
             if heading:
@@ -695,11 +699,7 @@ class TodoOperations:
                     heading, kwargs.get('list_id', ''), kwargs.get('list_title', '')
                 )
                 if target_error:
-                    return {
-                        "success": False,
-                        "error": target_error["error"],
-                        "message": target_error["message"]
-                    }
+                    return target_error
                 params['heading'] = heading
                 if heading_warning:
                     warnings.append(heading_warning)
@@ -738,11 +738,10 @@ class TodoOperations:
             result = await self.applescript.execute_url_scheme('add', params)
 
             if not result.get('success'):
-                return {
-                    "success": False,
-                    "error": result.get('error', 'Unknown error'),
-                    "message": "Failed to create todo via URL scheme"
-                }
+                return _write_error(
+                    "APPLESCRIPT_ERROR", "Failed to create todo via URL scheme",
+                    details=result.get('error', 'Unknown error'),
+                )
 
             # Calculate checklist count correctly
             checklist_items = kwargs.get('checklist_items', [])
@@ -803,27 +802,47 @@ class TodoOperations:
                 # deadline. The URL scheme call reported success, so the
                 # create may still have gone through in Things after our
                 # deadline expired - we just couldn't confirm its id.
-                return {
-                    "success": False,
-                    "error": (
+                return _write_error(
+                    "CREATE_UNCONFIRMED",
+                    (
                         "Todo could not be confirmed created within "
                         f"{self._URL_SCHEME_LOOKUP_DEADLINE_SECS}s of the "
                         "URL scheme call; the to-do may still have been "
                         "created in Things - check manually before "
                         "retrying to avoid a duplicate."
                     ),
-                    "message": f"Todo creation{message_suffix} could not be confirmed",
-                    "checklist_count": item_count,
+                    checklist_count=item_count,
+                    details=f"Todo creation{message_suffix} could not be confirmed",
                     **({"warnings": warnings} if warnings else {})
-                }
+                )
 
         except Exception as e:
             logger.error(f"Error adding todo via URL scheme: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add todo"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to add todo", details=str(e))
+
+    @staticmethod
+    def _propagate_url_scheme_error(result: Dict[str, Any], fallback_message: str) -> Dict[str, Any]:
+        """Turn a failed execute_url_scheme() result into a write_error()
+        dict, preserving an already-UPPER_SNAKE code (e.g.
+        "AUTH_TOKEN_NOT_CONFIGURED" from the auth gate, forwarded verbatim
+        with its own message/hint) rather than double-wrapping it, while
+        still wrapping a raw AppleScript/URL-scheme error string (any code
+        that is not itself upper-snake) as "APPLESCRIPT_ERROR" with the raw
+        text preserved in `details`. `hint` (present on the auth-gate
+        error) is forwarded through either path when present.
+        """
+        code = result.get('error', 'Unknown error')
+        if isinstance(code, str) and code.isupper() and code.replace('_', '').isalpha():
+            response = _write_error(
+                code, result.get('message', fallback_message)
+            )
+        else:
+            response = _write_error(
+                "APPLESCRIPT_ERROR", fallback_message, details=code
+            )
+        if result.get('hint'):
+            response['hint'] = result['hint']
+        return response
 
     async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Add checklist items to an existing todo using Things URL scheme.
@@ -837,11 +856,9 @@ class TodoOperations:
         """
         try:
             if not items:
-                return {
-                    "success": False,
-                    "error": "No checklist items provided",
-                    "message": "At least one checklist item is required"
-                }
+                return _write_error(
+                    "NO_CHECKLIST_ITEMS", "At least one checklist item is required"
+                )
 
             # Build URL parameters for appending checklist items
             params = {
@@ -859,19 +876,11 @@ class TodoOperations:
                     "items_added": len(items)
                 }
             else:
-                return {
-                    "success": False,
-                    "error": result.get('error', 'Unknown error'),
-                    "message": "Failed to add checklist items"
-                }
+                return self._propagate_url_scheme_error(result, "Failed to add checklist items")
 
         except Exception as e:
             logger.error(f"Error adding checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add checklist items"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to add checklist items", details=str(e))
 
     async def prepend_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Prepend checklist items to an existing todo using Things URL scheme.
@@ -885,11 +894,9 @@ class TodoOperations:
         """
         try:
             if not items:
-                return {
-                    "success": False,
-                    "error": "No checklist items provided",
-                    "message": "At least one checklist item is required"
-                }
+                return _write_error(
+                    "NO_CHECKLIST_ITEMS", "At least one checklist item is required"
+                )
 
             # Build URL parameters for prepending checklist items
             params = {
@@ -907,19 +914,11 @@ class TodoOperations:
                     "items_added": len(items)
                 }
             else:
-                return {
-                    "success": False,
-                    "error": result.get('error', 'Unknown error'),
-                    "message": "Failed to prepend checklist items"
-                }
+                return self._propagate_url_scheme_error(result, "Failed to prepend checklist items")
 
         except Exception as e:
             logger.error(f"Error prepending checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to prepend checklist items"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to prepend checklist items", details=str(e))
 
     async def replace_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Replace all checklist items in a todo using Things URL scheme.
@@ -948,19 +947,11 @@ class TodoOperations:
                     "items_count": len(items)
                 }
             else:
-                return {
-                    "success": False,
-                    "error": result.get('error', 'Unknown error'),
-                    "message": "Failed to replace checklist items"
-                }
+                return self._propagate_url_scheme_error(result, "Failed to replace checklist items")
 
         except Exception as e:
             logger.error(f"Error replacing checklist items: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to replace checklist items"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to replace checklist items", details=str(e))
 
     def _build_update_script(self, todo_id: str, title: Optional[str], notes: Optional[str],
                             tags: Optional[List[str]],
@@ -1065,8 +1056,8 @@ class TodoOperations:
         # Update deadline: None leaves unchanged, '' clears, anything else sets.
         if deadline is not None:
             if deadline == '':
-                # Things 3's AppleScript dictionary rejects
-                # `set due date of X to missing value` ("Can't make missing
+                # Things 3's AppleScript dictionary rejects assigning
+                # missing value to the due date ("Can't make missing
                 # value into type date"); `delete` is the documented way to
                 # clear a date property.
                 script += 'delete due date of targetTodo\n                    '
@@ -1212,16 +1203,16 @@ class TodoOperations:
             # check runs before any AppleScript write so nothing is
             # partially applied.
             if heading is not None and heading.strip() == '':
-                return {
-                    "success": False,
-                    "error": (
+                return _write_error(
+                    "INVALID_HEADING",
+                    (
                         "heading cannot be empty; Things' URL scheme has no "
                         "documented way to clear a to-do out of a heading via "
                         "update - to move it out, use move_record() to move "
                         "it directly into the project instead"
                     ),
-                    "message": "Failed to update todo"
-                }
+                    field="heading",
+                )
 
             # heading and when='evening' are only honoured via the Things URL
             # scheme's 'update' action, which requires the auth token. Fail
@@ -1230,12 +1221,11 @@ class TodoOperations:
             if heading or when_is_evening:
                 if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
-                    return {
-                        "success": False,
-                        "error": "Things URL-scheme auth token not configured",
-                        "hint": AUTH_TOKEN_HINT,
-                        "message": "Failed to update todo"
-                    }
+                    return _write_error(
+                        "AUTH_TOKEN_NOT_CONFIGURED",
+                        "Things URL-scheme auth token not configured",
+                        hint=AUTH_TOKEN_HINT,
+                    )
 
             # Convert status parameters
             completed = kwargs.get('completed', None)
@@ -1247,11 +1237,10 @@ class TodoOperations:
                 if canceled is not None:
                     canceled = self._convert_to_boolean(canceled)
             except ValueError as e:
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "message": "Invalid boolean value for status parameter"
-                }
+                return _write_error(
+                    "VALIDATION_ERROR", "Invalid boolean value for status parameter",
+                    details=str(e),
+                )
 
             warnings: List[str] = []
 
@@ -1280,11 +1269,7 @@ class TodoOperations:
                 if list_id:
                     resolution = self._resolve_list_id(list_id)
                     if "error" in resolution:
-                        return {
-                            "success": False,
-                            "error": resolution["error"],
-                            "message": "Failed to update todo"
-                        }
+                        return resolution
                     if resolution["kind"] == "project":
                         project_id = resolution["id"]
                     else:
@@ -1292,11 +1277,7 @@ class TodoOperations:
                 elif list_title:
                     resolution = self._resolve_list_title(list_title)
                     if "error" in resolution:
-                        return {
-                            "success": False,
-                            "error": resolution["error"],
-                            "message": "Failed to update todo"
-                        }
+                        return resolution
                     if resolution["kind"] == "project":
                         project_id = resolution["id"]
                     else:
@@ -1305,11 +1286,7 @@ class TodoOperations:
                 if project_id:
                     target_error = self._check_project_target_not_completed(project_id)
                     if target_error:
-                        return {
-                            "success": False,
-                            "error": target_error["error"],
-                            "message": target_error["message"]
-                        }
+                        return target_error
             else:
                 if list_id:
                     # Pre-check list_id the same way the non-heading move
@@ -1321,11 +1298,7 @@ class TodoOperations:
                     # that as a silent no-op with no error surfaced at all).
                     list_id_resolution = self._resolve_list_id(list_id)
                     if "error" in list_id_resolution:
-                        return {
-                            "success": False,
-                            "error": list_id_resolution["error"],
-                            "message": "Failed to update todo"
-                        }
+                        return list_id_resolution
                     effective_list_id_for_url = list_id
                 elif list_title:
                     # list_title has no direct URL-scheme 'list' id param
@@ -1337,11 +1310,7 @@ class TodoOperations:
                     # silently dropping list_title.
                     list_id_resolution = self._resolve_list_title(list_title)
                     if "error" in list_id_resolution:
-                        return {
-                            "success": False,
-                            "error": list_id_resolution["error"],
-                            "message": "Failed to update todo"
-                        }
+                        return list_id_resolution
                     effective_list_id_for_url = list_id_resolution["id"]
 
             # When heading is given, pre-resolve which project the combined
@@ -1393,11 +1362,7 @@ class TodoOperations:
                         heading, list_id=effective_project_id
                     )
                     if target_error:
-                        return {
-                            "success": False,
-                            "error": target_error["error"],
-                            "message": target_error["message"]
-                        }
+                        return target_error
 
             # Apply the AppleScript-only fields first (title, notes, tags,
             # deadline, area, project, project_id/area_id, completed,
@@ -1421,17 +1386,14 @@ class TodoOperations:
                 if result.get("success"):
                     output = result.get("output", "").strip()
                     if output != "updated":
-                        return {
-                            "success": False,
-                            "error": output,
-                            "message": "Failed to update todo"
-                        }
+                        return _write_error(
+                            "APPLESCRIPT_ERROR", "Failed to update todo", details=output
+                        )
                 else:
-                    return {
-                        "success": False,
-                        "error": result.get("output", "AppleScript execution failed"),
-                        "message": "Failed to update todo"
-                    }
+                    return _write_error(
+                        "APPLESCRIPT_ERROR", "Failed to update todo",
+                        details=result.get("output", "AppleScript execution failed"),
+                    )
 
             if heading or when_is_evening:
                 url_params: Dict[str, Any] = {'id': todo_id}
@@ -1487,14 +1449,11 @@ class TodoOperations:
                 url_result = await self.applescript.execute_url_scheme('update', url_params)
 
                 if not url_result.get('success'):
-                    response = {
-                        "success": False,
-                        "error": url_result.get('error', 'Unknown error'),
-                        "message": "Failed to update todo heading" if heading else "Failed to schedule todo for evening"
-                    }
-                    if url_result.get('hint'):
-                        response['hint'] = url_result['hint']
-                    return response
+                    fallback_message = (
+                        "Failed to update todo heading" if heading
+                        else "Failed to schedule todo for evening"
+                    )
+                    return self._propagate_url_scheme_error(url_result, fallback_message)
 
             # Schedule if when date provided (evening was already applied via
             # the URL scheme above - schedule_todo_reliable has no AppleScript
@@ -1529,11 +1488,7 @@ class TodoOperations:
 
         except Exception as e:
             logger.error(f"Error updating todo: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to update todo"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to update todo", details=str(e))
 
     def _build_create_project_script(self, title: str, notes: str, tags: List[str],
                                      deadline: str, area_id: str, area_title: str, todos: List[str]) -> str:
@@ -1598,8 +1553,13 @@ class TodoOperations:
                     set newTodoInProject to make new to do in newProject with properties {{name:{escaped_todo}}}
                         '''
 
+        # Return the new project's id and the number of to-dos it actually
+        # ended up with, each on its own line, so add_project can verify
+        # that every requested todo line was really created (see hq-f0w.41
+        # - a one-off run once reported only 1 of 2 requested to-dos
+        # present) instead of trusting the requested count blindly.
         script += '''
-                    return id of newProject
+                    return (id of newProject) & "\\n" & (count of to dos of newProject)
                 on error errMsg
                     return "error: " & errMsg
                 end try
@@ -1608,8 +1568,231 @@ class TodoOperations:
 
         return script
 
+    async def _find_project_ids_by_title(self, title: str) -> List[str]:
+        """Return the ids of all (non-trashed) projects with the exact title.
+
+        Used by _add_project_via_url_scheme to snapshot existing project
+        ids before a URL-scheme create and poll for new ones afterward,
+        the same way _find_todo_ids_by_title does for to-dos (the URL
+        scheme does not return the created project's id). Uses AppleScript
+        (rather than the things.py proxy) for the same reason: an exact,
+        live-database comparison that is not subject to things.py's
+        on-disk SQLite snapshot lagging a fresh write.
+
+        Returns an empty list (rather than raising) on any AppleScript
+        failure, so a lookup glitch degrades to "no ids found" instead of
+        crashing the create.
+        """
+        script = f'''
+        tell application "Things3"
+            try
+                set foundProjects to projects whose name is {AppleScriptTemplates.escape_string(title)}
+                set idList to {{}}
+                repeat with aProject in foundProjects
+                    set end of idList to (id of aProject)
+                end repeat
+                set AppleScript's text item delimiters to "\\n"
+                set idText to idList as text
+                set AppleScript's text item delimiters to ""
+                return idText
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if not result.get('success'):
+            logger.debug(f"Failed to look up project ids for title {title!r}: {result.get('error')}")
+            return []
+
+        output = (result.get('output') or '').strip()
+        if not output or output.startswith('error:'):
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error looking up project ids for title {title!r}: {output}")
+            return []
+
+        return [line.strip() for line in output.split('\n') if line.strip()]
+
+    async def _add_project_via_url_scheme(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a project using the Things URL scheme's ``json`` action.
+
+        This is the only way to seed real headings (and to-dos nested
+        under them) at project-creation time - the AppleScript
+        ``make new to do`` path and the documented ``add-project``
+        ``to-dos`` param both only create plain to-dos, never headings
+        (verified live for hq-f0w.41). Only called from add_project when
+        the todos payload contains at least one ``##`` line.
+
+        Args:
+            title: Project title
+            notes: Optional notes
+            tags: Optional tag list (already policy-filtered by the caller)
+            when: Optional scheduling date (applied via schedule_todo_reliable
+                after creation, same as the AppleScript path - the ``json``
+                action has no direct "This Evening" equivalent for projects
+                either)
+            deadline: Optional deadline date (YYYY-MM-DD)
+            area_id: Optional area UUID (takes precedence over area_title)
+            area_title: Optional area name
+            todos: List of todo/heading lines; a line starting with ``##``
+                becomes a heading, all other lines become to-dos nested
+                under the most recently seen heading (or un-nested, before
+                the first heading)
+
+        Returns:
+            Dict with success status, project_id, todos_created, and
+            headings_created (when headings were requested).
+        """
+        try:
+            items: List[Dict[str, Any]] = []
+            heading_count = 0
+            todo_count = 0
+            for line in kwargs.get('todos') or []:
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith('##'):
+                    heading_title = line[2:].strip()
+                    if not heading_title:
+                        return _write_error(
+                            "VALIDATION_ERROR",
+                            (
+                                f"Empty heading title in todos line {line!r}; "
+                                "a '##' line must be followed by a non-empty "
+                                "heading title."
+                            ),
+                            field="todos",
+                        )
+                    items.append({"type": "heading", "attributes": {"title": heading_title}})
+                    heading_count += 1
+                else:
+                    items.append({"type": "to-do", "attributes": {"title": line}})
+                    todo_count += 1
+
+            attributes: Dict[str, Any] = {"title": title}
+            if kwargs.get('notes'):
+                attributes['notes'] = kwargs['notes']
+            if kwargs.get('tags'):
+                attributes['tags'] = list(kwargs['tags'])
+            if kwargs.get('deadline'):
+                attributes['deadline'] = kwargs['deadline']
+            # area_id takes precedence over area_title, same convention as
+            # the AppleScript path.
+            if kwargs.get('area_id'):
+                attributes['area-id'] = kwargs['area_id']
+            elif kwargs.get('area_title'):
+                attributes['area'] = kwargs['area_title']
+            if items:
+                attributes['items'] = items
+
+            payload = [{"type": "project", "attributes": attributes}]
+
+            # Snapshot existing project ids with this exact title *before*
+            # issuing the URL-scheme create, then poll for a new one
+            # afterward (before/after set difference) - same pattern as
+            # _add_todo_via_url_scheme, for the same reason: the URL
+            # scheme itself does not return the created item's id.
+            before_ids = await self._find_project_ids_by_title(title)
+
+            result = await self.applescript.execute_url_scheme('json', {'data': json.dumps(payload)})
+            if not result.get('success'):
+                return _write_error(
+                    "APPLESCRIPT_ERROR", "Failed to create project via URL scheme",
+                    details=result.get('error', 'Unknown error'),
+                )
+
+            new_ids: List[str] = []
+            deadline_ts = time.monotonic() + self._URL_SCHEME_LOOKUP_DEADLINE_SECS
+            while True:
+                await asyncio.sleep(self._URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS)
+                after_ids = await self._find_project_ids_by_title(title)
+                new_ids = [pid for pid in after_ids if pid not in before_ids]
+                if new_ids or time.monotonic() >= deadline_ts:
+                    break
+
+            if not new_ids:
+                return _write_error(
+                    "CREATE_UNCONFIRMED",
+                    (
+                        "Project could not be confirmed created within "
+                        f"{self._URL_SCHEME_LOOKUP_DEADLINE_SECS}s of the "
+                        "URL scheme call; the project may still have been "
+                        "created in Things - check manually before "
+                        "retrying to avoid a duplicate."
+                    ),
+                    details="Project creation could not be confirmed",
+                )
+
+            # Multiple new projects with the same title cannot be
+            # disambiguated by creation date the way todos can (there is
+            # no equivalent "project id <id>" AppleScript accessor pattern
+            # already in use here), so just take the first and warn.
+            project_id = new_ids[0]
+            response: Dict[str, Any] = {
+                "success": True,
+                "project_id": project_id,
+                "message": "Project created successfully",
+            }
+            verification_warnings: List[str] = []
+            if todo_count:
+                # Verify via things.py rather than trusting the requested
+                # count blindly (same reasoning as the AppleScript path's
+                # "count of to dos of newProject" check) - the id-lookup
+                # poll above already waited for Things to register the
+                # create, so a things.py read at this point should be
+                # current. things.py is best-effort here: any failure
+                # (import error, etc.) falls back to the requested count
+                # rather than failing the whole create.
+                try:
+                    actual_todo_count = len(things.todos(project=project_id) or [])
+                except Exception as e:
+                    logger.debug(f"Could not verify todo count for project {project_id}: {e}")
+                    actual_todo_count = todo_count
+                response["todos_created"] = actual_todo_count
+                if actual_todo_count < todo_count:
+                    verification_warnings.append(
+                        f"Requested {todo_count} to-dos but only "
+                        f"{actual_todo_count} were created in the project; "
+                        "verify manually before retrying to avoid duplicates."
+                    )
+            if heading_count:
+                try:
+                    actual_heading_count = len(
+                        things.tasks(type='heading', project=project_id, status=None) or []
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not verify heading count for project {project_id}: {e}")
+                    actual_heading_count = heading_count
+                response["headings_created"] = actual_heading_count
+                if actual_heading_count < heading_count:
+                    verification_warnings.append(
+                        f"Requested {heading_count} headings but only "
+                        f"{actual_heading_count} were created in the project; "
+                        "verify manually before retrying to avoid duplicates."
+                    )
+            if verification_warnings:
+                response.setdefault("warnings", []).extend(verification_warnings)
+            if len(new_ids) > 1:
+                response.setdefault("warnings", []).append(
+                    "Multiple new projects with this title were found; "
+                    "returned the first one created."
+                )
+
+            when = kwargs.get('when')
+            if when:
+                schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
+                response["message"] = "Project created and scheduled successfully"
+                response["scheduling"] = schedule_result
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error adding project via URL scheme: {e}")
+            return _write_error("APPLESCRIPT_ERROR", "Failed to add project", details=str(e))
+
     async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
-        """Add a new project using AppleScript.
+        """Add a new project using AppleScript, or the Things URL scheme's
+        ``json`` action when the ``todos`` payload requests headings.
 
         when='evening'/'tonight' is rejected: Things has no "This Evening"
         concept for projects (only to-dos can be scheduled for This
@@ -1617,6 +1800,18 @@ class TodoOperations:
         "Today" schedule (as schedule_todo_reliable's list-fallback would
         otherwise do for an unrecognized when value) would misrepresent
         what was actually applied.
+
+        Headings (hq-f0w.41): a ``todos`` line prefixed with ``##`` is a
+        request for a heading. The AppleScript ``make new to do`` path has
+        no heading concept at all - it would create a to-do literally
+        titled "##Heading" - so any ``##`` line routes the whole call to
+        _add_project_via_url_scheme, which uses ``things:///json`` (the
+        only Things URL-scheme action that can create real headings at
+        project-creation time; verified live - the documented ``to-dos``
+        param on ``add-project`` does NOT turn ``##`` lines into headings,
+        it creates a literal to-do titled "##Heading" just like the
+        AppleScript path). Without a ``##`` line, the plain AppleScript
+        path is used as before (faster, no URL-scheme round trip).
         """
         try:
             # Extract parameters
@@ -1626,15 +1821,13 @@ class TodoOperations:
             deadline = kwargs.get('deadline', '')
 
             if isinstance(when, str) and when.strip().lower() == 'evening':
-                return {
-                    "success": False,
-                    "error": (
-                        "when='evening' is not supported for projects; Things has "
-                        "no \"This Evening\" concept for projects (only to-dos can "
-                        "be scheduled for This Evening) - use when='today' instead"
-                    ),
-                    "message": "Failed to add project"
-                }
+                return _write_error(
+                    "UNSUPPORTED_FOR_PROJECTS",
+                    "when='evening' is not supported for projects; Things has "
+                    "no \"This Evening\" concept for projects (only to-dos can "
+                    "be scheduled for This Evening) - use when='today' instead",
+                    field="when",
+                )
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
@@ -1646,49 +1839,73 @@ class TodoOperations:
                 # Split by newlines and filter out empty strings
                 todos = [t.strip() for t in todos_param.split('\n') if t.strip()]
             elif isinstance(todos_param, list):
-                todos = todos_param
+                todos = [t.strip() for t in todos_param if t and t.strip()]
             else:
                 todos = []
+
+            if any(t.startswith('##') for t in todos):
+                return await self._add_project_via_url_scheme(
+                    title, notes=notes, tags=tags, when=when, deadline=deadline,
+                    area_id=area_id, area_title=area_title, todos=todos
+                )
 
             # Build and execute script
             script = self._build_create_project_script(title, notes, tags, deadline, area_id, area_title, todos)
             result = await self.applescript.execute_applescript(script)
 
             if result.get("success"):
-                project_id = result.get("output", "").strip()
+                output_lines = (result.get("output", "") or "").strip().split("\n")
+                project_id = output_lines[0].strip() if output_lines else ""
                 if project_id and not project_id.startswith("error:"):
-                    # Schedule if when date provided
-                    if when:
-                        schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
-                        return {
-                            "success": True,
-                            "project_id": project_id,
-                            "message": "Project created and scheduled successfully",
-                            "scheduling": schedule_result
-                        }
-                    return {
+                    # Verify every requested todo line actually landed in
+                    # the project (hq-f0w.41: a one-off live run once
+                    # reported only 1 of 2 requested to-dos present).
+                    # _build_create_project_script returns the id and the
+                    # live "count of to dos of newProject" on separate
+                    # lines, read from the same AppleScript call that
+                    # created the project (no separate things.py read,
+                    # which lags a fresh write via its on-disk SQLite
+                    # snapshot - see _add_todo_via_url_scheme).
+                    todos_created: Optional[int] = None
+                    if len(output_lines) > 1:
+                        try:
+                            todos_created = int(output_lines[1].strip())
+                        except ValueError:
+                            todos_created = None
+
+                    response: Dict[str, Any] = {
                         "success": True,
                         "project_id": project_id,
                         "message": "Project created successfully"
                     }
-                return {
-                    "success": False,
-                    "error": project_id,
-                    "message": "Failed to create project"
-                }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to create project"
-            }
+                    if todos:
+                        response["todos_created"] = (
+                            todos_created if todos_created is not None else len(todos)
+                        )
+                        if todos_created is not None and todos_created < len(todos):
+                            response["warnings"] = [
+                                f"Requested {len(todos)} initial to-dos but only "
+                                f"{todos_created} were created in the project; "
+                                "verify manually before retrying to avoid duplicates."
+                            ]
+
+                    # Schedule if when date provided
+                    if when:
+                        schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
+                        response["message"] = "Project created and scheduled successfully"
+                        response["scheduling"] = schedule_result
+                    return response
+                return _write_error(
+                    "APPLESCRIPT_ERROR", "Failed to create project", details=project_id
+                )
+            return _write_error(
+                "APPLESCRIPT_ERROR", "Failed to create project",
+                details=result.get("output", "AppleScript execution failed"),
+            )
 
         except Exception as e:
             logger.error(f"Error adding project: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to add project"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to add project", details=str(e))
 
     async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
         """Update an existing project using AppleScript.
@@ -1719,15 +1936,13 @@ class TodoOperations:
             deadline = kwargs.get('deadline', None)
 
             if isinstance(when, str) and when.strip().lower() == 'evening':
-                return {
-                    "success": False,
-                    "error": (
-                        "when='evening' is not supported for projects; Things has "
-                        "no \"This Evening\" concept for projects (only to-dos can "
-                        "be scheduled for This Evening) - use when='today' instead"
-                    ),
-                    "message": "Failed to update project"
-                }
+                return _write_error(
+                    "UNSUPPORTED_FOR_PROJECTS",
+                    "when='evening' is not supported for projects; Things has "
+                    "no \"This Evening\" concept for projects (only to-dos can "
+                    "be scheduled for This Evening) - use when='today' instead",
+                    field="when",
+                )
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
@@ -1779,8 +1994,8 @@ class TodoOperations:
             # Update deadline: None leaves unchanged, '' clears, anything else sets.
             if deadline is not None:
                 if deadline == '':
-                    # Things 3's AppleScript dictionary rejects
-                    # `set due date of X to missing value` ("Can't make
+                    # Things 3's AppleScript dictionary rejects assigning
+                    # missing value to the due date ("Can't make
                     # missing value into type date"); `delete` is the
                     # documented way to clear a date property.
                     script += 'delete due date of targetProject\n                    '
@@ -1840,22 +2055,15 @@ class TodoOperations:
                             "message": "Project updated successfully"
                         }
                 else:
-                    return {
-                        "success": False,
-                        "error": output,
-                        "message": "Failed to update project"
-                    }
+                    return _write_error(
+                        "APPLESCRIPT_ERROR", "Failed to update project", details=output
+                    )
             else:
-                return {
-                    "success": False,
-                    "error": result.get("output", "AppleScript execution failed"),
-                    "message": "Failed to update project"
-                }
+                return _write_error(
+                    "APPLESCRIPT_ERROR", "Failed to update project",
+                    details=result.get("output", "AppleScript execution failed"),
+                )
 
         except Exception as e:
             logger.error(f"Error updating project: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to update project"
-            }
+            return _write_error("APPLESCRIPT_ERROR", "Failed to update project", details=str(e))

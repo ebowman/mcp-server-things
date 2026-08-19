@@ -127,8 +127,8 @@ class TestTimeout:
         result = await ops._add_todo_via_url_scheme("Timeout Todo")
 
         assert result["success"] is False
-        assert "error" in result
-        assert "may still have been created" in result["error"].lower() or "may still have" in result["error"].lower()
+        assert result["error"] == "CREATE_UNCONFIRMED"
+        assert "may still have been created" in result["message"].lower()
 
     @pytest.mark.asyncio
     async def test_url_scheme_failure_short_circuits_before_lookup(self):
@@ -141,7 +141,8 @@ class TestTimeout:
         result = await ops._add_todo_via_url_scheme("Unreachable Todo")
 
         assert result["success"] is False
-        assert result["error"] == "things not running"
+        assert result["error"] == "APPLESCRIPT_ERROR"
+        assert result["details"] == "things not running"
         # Only the pre-create snapshot call should have happened - no
         # polling after a failed URL-scheme call.
         assert manager.execute_applescript.await_count == 1

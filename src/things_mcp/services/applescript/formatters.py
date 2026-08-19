@@ -56,35 +56,6 @@ class AppleScriptFormatters:
 
         return url
 
-    def split_applescript_output(self, output: str) -> List[str]:
-        """Split AppleScript output by commas, handling quoted strings and braces properly."""
-        parts = []
-        current_part = ""
-        in_quotes = False
-        brace_depth = 0
-
-        for char in output:
-            if char == '"':
-                in_quotes = not in_quotes
-                current_part += char
-            elif char == '{' and not in_quotes:
-                brace_depth += 1
-                current_part += char
-            elif char == '}' and not in_quotes:
-                brace_depth -= 1
-                current_part += char
-            elif char == ',' and not in_quotes and brace_depth == 0:
-                parts.append(current_part)
-                current_part = ""
-            else:
-                current_part += char
-
-        # Add the last part
-        if current_part:
-            parts.append(current_part)
-
-        return parts
-
     def parse_applescript_date(self, date_str: str) -> Optional[str]:
         """Parse AppleScript date format to ISO string.
 
@@ -320,58 +291,6 @@ class AppleScriptFormatters:
         except Exception as e:
             logger.warning(f"Could not parse tags '{tags_str}': {e}")
             return []
-
-    def has_reminder_time(self, activation_date_str: Optional[str]) -> bool:
-        """Detect if an activation_date indicates a reminder is set.
-
-        Args:
-            activation_date_str: The activation_date field from AppleScript
-
-        Returns:
-            True if time components indicate a reminder, False for date-only scheduling
-        """
-        if not activation_date_str or activation_date_str == "missing value":
-            return False
-
-        try:
-            # Parse the activation_date to check time components
-            parsed_date = self.parse_applescript_date(activation_date_str)
-            if not parsed_date:
-                return False
-
-            # Convert to datetime to analyze time components
-            dt = datetime.fromisoformat(parsed_date.replace('Z', '+00:00'))
-
-            # If any time component is non-zero, it's a reminder
-            return dt.hour != 0 or dt.minute != 0 or dt.second != 0
-
-        except Exception as e:
-            logger.debug(f"Error detecting reminder time in '{activation_date_str}': {e}")
-            return False
-
-    def extract_reminder_time(self, activation_date_str: Optional[str]) -> Optional[str]:
-        """Extract the time component from activation_date for reminder display.
-
-        Args:
-            activation_date_str: The activation_date field from AppleScript
-
-        Returns:
-            Time string in HH:MM format if reminder is set, None otherwise
-        """
-        if not self.has_reminder_time(activation_date_str):
-            return None
-
-        try:
-            parsed_date = self.parse_applescript_date(activation_date_str)
-            if not parsed_date:
-                return None
-
-            dt = datetime.fromisoformat(parsed_date.replace('Z', '+00:00'))
-            return f"{dt.hour:02d}:{dt.minute:02d}"
-
-        except Exception as e:
-            logger.debug(f"Error extracting reminder time from '{activation_date_str}': {e}")
-            return None
 
     def get_applescript_date_formatter(self, date_property: str, fallback_value: str = "missing value") -> str:
         """Generate AppleScript code to format a date property as YYYY-MM-DD HH:MM:SS.

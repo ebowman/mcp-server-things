@@ -18,10 +18,8 @@ Architecture: Multi-layered approach with graceful fallback:
 """
 
 import logging
-import subprocess
 from datetime import datetime
 from typing import Dict, Any, Optional
-from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -58,69 +56,43 @@ class ReliableThingsScheduler:
         
         return None
     
-    def _execute_url_scheme(self, url: str) -> bool:
-        """Execute Things URL scheme using open command."""
-        try:
-            result = subprocess.run(
-                ['open', url], 
-                capture_output=True, 
-                text=True, 
-                timeout=5
-            )
-            return result.returncode == 0
-        except Exception as e:
-            logger.debug(f"URL scheme execution failed: {e}")
-            return False
-    
     async def schedule_todo_reliable(self, todo_id: str, when_date: str) -> Dict[str, Any]:
         """
         Ultra-reliable todo scheduling using research-proven multi-layered approach.
-        
+
         Args:
             todo_id: Things todo ID
             when_date: ISO date (YYYY-MM-DD) or relative date ("today", "tomorrow", etc.)
-            
+
         Returns:
             Dict with success status, method used, and reliability percentage
         """
-        
-        # Normalize the date input
-        normalized_date = self._normalize_date_input(when_date)
-        
-        # Layer 1: Things URL Scheme (Most Reliable - Primary)
-        if await self._try_url_scheme_scheduling(todo_id, normalized_date):
-            return {
-                "success": True, 
-                "method": "url_scheme", 
-                "reliability": "95%",
-                "date_set": normalized_date
-            }
-        
-        # Layer 2: AppleScript Date Objects (High Reliability - Fallback)
+
+        # Layer 1: AppleScript Date Objects (High Reliability - Primary)
         if await self._try_applescript_date_objects(todo_id, when_date):
             return {
-                "success": True, 
-                "method": "applescript_objects", 
+                "success": True,
+                "method": "applescript_objects",
                 "reliability": "90%",
                 "date_set": when_date
             }
-        
-        # Layer 3: List Assignment (Moderate Reliability - Final Fallback)
+
+        # Layer 2: List Assignment (Moderate Reliability - Final Fallback)
         list_result = await self._try_list_assignment_fallback(todo_id, when_date)
         if list_result["success"]:
             return {
                 "success": True,
                 "method": "list_assignment",
-                "reliability": "85%", 
+                "reliability": "85%",
                 "date_set": list_result.get("assigned_list", "Today"),
                 "note": "Moved to appropriate list due to scheduling limitations"
             }
-        
+
         # Complete failure (should be extremely rare)
         return {
-            "success": False, 
+            "success": False,
             "error": "All scheduling methods failed - this indicates a system issue",
-            "methods_tried": ["url_scheme", "applescript_objects", "list_assignment"]
+            "methods_tried": ["applescript_objects", "list_assignment"]
         }
     
     def _normalize_date_input(self, date_input: str) -> str:
@@ -149,38 +121,6 @@ class ReliableThingsScheduler:
         except ValueError:
             # If not ISO, return as-is and let URL scheme handle it
             return date_input
-    
-    async def _try_url_scheme_scheduling(self, todo_id: str, when_date: str) -> bool:
-        """Try scheduling using Things URL scheme (most reliable method)."""
-        try:
-            # Ensure we have an auth token
-            if not self._auth_token:
-                await self.discover_auth_token()
-            
-            # Build URL scheme URL
-            base_url = "things:///update"
-            params = [
-                f"id={quote(todo_id)}",
-                f"when={quote(when_date)}"
-            ]
-            
-            if self._auth_token:
-                params.append(f"auth-token={quote(self._auth_token)}")
-            
-            url = base_url + "?" + "&".join(params)
-            
-            # Execute URL scheme
-            success = self._execute_url_scheme(url)
-            if success:
-                logger.info(f"Successfully scheduled todo {todo_id} for {when_date} via URL scheme")
-                return True
-            else:
-                logger.debug(f"URL scheme scheduling failed for todo {todo_id}")
-                return False
-                
-        except Exception as e:
-            logger.debug(f"URL scheme scheduling exception: {e}")
-            return False
     
     async def _try_applescript_date_objects(self, todo_id: str, when_date: str) -> bool:
         """Try scheduling using AppleScript date objects (fallback method)."""

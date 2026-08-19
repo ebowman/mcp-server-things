@@ -8,12 +8,38 @@ All tests use the cleanup_test_todos fixture to ensure no test data remains
 after test execution.
 """
 
+import os
 import pytest
 from datetime import datetime, date, timedelta
 from freezegun import freeze_time
 
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+# This module's tests each construct a real AppleScriptManager directly
+# (inline, not via a shared fixture), bypassing the gated real_things_tools/
+# cleanup_test_todos fixtures in conftest.py. A plain `from conftest import
+# ...` can't be used here: tests/integration/conftest.py and
+# tests/live/conftest.py are both bare modules named "conftest" (no
+# __init__.py anywhere under tests/), so importing by that name is
+# ambiguous and can resolve to the wrong one when both directories are
+# collected in the same session (e.g. `pytest tests/integration tests/live`)
+# - so this module defines its own local guard instead of importing
+# conftest.py's. Mark the whole module live and skip it outright at
+# collection time unless opted in; the same guard is also called at the top
+# of each test below as a second line of defence.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("THINGS_MCP_LIVE_TESTS") != "1",
+        reason="live Things 3 tests are opt-in (THINGS_MCP_LIVE_TESTS=1)",
+    ),
+]
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip("requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 to opt in (this fixture performs real writes/deletes against a live Things 3 database)")
 
 
 class TestMonthOverflowScheduling:
@@ -22,6 +48,7 @@ class TestMonthOverflowScheduling:
     @pytest.mark.asyncio
     async def test_jan_31_plus_one_month(self, cleanup_test_todos):
         """Verify Jan 31 + 1 month becomes Feb 28/29 (not March 3)."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -56,6 +83,7 @@ class TestMonthOverflowScheduling:
     @pytest.mark.asyncio
     async def test_mar_31_minus_one_month(self, cleanup_test_todos):
         """Verify Mar 31 - 1 month becomes Feb 28/29."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -83,6 +111,7 @@ class TestMonthOverflowScheduling:
     @pytest.mark.asyncio
     async def test_may_31_plus_one_month(self, cleanup_test_todos):
         """Verify May 31 + 1 month becomes Jun 30."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -110,6 +139,7 @@ class TestMonthOverflowScheduling:
     @pytest.mark.asyncio
     async def test_aug_31_plus_one_month(self, cleanup_test_todos):
         """Verify Aug 31 + 1 month becomes Sep 30."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -137,6 +167,7 @@ class TestMonthOverflowScheduling:
     @pytest.mark.asyncio
     async def test_oct_31_plus_one_month(self, cleanup_test_todos):
         """Verify Oct 31 + 1 month becomes Nov 30."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -168,6 +199,7 @@ class TestMonthOverflowDeadlines:
     @pytest.mark.asyncio
     async def test_deadline_jan_31_plus_month(self, cleanup_test_todos):
         """Verify deadline Jan 31 + 1 month becomes Feb 28/29."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -195,6 +227,7 @@ class TestMonthOverflowDeadlines:
     @pytest.mark.asyncio
     async def test_deadline_leap_year_feb_29(self, cleanup_test_todos):
         """Verify Feb 29 deadline works in leap year."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -216,6 +249,7 @@ class TestMonthOverflowDeadlines:
     @pytest.mark.asyncio
     async def test_deadline_non_leap_feb_28(self, cleanup_test_todos):
         """Verify Feb 28 deadline in non-leap year."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -256,6 +290,7 @@ class TestYearBoundaries:
     @pytest.mark.asyncio
     async def test_dec_31_plus_one_month(self, cleanup_test_todos):
         """Verify Dec 31 + 1 month becomes Jan 31 (next year)."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -283,6 +318,7 @@ class TestYearBoundaries:
     @pytest.mark.asyncio
     async def test_jan_31_minus_one_month(self, cleanup_test_todos):
         """Verify Jan 31 - 1 month becomes Dec 31 (previous year)."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -314,6 +350,7 @@ class TestComplexDateScenarios:
     @pytest.mark.asyncio
     async def test_leap_year_boundary(self, cleanup_test_todos):
         """Test Feb 29 in leap year transitions."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 
@@ -345,6 +382,7 @@ class TestComplexDateScenarios:
     @pytest.mark.asyncio
     async def test_multiple_month_edges(self, cleanup_test_todos):
         """Test todo scheduled across multiple month edges."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
 

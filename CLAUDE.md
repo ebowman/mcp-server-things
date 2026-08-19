@@ -4,13 +4,14 @@
 
 **Things 3 MCP Server** - A Model Context Protocol server that enables AI assistants to interact with Things 3 via AppleScript on macOS.
 
-### ✨ Latest Features (v1.5.0)
+### ✨ Latest Features (v1.7.0)
+- **📂 Heading support** - `get_project_headings` (read a project's heading structure), `add_project`'s `todos` payload supports real `##Heading` lines, and `update_todo(heading=..., list_id?, list_title?)` moves a to-do under a heading and/or into a different project or area
+- **🧹 List tools return to-dos only by default** - `get_today`/`get_upcoming`/`get_anytime`/`get_someday`/`get_trash` no longer mix in projects and headings; pass `include_projects=true` to opt back into projects (headings are never returned)
+- **🧾 Canonical structured error contracts** - every read tool returns `{"success": false, "error": "<snake_case_code>", "message": ...}`, every write tool returns `{"success": false, "error": "<UPPER_SNAKE_CODE>", "message": ...}`, both from a single shared implementation per contract
+- **🧵 Field completeness** - `convert_todo`/`convert_project` rewritten against the real things.py key set; completed/canceled items now correctly report `completionDate`/`cancellationDate`, and `hasChecklist` replaces the old ambiguous bool-or-list `checklist` field
+- **✂️ Field clearing** - `notes=''`/`deadline=''`/`tags=''` now clear those fields on `update_todo`/`update_project`/`update_area`/`bulk_update_todos` instead of silently no-op'ing
+- **📝 Multi-line notes preserved** - the AppleScript escaper no longer collapses newlines to spaces, fixing notes formatting loss on `add_project`/`update_project`/`add_todo`/`update_todo`
 - **🩺 Boot Diagnostics** - stderr boot-phase markers, a startup watchdog, and a bounded lazy import of `things` to make cold-start hangs diagnosable (see below)
-- **🏷️ Tag Management** - Fixed tag concatenation in all tag operations (add_tags, remove_tags, bulk_update_todos)
-- **⚡ Bulk Operations** - Fixed multi-field updates; tags now work correctly in batch operations
-- **📅 Date Scheduling** - Reliable scheduling with `today`, `tomorrow`, `someday`, or specific dates (YYYY-MM-DD)
-- **✅ Validation** - Parameter validation prevents common errors and edge cases
-- **📊 Context Optimization** - Response modes provide 5-12x better performance than documented
 
 ### Architecture
 - **Framework**: FastMCP 3.x (Python 3.8+)
@@ -92,7 +93,7 @@ marker instead of hanging silently. See README "Boot diagnostics" for the
 diagnosis recipe.
 
 ### API Coverage Status
-- **Implemented**: 25+ operations (40% of AppleScript API)
+- **Implemented**: 41 MCP tools (reads via things.py, writes via AppleScript + Things URL scheme for headings/checklists/evening scheduling) - see README "Available MCP Tools" for the full list
 - **Tested**: All features verified with comprehensive integration tests
 - **Roadmap**: See `docs/ROADMAP.md` for future features
 - **Priority**: Focus on daily workflow operations
@@ -223,7 +224,7 @@ bulk_update_todos(todo_ids="id1,id2,id3", notes="")
 # WRONG - title cannot be cleared; this returns a VALIDATION_ERROR
 update_todo(id="abc123", title="")
 
-# WRONG - when='' is rejected; unschedule with 'anytime' or 'someday' instead
+# CORRECT - when='' is rejected; unschedule with 'anytime' or 'someday' instead
 update_todo(id="abc123", when="anytime")
 ```
 
@@ -232,6 +233,12 @@ configured `tag_creation_policy` filters out every requested tag (e.g. all of
 them are unknown under `filter_silent`/`filter_warn`), the result is a no-op -
 existing tags are left unchanged, not cleared. Only an explicit `tags=''`
 clears tags.
+
+**Note on whitespace-only input:** whitespace-only strings are also treated
+as an explicit clear request, the same as `''`. `notes="   "` clears notes
+exactly like `notes=""`, and a `tags` string containing only commas/whitespace
+(e.g. `tags=" , "`) clears all tags exactly like `tags=""` - it does not parse
+as a single blank tag.
 
 ### Testing Notes
 
@@ -399,7 +406,7 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
@@ -427,6 +434,26 @@ When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-ran
 - Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`).
 
 This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items` - reports errors identically, and the two layers cannot drift apart. `get_todo_by_id` is the one exception: it raises (surfaced by FastMCP as a `ToolError`, no `structured_content`) rather than returning a structured error, because it has no natural "envelope" shape to fall back to.
+
+#### Structured error contract (write tools)
+
+Write/mutating tools (`add_todo`, `update_todo`, `bulk_update_todos`, `delete_todo`, `add_project`, `update_project`, `add_area`, `update_area`, `add_tags`, `remove_tags`, `create_tag`, `move_record`, `bulk_move_records`, `add_checklist_items`, `prepend_checklist_items`, `replace_checklist_items`) use a parallel but distinct contract - same envelope shape as the read-tool contract above, but the code is **UPPER_SNAKE_CASE** instead of lower_snake_case, so callers can tell at a glance (or via `code.isupper()`) whether an error came from a read or a write operation:
+
+```json
+{"success": false, "error": "INVALID_WHEN", "field": "when", "message": "must be in YYYY-MM-DD format or a relative date (today, tomorrow, etc.), got 'bogus'"}
+```
+
+- `success` - always `false` on a structured error.
+- `error` - a short, stable, machine-readable UPPER_SNAKE_CASE code (e.g. `VALIDATION_ERROR`, `NOT_FOUND`, `AMBIGUOUS_TARGET`, `TARGET_COMPLETED`, `NO_VALID_TAGS`, `INVALID_WHEN`, `INVALID_DEADLINE`, `INVALID_HEADING`, `NO_CHECKLIST_ITEMS`, `NO_TODO_IDS`, `CREATE_UNCONFIRMED`, `UNSUPPORTED_FOR_PROJECTS`, `AUTH_TOKEN_NOT_CONFIGURED`, `TAG_CREATION_RESTRICTED`, `APPLESCRIPT_ERROR`). Safe to switch on; does not change wording across releases.
+- `message` - a human-readable explanation, safe to display but not safe to pattern-match on (wording may change).
+- Additional fields may be present depending on the error (e.g. `VALIDATION_ERROR` also carries `field` and `invalid_value`; `AMBIGUOUS_TARGET` carries `ids` (the list of matching `kind:id` strings); an AppleScript-execution failure may carry `details` with the raw AppleScript error text; `AUTH_TOKEN_NOT_CONFIGURED` carries `hint`).
+
+This shape is produced by a single shared implementation, `tools_helpers.errors.write_error(code, message, **extra)`, used at every layer that returns a write-tool structured error: `ThingsMCPServer._write_error` (server.py, the MCP tool boundary), `WriteOperations`/`BulkOperations` (`tools_helpers/write_operations.py`, `tools_helpers/bulk_operations.py`), `scheduling/todo_operations.py` (`TodoOperations`, backing `add_todo`/`update_todo`/`add_project`/`update_project`/checklist scheduling - migrated in hq-f0w.46), and `parameter_validator.create_validation_error_response` (which independently produces the same `VALIDATION_ERROR` shape, predating this helper). Every AppleScript-execution-failure/exception path in `server.py`, `write_operations.py`, `bulk_operations.py`, and `scheduling/todo_operations.py` now goes through `write_error`, carrying the dynamic AppleScript/exception text in a `details` field rather than overloading `error` with it. `AppleScriptManager.execute_url_scheme`'s auth-gate (`services/applescript_manager.py`, `AUTH_REQUIRING_ACTIONS`) returns code `AUTH_TOKEN_NOT_CONFIGURED` with the (unchanged) literal `"Things URL-scheme auth token not configured"` now carried verbatim in `message` instead of `error`, and a `hint` field; every consumer that forwards an `execute_url_scheme` failure (checklist tools, `update_todo`, `bulk_update_todos`) forwards that code/message/hint through rather than re-wrapping it. `move_operations.py` (`move_record`, `bulk_move_records`) already used UPPER_SNAKE_CASE codes (`VALIDATION_ERROR`, `TODO_NOT_FOUND`, `NO_TODOS_SPECIFIED`, `INVALID_DESTINATION`, `APPLESCRIPT_ERROR`, etc.) before this bead and needed no changes.
+
+Known, currently-out-of-scope exceptions to this contract:
+- **`reliable_scheduling.py`** (`ReliableThingsScheduler`) has its own divergent, ungated `error` conventions, but has zero production callers (dead code since hq-f0w.20 removed its last calling path) - not in scope for any error-contract migration.
+- `delete_todo`'s `not_deletable`/`not_found` codes are lower_snake_case - they predate this bead, have extensive existing test coverage, and intentionally share the `not_found` convention with the read-tool contract (`get_project_headings`), so changing their case would create a cross-cutting inconsistency rather than resolve one.
+- Utility/diagnostic tools (`health_check`, `queue_status`, `context_stats`, `get_server_capabilities`, `get_usage_recommendations`) never return `{"success": false, ...}` - on failure they return a best-effort diagnostic payload with a top-level `error` string and no `success` key at all, so the write-tool contract does not apply to them.
 
 ### Someday: opt-in project-task inheritance
 
@@ -562,11 +589,7 @@ are on todos (hq-f0w.29), in addition to the project-specific `area`/
 set (`ContextAwareResponseManager.PROJECT_FIELD_SETS`), not the todo field
 lists above - the todo sets never carry `area`/`areaTitle` (to-do rows never
 have those keys), so filtering project rows against them silently dropped a
-project's area under `minimal`/`standard` mode until hq-f0w.32. `get_areas()`
-top-level rows are areas (`uuid`/`title`/`type`/`tags` from `convert_area`)
-and still use the todo field sets, which is sufficient for that small schema
-under every mode except `minimal` (which lacks `tags` for areas - tracked
-separately, out of scope for hq-f0w.32).
+project's area under `minimal`/`standard` mode until hq-f0w.32.
 
 - **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
 - **`minimal`**: `uuid`, `title`, `status`, `type`, `area`, `start`, `dueDate`,
@@ -578,6 +601,51 @@ separately, out of scope for hq-f0w.32).
 - **`detailed`** / **`raw`**: all fields, including `index`, `todayIndex`,
   `completionDate`/`cancellationDate` (derived from things.py's single
   `stop_date` field by `status`)
+
+This project field set is also applied per-row, independent of which tool is
+calling: any item whose own `type == 'project'` - e.g. a project row inside
+`get_today`/`get_anytime`/`get_upcoming`/`get_someday`'s
+`include_projects=true` results, or `search_advanced(type='project')` /
+unfiltered `search_advanced()` results - is filtered against
+`PROJECT_FIELD_SETS`, not the todo-shaped set the rest of that list uses
+(hq-f0w.37). Before hq-f0w.37 those mixed-list project rows were converted
+via `convert_todo` (not `convert_project`), so they never carried
+`area`/`areaTitle` at any mode; `read_operations.py`'s `convert_item()`
+helper now dispatches each raw row to `convert_project`/`convert_todo` based
+on its own `type` before it ever reaches field filtering.
+
+### Area field lists per mode (hq-f0w.37)
+
+`get_areas()` top-level rows are areas (`uuid`/`title`/`type`/`tags` from
+`convert_area`), filtered against `ContextAwareResponseManager.AREA_FIELD_SETS`.
+Unlike the todo/project field sets, `summary`/`minimal`/`standard` are
+identical - `convert_area`'s output is a fixed 4-key schema, so there's
+nothing smaller to trim to for `minimal` and no extra optional fields to add
+for `standard`. Before hq-f0w.37, `get_areas(mode='minimal')` fell through to
+the todo-shaped `TODO_FIELD_SETS` MINIMAL set (which lacks `tags`), silently
+dropping an area's tags.
+
+- **`summary`** / **`minimal`** / **`standard`**: `uuid`, `title`, `type`, `tags`
+- **`detailed`** / **`raw`**: same 4 fields (no filtering is applied, but
+  `convert_area` never emits more than these)
+
+### `include_items=true` nested rows are not re-filtered by mode (hq-f0w.37)
+
+`get_areas(include_items=true)` and `get_projects(include_items=true)` attach
+nested `projects`/`todos` lists directly in `read_operations.py`
+(`_get_areas_sync`/`_get_projects_sync`), independent of response mode. These
+nested lists are preserved as-is under every mode once `include_items=true`
+asked for them - `minimal`/`standard` no longer silently drop the nested
+`projects`/`todos` key the way they did before hq-f0w.37 (only
+`detailed`/`raw` used to keep it, since `minimal`/`standard`'s field sets
+never listed those keys). The nested items themselves are NOT re-filtered
+per-mode - they already went through `convert_project`/`convert_todo` once
+and are attached whole. This does **not** change the existing danger
+guidance below: `get_projects(include_items=true)` is still context-expensive
+on large databases regardless of mode, because the nested `todos` lists
+themselves are still full, unfiltered item lists - prefer
+`get_projects(mode='summary')` plus targeted `get_todos(project_uuid=...)`
+calls instead.
 
 ### Performance Tips
 
@@ -912,11 +980,12 @@ structured error (`{"error": true, "error_type": ..., "message": ...}`) instead 
 An invalid `mode` value returns `{"success": false, "error": "Invalid mode", "message": ...}`,
 matching `get_projects`/`get_areas`.
 
-**This tool is read-only by design.** Headings cannot be created, renamed, or deleted via
-any public Things 3 API - there is no AppleScript heading class, and the URL scheme can
-only place to-dos under headings that already exist, or seed headings at project-creation
-time via `add_project(todos=...)`'s `##` lines. To add a todo under an existing heading,
-use `add_todo(title=..., list_id=project_id, heading="Existing Heading Title")`.
+**This tool is read-only by design.** Headings cannot be renamed or deleted via any public
+Things 3 API - there is no AppleScript heading class, and the only way to place a to-do
+under a heading via the URL scheme is a heading that already exists (`add_todo(...,
+heading=...)`), or one seeded at project-creation time via `add_project(todos=...)`'s `##`
+lines (see below). To add a todo under an existing heading, use `add_todo(title=...,
+list_id=project_id, heading="Existing Heading Title")`.
 
 ### Moving Todos Between Projects
 
@@ -1056,8 +1125,9 @@ replace_checklist_items(
 - Todo ID is retrieved after creation by snapshotting existing to-do ids with
   that title before the URL call and polling (up to 3s, every 250ms) for a
   new id afterward, so two same-titled to-dos created within a second still
-  resolve to distinct correct ids (see CHANGELOG hq-nxu.12); a lookup that
-  times out returns `success: false` rather than a false-positive success.
+  resolve to distinct correct ids (see CHANGELOG.md's `[1.7.0]` Fixed entry
+  on `add_todo` id disambiguation); a lookup that times out returns
+  `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
 - The auth token is loaded once at server startup; a token file added or
   edited afterwards requires a server restart to take effect. An
@@ -1194,7 +1264,16 @@ add_todo(title="Task 2", list_id=project_id)
 add_todo(title="Task 3", list_id=project_id)
 ```
 
-**Note**: The `todos` parameter accepts newline-separated todo titles and creates them atomically with the project.
+**Note**: The `todos` parameter accepts newline-separated todo titles and creates them atomically with the project. A line prefixed with `##` (e.g. `"##Phase 1"`) creates a real heading instead of a to-do, and subsequent to-do lines nest under the most recently seen heading:
+
+```python
+project_id = add_project(
+    title="Release v2.0",
+    todos="##Planning\nWrite spec\nReview spec\n##Execution\nShip it"
+)
+```
+
+**Implementation note**: any `##` line routes the whole call through the Things URL scheme's `json` action (the only Things API able to create real headings at project-creation time) instead of the faster AppleScript path; a `todos` payload with no `##` lines still uses AppleScript. Both paths verify what was actually created (a fresh `things.py` read for the URL-scheme path once the created project's id is confirmed; an in-script `count of to dos of newProject` for the AppleScript path) and report `todos_created` (and `headings_created` when headings were requested) rather than echoing the requested counts, with a `warnings` entry if fewer than requested were actually created.
 
 ### 7. Large Dataset Queries
 
@@ -1320,18 +1399,22 @@ A comprehensive 10-week, 8-phase refactoring plan has been created to improve co
 - 19 functions >100 lines (largest: 214 lines)
 - 4 files >1,300 lines (largest: 1,657 lines)
 - 31 duplicate AppleScript invocations
-- Complex 193-line string parser
+- ~~Complex 193-line string parser~~ *(obsolete as of hq-f0w.38 - no state-machine
+  `parser.py` exists; parsing lives in `services/applescript/formatters.py`, and
+  its dead helpers were removed)*
 
 **Target Improvements:**
 - Zero bare except blocks (specific exception types + logging)
 - All functions <100 lines (target: 80)
 - All files <1,000 lines (target: 500)
 - Consolidated AppleScript patterns via templates
-- State machine-based parser
+- ~~State machine-based parser~~ *(obsolete as of hq-f0w.38 - see note above;
+  superseded, see `docs/PHASE_2_COMPLETION_REPORT.md` and
+  `docs/REFACTORING_PLAN.md` Phase 2)*
 
 **Phased Approach:**
 1. **Phase 1 (Week 1):** Fix bare except blocks - LOW RISK
-2. **Phase 2 (Weeks 2-3):** Parser refactoring - HIGH RISK, feature-flagged
+2. **Phase 2 (Weeks 2-3):** ~~Parser refactoring~~ - obsolete/moot, see note above
 3. **Phase 3 (Weeks 4-5):** Function decomposition - MEDIUM RISK
 4. **Phase 4 (Week 6):** File organization - MEDIUM RISK
 5. **Phase 5 (Week 7):** Consolidate AppleScript patterns - LOW RISK

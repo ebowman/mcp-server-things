@@ -331,6 +331,34 @@ def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
     return [t for t in result if t.get('type', 'to-do') != 'heading']
 
 
+def convert_item(raw_item: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw things.py row using the converter matching its type.
+
+    Several "mixed" lists can contain both to-do and project rows in the
+    same response: get_today/get_upcoming/get_anytime/get_someday with
+    include_projects=True, and search_advanced(type='project') (which can
+    also return unfiltered mixed results when `type` is omitted). Calling
+    ToolsHelpers.convert_todo() unconditionally on every row (as these call
+    sites used to) silently drops project-only fields like area/areaTitle,
+    since convert_todo's output schema never includes them (hq-f0w.37).
+
+    Dispatches on raw_item['type'] (things.py's own type tag, before any
+    conversion): 'project' rows go through ToolsHelpers.convert_project()
+    so they carry area/areaTitle; everything else ('to-do', 'heading', or
+    missing 'type' as in older/mocked data) goes through
+    ToolsHelpers.convert_todo(), matching the pre-existing default.
+
+    Args:
+        raw_item: A raw dict from things.py (not yet converted).
+
+    Returns:
+        The converted dict from convert_project or convert_todo.
+    """
+    if raw_item.get('type') == 'project':
+        return ToolsHelpers.convert_project(raw_item)
+    return ToolsHelpers.convert_todo(raw_item)
+
+
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
@@ -795,7 +823,7 @@ class ReadOperations:
 
             result = []
             for todo in today_todos:
-                result.append(ToolsHelpers.convert_todo(todo))
+                result.append(convert_item(todo))
 
                 if limit and len(result) >= limit:
                     break
@@ -829,7 +857,7 @@ class ReadOperations:
 
             result = []
             for todo in upcoming_todos:
-                result.append(ToolsHelpers.convert_todo(todo))
+                result.append(convert_item(todo))
 
                 if limit and len(result) >= limit:
                     break
@@ -863,7 +891,7 @@ class ReadOperations:
 
             result = []
             for todo in anytime_todos:
-                result.append(ToolsHelpers.convert_todo(todo))
+                result.append(convert_item(todo))
 
                 if limit and len(result) >= limit:
                     break
@@ -935,7 +963,7 @@ class ReadOperations:
 
             result = []
             for todo in someday_todos:
-                result.append(ToolsHelpers.convert_todo(todo))
+                result.append(convert_item(todo))
 
                 if limit and len(result) >= limit:
                     break
@@ -1047,7 +1075,7 @@ class ReadOperations:
             # Apply pagination
             paginated = trash_data[offset:offset + limit]
 
-            items = [ToolsHelpers.convert_todo(t) for t in paginated]
+            items = [convert_item(t) for t in paginated]
             items = _fill_project_from_heading(items)
 
             return {
@@ -1107,11 +1135,13 @@ class ReadOperations:
     async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
         """Get the heading structure of a project, in Things' display order.
 
-        Headings cannot be created, renamed, or deleted via the public Things 3
-        APIs (there is no AppleScript heading class; the URL scheme can only
-        place to-dos under existing headings, or seed headings at project
-        creation time via ``add-project`` ``##`` lines). This is a read-only
-        view of the heading structure that already exists in a project.
+        Headings can only be created at project-creation time, via
+        add_project(todos=...)'s ``##`` lines (things:///json) - not by this
+        tool. Existing headings cannot be renamed or deleted via the public
+        Things 3 APIs (there is no AppleScript heading class; the URL scheme
+        can only place to-dos under headings that already exist). This is a
+        read-only view of the heading structure that already exists in a
+        project.
 
         Args:
             project_id: UUID of the project to read headings from.
@@ -1545,7 +1575,12 @@ class ReadOperations:
             if limit:
                 windowed = windowed[:limit]
 
-            results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+            # search_advanced can return project rows (type='project' filter,
+            # or no type filter at all -> a mix of to-dos/projects/headings) -
+            # dispatch each row through convert_item() so project rows go
+            # through convert_project (carrying area/areaTitle) rather than
+            # convert_todo (hq-f0w.37).
+            results = [convert_item(todo) for todo in windowed]
             results = _fill_project_from_heading(results)
 
             logger.debug(f"search_advanced found {total_count} matching todos using things.py")

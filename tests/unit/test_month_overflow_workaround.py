@@ -397,7 +397,7 @@ class TestWorkaroundCompleteness:
         # date object is constructed.
         # All should have the workaround nearby
 
-        deadline_pattern = r'set due date of \w+ to deadlineDate'
+        deadline_pattern = r'set due date of'
         deadline_matches = list(re.finditer(deadline_pattern, content))
 
         assert len(deadline_matches) > 0, "Should have deadline setting code"

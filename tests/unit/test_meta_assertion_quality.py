@@ -60,25 +60,16 @@ SUCCESS_ONLY_NAMES = {"success", "result", "results", "response", "res"}
 # (file, test_name) -> reason. Tests whose *entire purpose* is to check the
 # success envelope shape (not the emitted script/URL) are legitimately
 # success-only and are excluded from the failure list.
-ALLOWLIST: dict[tuple[str, str], str] = {
-    (
-        "test_tag_management_comprehensive.py",
-        "test_empty_tag_string",
-    ): "asserts add_tags(tags='') is rejected as NO_VALID_TAGS before any AppleScript is built - there is no emitted script to assert on for this error path",
-    # test_with_token_succeeds is defined identically in three sibling
-    # classes (TestAddChecklistItemsAuthGate, TestPrependChecklistItemsAuthGate,
-    # TestReplaceChecklistItemsAuthGate) - each dict key matches all three
-    # since the scanner is keyed by (file, function name) only.
-    (
-        "test_url_scheme_auth_gate.py",
-        "test_with_token_succeeds",
-    ): "hq-f0w.31: with a valid auth token, add/prepend/replace_checklist_items "
-       "just proceeds to the (mocked) URL-scheme call and asserts only "
-       "result['success'] is True - the point of the test is the auth-gate "
-       "pass-through, not the checklist URL content (covered elsewhere by "
-       "the checklist-item retrofits in test_edge_cases.py). Needs a "
-       "follow-up bead to also assert on the URL scheme call if desired.",
-}
+# hq-f0w.31 retrofitted the last two allowlisted success-only tests
+# (test_tag_management_comprehensive.py::test_empty_tag_string now asserts
+# the NO_VALID_TAGS error code and that execute_applescript was never
+# called; test_url_scheme_auth_gate.py::test_with_token_succeeds - all
+# three sibling classes - now asserts the emitted URL contains
+# auth-token= and the tool-specific checklist param key/value). No test
+# currently requires an allowlist entry; keep this dict empty rather than
+# deleting it so future genuinely-success-only tests have a documented
+# place to be excluded with a reason.
+ALLOWLIST: dict[tuple[str, str], str] = {}
 
 
 def _dotted_or_attr_name(func_node: ast.AST) -> str | None:

@@ -9,7 +9,7 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..locale_aware_dates import locale_handler
 from ..config import ThingsMCPConfig
@@ -134,7 +134,8 @@ class AppleScriptManager:
                 )
                 return {
                     "success": False,
-                    "error": "Things URL-scheme auth token not configured",
+                    "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                    "message": "Things URL-scheme auth token not configured",
                     "hint": AUTH_TOKEN_HINT,
                 }
 
@@ -178,27 +179,6 @@ class AppleScriptManager:
     # to-dos with ~6ms lag - see read_operations.py's get_todos docstring)
     # and now goes through things.py directly for both project-scoped and
     # unscoped queries.
-
-    # Delegate formatting methods to formatters module
-    def _parse_applescript_date(self, date_str: str) -> Optional[str]:
-        """Parse AppleScript date format to ISO string (delegates to formatters)."""
-        return self.formatters.parse_applescript_date(date_str)
-
-    def get_applescript_date_formatter(self, date_property: str, fallback_value: str = "missing value") -> str:
-        """Generate AppleScript code to format a date property (delegates to formatters)."""
-        return self.formatters.get_applescript_date_formatter(date_property, fallback_value)
-
-    def format_applescript_date_to_iso(self, date_str: str) -> Optional[str]:
-        """Convert AppleScript date string to ISO format (delegates to formatters)."""
-        return self.formatters.format_applescript_date_to_iso(date_str)
-
-    def _parse_applescript_tags(self, tags_str: str) -> List[str]:
-        """Parse AppleScript tag names list (delegates to formatters)."""
-        return self.formatters.parse_applescript_tags(tags_str)
-
-    def _build_things_url(self, action: str, parameters: Dict[str, Any]) -> str:
-        """Build a Things URL scheme string (delegates to formatters)."""
-        return self.formatters.build_things_url(action, parameters, self.auth_token)
 
     def _get_current_timestamp(self) -> str:
         """Get current timestamp in ISO format."""

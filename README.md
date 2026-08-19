@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 ## Why this server?
 
-Writes go through **AppleScript**, not the Things URL scheme, which is what enables `delete_todo`, `move_record`/`bulk_move_records`, `remove_tags`, real IDs returned synchronously, and no Things auth token — the trade-off is a one-time macOS Automation permission prompt on first write. Operationally it also ships built-in `doctor` diagnostics, `config --write` client setup, context-optimized response modes for large databases, and ~800 unit tests.
+Writes go through **AppleScript**, not the Things URL scheme, which is what enables `delete_todo`, `move_record`/`bulk_move_records`, `remove_tags`, real IDs returned synchronously, and no Things auth token — the trade-off is a one-time macOS Automation permission prompt on first write. Operationally it also ships built-in `doctor` diagnostics, `config --write` client setup, context-optimized response modes for large databases, and 1300+ unit tests.
 
 [hald/things-mcp](https://github.com/hald/things-mcp) is a solid, lighter URL-scheme-based alternative — several of its ideas (Someday-project filtering, tag usage reporting, `.mcpb` packaging) are adopted here too. See [docs/COMPARISON.md](docs/COMPARISON.md) for the detailed matrix.
 
@@ -357,16 +357,16 @@ You can set environment variables directly in your Claude Desktop configuration:
 ### Todo Management
 - `get_todos(project_uuid?, include_items?)` - List todos
 - `add_todo(title, ...)` - Create new todo
-- `update_todo(id, ...)` - Update existing todo
+- `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
 - `get_todo_by_id(todo_id)` - Get specific todo
-- `delete_todo(todo_id)` - Delete todo
+- `delete_todo(todo_id)` - Delete a to-do or a project (auto-detects the id type; headings/areas/tags cannot be deleted via any public Things 3 API)
 
 ### Project Management
 - `get_projects(include_items?)` - List projects
-- `add_project(title, ...)` - Create new project
+- `add_project(title, ..., todos?)` - Create new project; a `##`-prefixed line in `todos` creates a real heading (via the Things URL scheme's `json` action), with subsequent lines nesting under it
 - `update_project(id, ...)` - Update existing project
-- `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings cannot be created/renamed/deleted via any public Things 3 API.
+- `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings can only be created at project-creation time (`add_project`'s `##` lines) and cannot be renamed/deleted via any public Things 3 API.
 
 ### Area Management
 - `get_areas(include_items?)` - List areas
@@ -382,23 +382,23 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_upcoming(days?, include_projects?)` - Get upcoming todos (with optional days filter)
 - `get_anytime(include_projects?)` - Get Anytime todos
 - `get_someday(include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
-- `get_logbook(limit?, period?)` - Get completed todos
+- `get_logbook(limit?, period?, offset?, include_canceled?)` - Get completed todos; includes canceled todos by default (`include_canceled=true`), matching the Things app's own Logbook view
 - `get_trash(include_projects?)` - Get trashed todos
 
 ### Date-Range Queries
-- `get_due_in_days(days)` - Get todos due within specified days
+- `get_due_in_days(days, include_overdue?)` - Get todos due within specified days; includes already-overdue todos by default (`include_overdue=true`)
 - `get_activating_in_days(days)` - Get todos activating within days
 
 ### Search & Tags
-- `search_todos(query)` - Basic search
-- `search_advanced(...)` - Advanced search with filters
+- `search_todos(query, status?, offset?)` - Basic search; matches incomplete todos by default (`status='incomplete'`), pass `status=None` to search all statuses
+- `search_advanced(...)` - Advanced search with filters; searches all statuses by default when no `status` filter is given
 - `get_tags(include_items?)` - List tags
 - `get_tag_usage(only_unused?, mode?)` - Per-tag open/total/area usage counts, sorted by usage, for cleanup. Caveats: tags sharing an identical title are merged into one row (uuid picks the last match), and area-only tags are counted via `area_count`/`total_count` but never affect `open_count`.
 - `create_tag(name)` - Create a new tag
 - `get_tagged_items(tag)` - Get items with specific tag
 - `add_tags(todo_id, tags)` - Add tags to a todo
 - `remove_tags(todo_id, tags)` - Remove tags from a todo
-- `get_recent(period)` - Get recently created items
+- `get_recent(period, status?, type?)` - Get recently created items; returns all statuses and both to-dos and projects by default (headings are never included unless `type='heading'` is passed explicitly)
 
 ### Bulk Operations
 - `move_record(record_id, to_parent_uuid)` - Move single record

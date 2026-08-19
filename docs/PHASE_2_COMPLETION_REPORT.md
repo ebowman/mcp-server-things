@@ -1,5 +1,11 @@
 # Phase 2 Parser Refactoring - Completion Report
 
+> **Superseded (2026-08-19, hq-f0w.38):** The state-machine `parser.py` module and
+> `use_new_applescript_parser` flag described in this report no longer exist in the
+> codebase. AppleScript output parsing now lives entirely in
+> `services/applescript/formatters.py`, and its dead helper functions were removed
+> in hq-f0w.38. This report is kept for historical context only.
+
 **Date:** October 1, 2025
 **Branch:** `refactor/phase-2-parser`
 **Status:** ✅ COMPLETE

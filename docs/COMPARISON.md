@@ -1,6 +1,6 @@
 # Comparison: mcp-server-things vs hald/things-mcp
 
-Comparison as of 2026-08-19 — versions: this server v1.6.2, [hald/things-mcp](https://github.com/hald/things-mcp) v0.8.1; details go stale, check both changelogs.
+Comparison as of 2026-08-19 — versions: this server v1.7.0, [hald/things-mcp](https://github.com/hald/things-mcp) v0.8.1; details go stale, check both changelogs.
 
 | Dimension | mcp-server-things (this repo) | hald/things-mcp |
 |---|---|---|
@@ -15,7 +15,8 @@ Comparison as of 2026-08-19 — versions: this server v1.6.2, [hald/things-mcp](
 | Install | `uvx` + one-click `.mcpb` | `uvx` + one-click `.mcpb` |
 | HTTP transport | Yes (`THINGS_MCP_TRANSPORT=http`) | Yes |
 | Automation (TCC) permission | Required for writes (one-time prompt) | Not required (URL scheme) |
-| Codebase / test size | Larger, heavily tested (~16.8k LOC, ~800 unit tests) | Smaller & easy to audit (~1.5k LOC, ~174 tests) |
+| Codebase / test size | Larger, heavily tested (~17.8k LOC, ~1350 unit tests) | Smaller & easy to audit (~1.5k LOC, ~174 tests) |
+| Heading support | Yes — `get_project_headings`, `add_project`'s `##` lines, `update_todo(heading=...)` (headings can't be renamed/deleted via any public Things 3 API) | No |
 
 ## Which should you pick?
 

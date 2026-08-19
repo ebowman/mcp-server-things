@@ -90,15 +90,20 @@ fixtures, or these two gated fixtures, are unaffected and run normally
 (or skip cleanly) without the env var.
 
 `tests/integration/test_bulk_operations_comprehensive.py`,
-`test_search_comprehensive.py`, and `test_search_performance.py` build
-their own local `applescript_manager`/`things_tools` fixtures instead of
-using `real_things_tools`; each of those local fixtures now calls the
+`test_search_comprehensive.py`, `test_search_performance.py`,
+`test_cleanup_mechanism.py`, `test_date_scheduling_integration.py`,
+`test_month_edge_cases.py`, and `test_temporal_queries.py` build their own
+local `applescript_manager`/`things_tools` fixtures (or construct
+`AppleScriptManager()` inline per test) instead of using
+`real_things_tools`; each of those local fixtures/tests now calls the
 same `_require_live_tests_env()` guard directly and the modules are
 marked `live`, so `pytest tests/integration` as a whole is all skips
 (zero real AppleScript/`osascript` calls) without `THINGS_MCP_LIVE_TESTS=1`
-(hq-f0w.42; an earlier accidental ungated run of
+(hq-f0w.42, hq-f0w.44; an earlier accidental ungated run of
 `test_bulk_operations_comprehensive.py` had hung and leaked items during
-hq-f0w.14's own testing).
+hq-f0w.14's own testing). `tests/integration/verify_cleanup.py` is a
+standalone `__main__` script (not collected by pytest) that exits with an
+error unless `THINGS_MCP_LIVE_TESTS=1` is set.
 
 ## Release gate
 

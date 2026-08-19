@@ -73,7 +73,8 @@ class TestUpdateTodoMoveByListId:
             result = await ops.update_todo("abc123", list_id="BOGUS")
 
         assert result["success"] is False
-        assert "does not match any known project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any known project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 
@@ -84,7 +85,8 @@ class TestUpdateTodoMoveByListId:
             result = await ops.update_todo("abc123", list_id="SOME_TODO")
 
         assert result["success"] is False
-        assert "not a project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "not a project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -130,7 +132,8 @@ class TestUpdateTodoMoveByListTitle:
             result = await ops.update_todo("abc123", list_title="Nonexistent")
 
         assert result["success"] is False
-        assert "does not match any project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -142,7 +145,8 @@ class TestUpdateTodoMoveByListTitle:
             result = await ops.update_todo("abc123", list_title="Dup")
 
         assert result["success"] is False
-        assert "ambiguous" in result["error"]
+        assert result["error"] == "AMBIGUOUS_TARGET"
+        assert "ambiguous" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -212,7 +216,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
             result = await ops.update_todo("abc123", heading="Research", list_title="Nonexistent")
 
         assert result["success"] is False
-        assert "does not match any project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any project or area" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -224,7 +229,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
             result = await ops.update_todo("abc123", heading="Research", list_id="BOGUS")
 
         assert result["success"] is False
-        assert "does not match any known project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any known project or area" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
@@ -243,7 +249,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
             )
 
         assert result["success"] is False
-        assert "does not match any known project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any known project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 
@@ -259,7 +266,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
             )
 
         assert result["success"] is False
-        assert "does not match any project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 

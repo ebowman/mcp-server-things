@@ -358,9 +358,14 @@ class ParameterValidator:
         if '@' in date_str and re.match(datetime_pattern, date_str):
             return date_str  # Valid datetime format
 
+        if allow_relative:
+            message = f"must be in YYYY-MM-DD format or a relative date (today, tomorrow, etc.), got '{date_str}'"
+        else:
+            message = f"must be in YYYY-MM-DD format, got '{date_str}'"
+
         raise ValidationError(
             field_name,
-            f"must be in YYYY-MM-DD format or a relative date (today, tomorrow, etc.), got '{date_str}'",
+            message,
             date_str
         )
 

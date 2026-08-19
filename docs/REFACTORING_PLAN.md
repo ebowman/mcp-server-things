@@ -14,14 +14,15 @@ This document provides a comprehensive SPARC-based plan for improving code quali
 - 19 functions >100 lines (largest: 214 lines)
 - 4 files >1,300 lines (largest: 1,657 lines)
 - 31 duplicate AppleScript invocations
-- Complex 193-line string parser using placeholder substitution
+- Complex 193-line string parser using placeholder substitution *(superseded -
+  see Phase 2 note below; no longer reflects the current codebase)*
 
 **Target State:**
 - Zero bare except blocks
 - All functions <100 lines (target: 80)
 - All files <1,000 lines (target: 500)
 - Consolidated AppleScript patterns
-- State machine-based parser
+- State machine-based parser *(superseded/obsolete - see Phase 2 note below)*
 - 100% test coverage maintained (330+ tests)
 
 ---
@@ -197,6 +198,13 @@ class ValidationError(ThingsMCPError):
 ---
 
 ### Phase 2: Parser Refactoring (Weeks 2-3, 15 hours) - HIGH RISK
+
+> **Superseded (2026-08-19, hq-f0w.38):** This phase was completed and later
+> reverted/reworked - there is no `services/applescript/parser.py` state machine
+> or `use_new_applescript_parser` flag in the current codebase. Parsing lives in
+> `services/applescript/formatters.py`, and its zero-caller dead helpers were
+> removed in hq-f0w.38. The tasks below are kept for historical context only and
+> are not part of any active plan.
 
 **Task 2.1: Create new parser module** (8 hours)
 - File: `src/things_mcp/services/applescript/parser.py`

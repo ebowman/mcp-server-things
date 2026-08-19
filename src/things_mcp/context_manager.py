@@ -531,13 +531,14 @@ class ContextAwareResponseManager:
     # camelCase output). get_projects() items are projects, not todos - the
     # shared TODO_FIELD_SETS above never carried area/areaTitle (to-do rows
     # never have those keys), so filtering project rows against it silently
-    # dropped a project's area under MINIMAL/STANDARD (hq-f0w.32). Used only
-    # when method_name == 'get_projects' (see _apply_field_filtering); the
-    # top-level rows returned by get_areas are area rows (see convert_area)
-    # and continue to use TODO_FIELD_SETS, which - unlike for to-dos - is
-    # sufficient for the small area schema (uuid/title/type/tags) under every
-    # mode except MINIMAL, which lacks 'tags' (tracked separately; areas are
-    # out of scope for this fix per hq-f0w.32).
+    # dropped a project's area under MINIMAL/STANDARD (hq-f0w.32). Used both
+    # when method_name == 'get_projects' AND, per-row, whenever an item's own
+    # 'type' == 'project' regardless of method_name (hq-f0w.37) - mixed lists
+    # like get_today/get_anytime/get_upcoming/get_someday(include_projects=True)
+    # and search_advanced(type='project') route project rows through
+    # convert_project (see read_operations.py's convert_item()) so those rows
+    # need PROJECT_FIELD_SETS too, even though the *list* itself is nominally
+    # todo-shaped. See _apply_field_filtering for the dispatch logic.
     PROJECT_FIELD_SETS = {
         ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},
         ResponseMode.MINIMAL: {
@@ -554,6 +555,39 @@ class ContextAwareResponseManager:
         ResponseMode.DETAILED: None  # Include all fields
     }
 
+    # Field set for area rows (ToolsHelpers.convert_area's camelCase output).
+    # convert_area always emits exactly {uuid, title, type, tags} - a fixed,
+    # tiny 4-key schema - so unlike TODO_FIELD_SETS/PROJECT_FIELD_SETS the
+    # SUMMARY/MINIMAL/STANDARD sets are identical (there is nothing smaller
+    # to trim to and no larger optional fields to add for STANDARD). Used
+    # when method_name == 'get_areas' (see _apply_field_filtering). Before
+    # hq-f0w.37, get_areas(mode='minimal') fell through to TODO_FIELD_SETS'
+    # MINIMAL set, which lacks 'tags', silently dropping an area's tags.
+    AREA_FIELD_SETS = {
+        ResponseMode.SUMMARY: {'uuid', 'title', 'type', 'tags'},
+        ResponseMode.MINIMAL: {'uuid', 'title', 'type', 'tags'},
+        ResponseMode.STANDARD: {'uuid', 'title', 'type', 'tags'},
+        ResponseMode.DETAILED: None  # Include all fields
+    }
+
+    # Keys carried by get_areas()/get_projects() include_items=True nested
+    # rows ('projects'/'todos' lists built directly in read_operations.py's
+    # _get_areas_sync/_get_projects_sync). These nested lists are NOT
+    # themselves field-filtered by mode (their items already went through
+    # convert_project/convert_todo once; re-filtering per-mode here would
+    # require recursing into each nested item, which no caller needs today)
+    # - they are kept as-is under every mode once include_items=True asked
+    # for them, so a nested 'projects'/'todos' key present on a row is never
+    # silently dropped under MINIMAL/STANDARD (hq-f0w.37; previously only
+    # DETAILED/RAW preserved them since MINIMAL/STANDARD's field sets never
+    # listed these keys). get_projects(include_items=True) remains
+    # documented as dangerous for large databases (context explosion, see
+    # CLAUDE.md "Known Limitations") regardless of mode - this fix does not
+    # change that guidance, it only stops MINIMAL/STANDARD from being
+    # inconsistent with DETAILED/RAW about whether the (still large) nested
+    # data is present.
+    _INCLUDE_ITEMS_NESTED_KEYS = {'projects', 'todos'}
+
     def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode,
                                method_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Apply field-level filtering based on response mode.
@@ -562,11 +596,22 @@ class ContextAwareResponseManager:
             data: Items to filter.
             mode: Response mode controlling which field set to apply.
             method_name: Name of the calling tool method. Most tools share
-                the todo/area field sets below; get_projects uses the
+                the todo field set below; get_projects uses the
                 project-shaped PROJECT_FIELD_SETS instead (see hq-f0w.32),
+                get_areas uses the area-shaped AREA_FIELD_SETS (hq-f0w.37),
                 and get_project_headings returns a different item schema
                 entirely and is filtered against a method-specific field
-                set.
+                set. Independent of method_name, any individual row whose
+                own 'type' == 'project' is always filtered against
+                PROJECT_FIELD_SETS (hq-f0w.37) - this covers project rows
+                that appear in nominally todo-shaped mixed lists, e.g.
+                get_today/get_anytime/get_upcoming/get_someday's
+                include_projects=True and search_advanced(type='project'),
+                which route project rows through convert_project (see
+                read_operations.py's convert_item()) so they carry
+                area/areaTitle and must not be filtered against the
+                todo-shaped TODO_FIELD_SETS (which would silently drop
+                those fields).
         """
         if mode == ResponseMode.RAW:
             return data  # No filtering
@@ -577,24 +622,45 @@ class ContextAwareResponseManager:
                 return data
             return [{k: v for k, v in item.items() if k in allowed_fields} for item in data]
 
-        if method_name == 'get_projects':
-            allowed_fields = self.PROJECT_FIELD_SETS.get(mode)
+        if method_name == 'get_areas':
+            default_allowed_fields = self.AREA_FIELD_SETS.get(mode)
+        elif method_name == 'get_projects':
+            default_allowed_fields = self.PROJECT_FIELD_SETS.get(mode)
         else:
-            allowed_fields = self.TODO_FIELD_SETS.get(mode)
-        if allowed_fields is None:
-            return data  # No filtering for detailed mode
-        
+            default_allowed_fields = self.TODO_FIELD_SETS.get(mode)
+
+        include_items_method = method_name in ('get_areas', 'get_projects')
+
         filtered_data = []
         for item in data:
-            filtered_item = {k: v for k, v in item.items() if k in allowed_fields}
-            
+            # Per-row dispatch: a project-typed row (e.g. in a mixed
+            # get_today/get_anytime/get_upcoming/get_someday/search_advanced
+            # list) always uses PROJECT_FIELD_SETS, regardless of
+            # method_name/default_allowed_fields above.
+            if item.get('type') == 'project':
+                row_allowed_fields = self.PROJECT_FIELD_SETS.get(mode)
+            else:
+                row_allowed_fields = default_allowed_fields
+
+            if row_allowed_fields is None:
+                filtered_item = dict(item)  # No filtering for detailed mode
+            else:
+                filtered_item = {k: v for k, v in item.items() if k in row_allowed_fields}
+                # get_areas/get_projects(include_items=True) nested rows
+                # survive field filtering in every mode (see
+                # _INCLUDE_ITEMS_NESTED_KEYS above).
+                if include_items_method:
+                    for nested_key in self._INCLUDE_ITEMS_NESTED_KEYS:
+                        if nested_key in item and nested_key not in filtered_item:
+                            filtered_item[nested_key] = item[nested_key]
+
             # Apply field-level truncation for large text fields
             if mode != ResponseMode.DETAILED:
                 if 'notes' in filtered_item and filtered_item['notes'] is not None and len(filtered_item['notes']) > 200:
                     filtered_item['notes'] = filtered_item['notes'][:200] + "..."
-            
+
             filtered_data.append(filtered_item)
-        
+
         return filtered_data
     
     def _apply_relevance_ranking(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -719,6 +785,12 @@ class ContextAwareResponseManager:
                         "summary": sorted(self.PROJECT_FIELD_SETS[ResponseMode.SUMMARY]),
                         "minimal": sorted(self.PROJECT_FIELD_SETS[ResponseMode.MINIMAL]),
                         "standard": sorted(self.PROJECT_FIELD_SETS[ResponseMode.STANDARD]),
+                        "detailed": "All available fields"
+                    },
+                    "area_field_sets": {
+                        "summary": sorted(self.AREA_FIELD_SETS[ResponseMode.SUMMARY]),
+                        "minimal": sorted(self.AREA_FIELD_SETS[ResponseMode.MINIMAL]),
+                        "standard": sorted(self.AREA_FIELD_SETS[ResponseMode.STANDARD]),
                         "detailed": "All available fields"
                     }
                 },

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastmcp import Client
 
-from things_mcp.server import ThingsMCPServer, _parse_tag_list
+from things_mcp.server import ThingsMCPServer, _parse_tag_list, _parse_tag_list_for_update
 from things_mcp.config import TagCreationPolicy
 
 
@@ -91,6 +91,29 @@ class TestParseTagList:
 
     def test_single_tag_returns_single_item_list(self):
         assert _parse_tag_list("x") == ["x"]
+
+
+class TestParseTagListForUpdate:
+    """Unit tests for the shared _parse_tag_list_for_update helper.
+
+    Unlike `_parse_tag_list`, an explicit empty (or all-comma/whitespace)
+    string is a "clear all tags" signal and must return `[]`, not `None`.
+    """
+
+    def test_empty_string_returns_empty_list(self):
+        assert _parse_tag_list_for_update("") == []
+
+    def test_drops_empty_entries_from_double_comma(self):
+        assert _parse_tag_list_for_update("a,,b") == ["a", "b"]
+
+    def test_all_blank_entries_returns_empty_list(self):
+        assert _parse_tag_list_for_update(" , ") == []
+
+    def test_none_input_returns_none(self):
+        assert _parse_tag_list_for_update(None) is None
+
+    def test_single_tag_returns_single_item_list(self):
+        assert _parse_tag_list_for_update("x") == ["x"]
 
 
 class TestAddTodoTagParsingThroughClient:

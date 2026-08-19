@@ -256,24 +256,6 @@ def mock_applescript_manager():
 def mock_applescript_manager_with_data(mock_applescript_manager, sample_todo_data, sample_project_data, sample_area_data):
     """Mock AppleScript manager pre-configured with sample data."""
     # Configure mock responses for common operations
-    mock_applescript_manager.set_mock_response("get_todos", {
-        "success": True,
-        "data": [sample_todo_data],
-        "error": None
-    })
-    
-    mock_applescript_manager.set_mock_response("get_projects", {
-        "success": True,
-        "data": [sample_project_data],
-        "error": None
-    })
-    
-    mock_applescript_manager.set_mock_response("get_areas", {
-        "success": True,
-        "data": [sample_area_data],
-        "error": None
-    })
-    
     mock_applescript_manager.set_mock_response("url_add", {
         "success": True,
         "data": {"id": "new-todo-123"},

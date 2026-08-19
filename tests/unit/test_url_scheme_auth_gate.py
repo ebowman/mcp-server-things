@@ -78,7 +78,8 @@ class TestLoadAuthTokenEmptyFile:
             result = await manager.execute_url_scheme("update", {"id": "abc123"})
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         mock_create.assert_not_called()
 
 
@@ -96,7 +97,8 @@ class TestExecuteUrlSchemeAuthGate:
             result = await manager.execute_url_scheme("update", {"id": "abc123"})
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         assert "hint" in result and result["hint"]
         # open/execute_script must never be invoked.
         mock_create.assert_not_called()
@@ -110,7 +112,8 @@ class TestExecuteUrlSchemeAuthGate:
             result = await manager.execute_url_scheme("update-project", {"id": "abc123"})
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
@@ -167,7 +170,8 @@ def mock_applescript_manager_no_token():
         if action in AUTH_REQUIRING_ACTIONS:
             return {
                 "success": False,
-                "error": "Things URL-scheme auth token not configured",
+                "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                "message": "Things URL-scheme auth token not configured",
                 "hint": "configure a token",
             }
         return {"success": True, "url": f"things:///{action}", "message": "ok"}
@@ -179,12 +183,27 @@ def mock_applescript_manager_no_token():
 
 @pytest.fixture
 def mock_applescript_manager_with_token():
+    """Mock AppleScript manager whose execute_url_scheme echoes the action and
+    parameters it was called with into the returned URL, so callers can
+    assert on both the auth-token and the checklist-specific param key. Each
+    returned dict is also recorded on `manager.url_scheme_results` (in call
+    order) so tests can inspect the URL that was produced for their call."""
     manager = Mock()
-    manager.execute_url_scheme = AsyncMock(return_value={
-        "success": True,
-        "url": "things:///update?auth-token=xyz",
-        "message": "Successfully executed update action",
-    })
+    manager.url_scheme_results = []
+
+    async def fake_execute_url_scheme(action, parameters=None):
+        parameters = parameters or {}
+        query = "&".join(f"{key}={value}" for key, value in parameters.items())
+        query = f"{query}&auth-token=xyz" if query else "auth-token=xyz"
+        response = {
+            "success": True,
+            "url": f"things:///{action}?{query}",
+            "message": f"Successfully executed {action} action",
+        }
+        manager.url_scheme_results.append(response)
+        return response
+
+    manager.execute_url_scheme = AsyncMock(side_effect=fake_execute_url_scheme)
     return manager
 
 
@@ -203,12 +222,25 @@ class TestAddChecklistItemsAuthGate:
     async def test_no_token_returns_success_false(self, todo_operations_no_token):
         result = await todo_operations_no_token.add_checklist_items("todo123", ["item1"])
         assert result["success"] is False
-        assert "auth token" in result["error"].lower()
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert "auth token" in result["message"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
-    async def test_with_token_succeeds(self, todo_operations_with_token):
+    async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
         result = await todo_operations_with_token.add_checklist_items("todo123", ["item1"])
         assert result["success"] is True
+
+        # The auth-gated 'update' action was invoked with the
+        # append-checklist-items param, and the (mocked) resulting URL
+        # carries the auth token.
+        call_action, call_params = mock_applescript_manager_with_token.execute_url_scheme.call_args.args
+        assert call_action == "update"
+        assert call_params["append-checklist-items"] == "item1"
+
+        url = mock_applescript_manager_with_token.url_scheme_results[-1]["url"]
+        assert "auth-token=" in url
+        assert "append-checklist-items=item1" in url
 
 
 class TestPrependChecklistItemsAuthGate:
@@ -216,12 +248,22 @@ class TestPrependChecklistItemsAuthGate:
     async def test_no_token_returns_success_false(self, todo_operations_no_token):
         result = await todo_operations_no_token.prepend_checklist_items("todo123", ["item1"])
         assert result["success"] is False
-        assert "auth token" in result["error"].lower()
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert "auth token" in result["message"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
-    async def test_with_token_succeeds(self, todo_operations_with_token):
+    async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
         result = await todo_operations_with_token.prepend_checklist_items("todo123", ["item1"])
         assert result["success"] is True
+
+        call_action, call_params = mock_applescript_manager_with_token.execute_url_scheme.call_args.args
+        assert call_action == "update"
+        assert call_params["prepend-checklist-items"] == "item1"
+
+        url = mock_applescript_manager_with_token.url_scheme_results[-1]["url"]
+        assert "auth-token=" in url
+        assert "prepend-checklist-items=item1" in url
 
 
 class TestReplaceChecklistItemsAuthGate:
@@ -229,12 +271,22 @@ class TestReplaceChecklistItemsAuthGate:
     async def test_no_token_returns_success_false(self, todo_operations_no_token):
         result = await todo_operations_no_token.replace_checklist_items("todo123", ["item1"])
         assert result["success"] is False
-        assert "auth token" in result["error"].lower()
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert "auth token" in result["message"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
-    async def test_with_token_succeeds(self, todo_operations_with_token):
+    async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
         result = await todo_operations_with_token.replace_checklist_items("todo123", ["item1"])
         assert result["success"] is True
+
+        call_action, call_params = mock_applescript_manager_with_token.execute_url_scheme.call_args.args
+        assert call_action == "update"
+        assert call_params["checklist-items"] == "item1"
+
+        url = mock_applescript_manager_with_token.url_scheme_results[-1]["url"]
+        assert "auth-token=" in url
+        assert "checklist-items=item1" in url
 
 
 class TestAddTodoWithChecklistUnaffected:
