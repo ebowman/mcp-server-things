@@ -468,7 +468,20 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
-                # Validate date parameters
+                # Validate date parameters. Whitespace-only when (e.g. '   ')
+                # must be rejected explicitly here: validate_date_format()
+                # strips and returns None for it, which would otherwise be
+                # silently treated as "no schedule requested" instead of a
+                # rejection (hq-f0w.34).
+                if isinstance(when, str) and when.strip() == '' and when != '':
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": "when",
+                        "message": "use when='anytime' or when='someday' to unschedule",
+                        "invalid_value": when
+                    }
+
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -605,7 +618,21 @@ class ThingsMCPServer:
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
                 # requests handled by ParameterValidator.validate_update_params
-                # downstream (in self.tools.update_todo), not here.
+                # downstream (in self.tools.update_todo), not here. Whitespace-
+                # only when (e.g. '   ') is truthy so it would otherwise reach
+                # validate_date_format() below, which strips and returns None
+                # for it - silently treating the request as "no change"
+                # instead of rejecting it the same way '' is rejected
+                # downstream. Reject it explicitly here instead (hq-f0w.34).
+                if isinstance(when, str) and when.strip() == '' and when != '':
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": "when",
+                        "message": "use when='anytime' or when='someday' to unschedule",
+                        "invalid_value": when
+                    }
+
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -726,6 +753,21 @@ class ThingsMCPServer:
                 # Validate date parameters. Empty strings ('') are clear/reject
                 # requests handled by ParameterValidator.validate_update_params
                 # downstream (in self.tools.bulk_update_todos), not here.
+                # Whitespace-only when (e.g. '   ') is truthy so it would
+                # otherwise reach validate_date_format() below, which strips
+                # and returns None for it - silently treating the request as
+                # "no change" instead of rejecting it the same way '' is
+                # rejected downstream. Reject it explicitly here instead
+                # (hq-f0w.34).
+                if isinstance(when, str) and when.strip() == '' and when != '':
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": "when",
+                        "message": "use when='anytime' or when='someday' to unschedule",
+                        "invalid_value": when
+                    }
+
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -1028,7 +1070,20 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Create a new project. Supports areas, deadlines, tags, initial todos, and scheduling."""
             try:
-                # Validate date parameters
+                # Validate date parameters. Whitespace-only when (e.g. '   ')
+                # must be rejected explicitly here: validate_date_format()
+                # strips and returns None for it, which would otherwise be
+                # silently treated as "no schedule requested" instead of a
+                # rejection (hq-f0w.34).
+                if isinstance(when, str) and when.strip() == '' and when != '':
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": "when",
+                        "message": "use when='anytime' or when='someday' to unschedule",
+                        "invalid_value": when
+                    }
+
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -1107,6 +1162,21 @@ class ThingsMCPServer:
                 # Validate date parameters. Empty strings ('') are clear/reject
                 # requests handled by ParameterValidator.validate_update_params
                 # downstream (in self.tools.update_project), not here.
+                # Whitespace-only when (e.g. '   ') is truthy so it would
+                # otherwise reach validate_date_format() below, which strips
+                # and returns None for it - silently treating the request as
+                # "no change" instead of rejecting it the same way '' is
+                # rejected downstream. Reject it explicitly here instead
+                # (hq-f0w.34).
+                if isinstance(when, str) and when.strip() == '' and when != '':
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": "when",
+                        "message": "use when='anytime' or when='someday' to unschedule",
+                        "invalid_value": when
+                    }
+
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
