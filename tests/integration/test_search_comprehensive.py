@@ -9,6 +9,7 @@ This test suite systematically validates:
 5. Pagination and context optimization
 """
 
+import os
 import pytest
 import asyncio
 from datetime import datetime, date, timedelta
@@ -18,6 +19,31 @@ from typing import Dict, List, Any
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
 
+# This module's local `tools` fixtures (one per class below) each
+# construct a real AppleScriptManager directly, bypassing the gated
+# real_things_tools/cleanup_test_todos fixtures in conftest.py. A plain
+# `from conftest import ...` can't be used here: tests/integration/conftest.py
+# and tests/live/conftest.py are both bare modules named "conftest" (no
+# __init__.py anywhere under tests/), so importing by that name is
+# ambiguous and can resolve to the wrong one when both directories are
+# collected in the same session (e.g. `pytest tests/integration tests/live`)
+# - so this module defines its own local guard instead of importing
+# conftest.py's. Mark the whole module live and skip it outright at
+# collection time unless opted in; the same guard is also called inside
+# each local fixture below as a second line of defence.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("THINGS_MCP_LIVE_TESTS") != "1",
+        reason="live Things 3 tests are opt-in (THINGS_MCP_LIVE_TESTS=1)",
+    ),
+]
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip("requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 to opt in (this fixture performs real writes/deletes against a live Things 3 database)")
+
 
 class TestBasicSearch:
     """Test basic search_todos functionality with various parameters."""
@@ -25,6 +51,7 @@ class TestBasicSearch:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -131,6 +158,7 @@ class TestAdvancedSearch:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -275,6 +303,7 @@ class TestTagBasedRetrieval:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -366,6 +395,7 @@ class TestSpecialQueries:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -426,6 +456,7 @@ class TestTrashPagination:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -501,6 +532,7 @@ class TestPerformance:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -539,6 +571,7 @@ class TestEdgeCases:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools
@@ -613,6 +646,7 @@ class TestCapabilities:
     @pytest.fixture
     async def tools(self):
         """Create ThingsTools instance for testing."""
+        _require_live_tests_env()
         manager = AppleScriptManager()
         tools = ThingsTools(manager)
         yield tools

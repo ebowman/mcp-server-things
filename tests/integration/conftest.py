@@ -87,14 +87,28 @@ async def cleanup_test_todos():
                 except Exception as e:
                     print(f"Warning: Failed to cleanup todo {todo_id}: {e}")
 
-            # Delete all tracked projects
+            # Delete all tracked projects. Cancel first, then trash via
+            # `project id` AppleScript directly - delete_todo()'s
+            # `to do id` target does not resolve project ids (Things'
+            # AppleScript dictionary does not treat a project as a to-do
+            # subtype for delete; see tests/live/conftest.py's
+            # _delete_via_applescript docstring), so a project canceled
+            # this way was previously left behind, not trashed (hq-f0w.42
+            # NOTES: 'Cleanup Project Test - test_*' projects leaked).
             for project_id in project_ids:
                 try:
-                    # Delete project using update with canceled=true
-                    await tools.update_project(id=project_id, canceled="true")
-                    await tools.delete_todo(todo_id=project_id)
+                    await tools.update_project(project_id=project_id, canceled="true")
                 except Exception as e:
-                    print(f"Warning: Failed to cleanup project {project_id}: {e}")
+                    print(f"Warning: Failed to cancel project {project_id}: {e}")
+                try:
+                    escaped = project_id.replace('"', '\\"')
+                    await manager.execute_applescript(f'''
+                    tell application "Things3"
+                        delete project id "{escaped}"
+                    end tell
+                    ''')
+                except Exception as e:
+                    print(f"Warning: Failed to trash project {project_id}: {e}")
 
             # Also try to find and delete by tag
             try:

@@ -89,15 +89,16 @@ and are gated the same way - they skip with a clear reason unless
 fixtures, or these two gated fixtures, are unaffected and run normally
 (or skip cleanly) without the env var.
 
-**Not yet gated:** `tests/integration/test_bulk_operations_comprehensive.py`,
+`tests/integration/test_bulk_operations_comprehensive.py`,
 `test_search_comprehensive.py`, and `test_search_performance.py` build
 their own local `applescript_manager`/`things_tools` fixtures instead of
-using `real_things_tools`, so they bypass this gate entirely -
-`pytest tests/integration` as a whole can still perform real Things 3
-writes without `THINGS_MCP_LIVE_TESTS=1` via these three files (an
-accidental ungated run of `test_bulk_operations_comprehensive.py` hung
-and leaked 13 items during hq-f0w.14's own testing; the leak was cleaned
-up). Tracked as hq-f0w.42.
+using `real_things_tools`; each of those local fixtures now calls the
+same `_require_live_tests_env()` guard directly and the modules are
+marked `live`, so `pytest tests/integration` as a whole is all skips
+(zero real AppleScript/`osascript` calls) without `THINGS_MCP_LIVE_TESTS=1`
+(hq-f0w.42; an earlier accidental ungated run of
+`test_bulk_operations_comprehensive.py` had hung and leaked items during
+hq-f0w.14's own testing).
 
 ## Release gate
 

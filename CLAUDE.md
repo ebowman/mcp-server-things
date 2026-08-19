@@ -32,9 +32,9 @@
 pytest                          # Run all tests
 pytest tests/unit/              # Unit tests only
 pytest tests/integration/       # Integration tests (mostly mock-based;
-                                 # real_things_tools/cleanup_test_todos require THINGS_MCP_LIVE_TESTS=1 -
+                                 # real_things_tools/cleanup_test_todos, and the local fixtures in
                                  # test_bulk_operations_comprehensive.py/test_search_comprehensive.py/
-                                 # test_search_performance.py are NOT yet gated, see hq-f0w.42)
+                                 # test_search_performance.py, all require THINGS_MCP_LIVE_TESTS=1)
 pytest --cov=src/things_mcp     # With coverage
 THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # Opt-in live Things 3 smoke suite (make test-live)
 ```
