@@ -395,6 +395,45 @@ class TestAutoModeReportsEffectiveMode:
         assert sc["requested_mode"] == "auto"
 
 
+class TestEmptyResultsReportConcreteMode:
+    """hq-f0w.26: empty results with mode omitted/'auto' must report a concrete
+    effective mode (not the literal 'auto') per CLAUDE.md's Structured Output docs.
+    context_manager.optimize_response's empty-data path now resolves AUTO to
+    'standard' and records it in meta['mode']."""
+
+    @pytest.mark.asyncio
+    async def test_get_projects_empty_auto_mode_reports_standard_not_auto(self):
+        server = _make_server_with_mock_tools(get_projects=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {})
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc["items"] == []
+        assert sc["mode"] == "standard"
+        assert sc["mode"] != "auto"
+        assert sc["requested_mode"] == "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_project_headings_empty_auto_mode_reports_standard_not_auto(self):
+        server = _make_server_with_mock_tools(get_project_headings={"items": []})
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_project_headings", {"project_id": "proj123"}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc["items"] == []
+        assert sc["mode"] == "standard"
+        assert sc["mode"] != "auto"
+        assert sc["requested_mode"] == "auto"
+
+
 class TestGetSomedayIncludeProjectTasks:
     """Verify the get_someday MCP tool threads include_project_tasks through to
     ThingsTools.get_someday, and defaults to False (opt-in inheritance)."""

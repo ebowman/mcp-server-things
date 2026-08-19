@@ -431,8 +431,17 @@ class ContextAwareResponseManager:
             Optimized response with metadata
         """
         if not data:
-            return self.progressive_engine.create_summary_response([], method_name)
-        
+            empty_response = self.progressive_engine.create_summary_response([], method_name)
+            # AUTO never has data to inspect, so there's nothing to "select" - resolve
+            # it to a concrete default ('standard') rather than leaving the literal
+            # ResponseMode.AUTO value to propagate into structured_content. Record it in
+            # meta['mode'], the same place _read_result (server.py) looks for the
+            # effective mode when the caller requested 'auto' (or omitted mode), so empty
+            # results never report mode == 'auto' per CLAUDE.md's Structured Output docs.
+            resolved_mode = mode.value if mode != ResponseMode.AUTO else ResponseMode.STANDARD.value
+            empty_response.setdefault("meta", {})["mode"] = resolved_mode
+            return empty_response
+
         # AUTO mode - dynamically select optimal mode based on data characteristics
         if mode == ResponseMode.AUTO:
             mode = self._select_optimal_mode(data, method_name)
