@@ -15,6 +15,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+from test_applescript_utils import assert_balanced_quotes
 
 
 @pytest.fixture
@@ -163,6 +164,12 @@ class TestAddTags:
 
             assert result['success'] is True
             assert 'Added 1 tags successfully' in result['message']
+            # Verify the actual AppleScript sent the tag name to Things.
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            assert len(calls) == 2
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "urgent"' in set_tags_script
+            assert_balanced_quotes(set_tags_script)
 
     @pytest.mark.asyncio
     async def test_add_multiple_tags(self, things_tools, mock_applescript_manager):
@@ -186,6 +193,11 @@ class TestAddTags:
 
             assert result['success'] is True
             assert 'Added 3 tags successfully' in result['message']
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            assert len(calls) == 2
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "work, urgent, review"' in set_tags_script
+            assert_balanced_quotes(set_tags_script)
 
     @pytest.mark.asyncio
     async def test_add_tags_string_formatting_no_spaces(self, things_tools, mock_applescript_manager):
@@ -208,6 +220,9 @@ class TestAddTags:
             )
 
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "work, urgent"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_add_tags_string_input_conversion(self, things_tools, mock_applescript_manager):
@@ -230,6 +245,12 @@ class TestAddTags:
             )
 
             assert result['success'] is True
+            # The comma-separated string must be parsed into individual tag
+            # names (not treated as a single tag literally named "work,urgent").
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "work, urgent"' in set_tags_script
+            assert 'work,urgent' not in set_tags_script
 
     @pytest.mark.asyncio
     async def test_add_tags_case_sensitive(self, things_tools, mock_applescript_manager):
@@ -248,6 +269,10 @@ class TestAddTags:
             # Adding "Work" should succeed
             result = await things_tools.add_tags(todo_id='abc123', tags=['Work'])
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            # Exact case must be preserved - not lowercased to "work".
+            assert 'set tag names of targetTodo to "Work"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_add_nonexistent_tags_filtered(self, things_tools, mock_applescript_manager):
@@ -273,6 +298,9 @@ class TestAddTags:
 
             # In fallback mode (no config), all tags are treated as valid
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "nonexistent-tag"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_add_tags_during_todo_creation(self, things_tools, mock_applescript_manager):
@@ -295,6 +323,9 @@ class TestAddTags:
             )
 
             assert result['success'] is True
+            script = mock_applescript_manager.execute_applescript.call_args.args[0]
+            assert 'name:"New task"' in script
+            assert 'set tag names of newTodo to "work, urgent"' in script
 
 
 class TestRemoveTags:
@@ -313,6 +344,11 @@ class TestRemoveTags:
 
         assert result['success'] is True
         assert 'Removed 1 tags successfully' in result['message']
+        # "urgent" must be gone from the emitted script, "work" must remain.
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to "work"' in set_tags_script
+        assert 'urgent' not in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_multiple_tags(self, things_tools, mock_applescript_manager):
@@ -329,6 +365,11 @@ class TestRemoveTags:
 
         assert result['success'] is True
         assert 'Removed 2 tags successfully' in result['message']
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to "work, review"' in set_tags_script
+        assert 'urgent' not in set_tags_script
+        assert 'old-tag' not in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_tags_string_parsing(self, things_tools, mock_applescript_manager):
@@ -346,9 +387,15 @@ class TestRemoveTags:
         )
 
         assert result['success'] is True
-        # Verify the AppleScript was called with correct remaining tags (empty string)
+        # Verify the AppleScript was called with correct remaining tags (empty string) -
+        # this pins the string->list parse bug fix: "test,Work" must be split
+        # into ['test', 'Work'], not into individual characters. If the string
+        # were parsed as characters, none of 'test'/'Work' would fully match
+        # the current tags and the (wrong) remaining set would be non-empty.
         calls = mock_applescript_manager.execute_applescript.call_args_list
         assert len(calls) == 2
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to ""' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_tags_case_sensitive_exact_match(self, things_tools, mock_applescript_manager):
@@ -361,6 +408,9 @@ class TestRemoveTags:
         # Remove "Work" (capital W)
         result = await things_tools.remove_tags(todo_id='abc123', tags=['Work'])
         assert result['success'] is True
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to "personal"' in set_tags_script
 
         # Verify "personal" remains
         # Reset mock for next test
@@ -368,10 +418,15 @@ class TestRemoveTags:
             {'success': True, 'output': 'Work, personal'},
             {'success': True, 'output': 'tags_updated'}
         ]
+        mock_applescript_manager.execute_applescript.call_args_list.clear()
 
-        # Removing "work" (lowercase) should NOT remove "Work"
+        # Removing "work" (lowercase) should NOT remove "Work" - both tags
+        # remain because the exact-case "work" isn't present.
         result = await things_tools.remove_tags(todo_id='abc123', tags=['work'])
         assert result['success'] is True
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to "Work, personal"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_nonexistent_tag_silent(self, things_tools, mock_applescript_manager):
@@ -387,8 +442,12 @@ class TestRemoveTags:
             tags=['nonexistent']
         )
 
-        # Should succeed (tag just not in list to remove)
+        # Should succeed (tag just not in list to remove) - and existing tags
+        # must be left completely unchanged.
         assert result['success'] is True
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to "work, urgent"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_all_tags(self, things_tools, mock_applescript_manager):
@@ -404,6 +463,11 @@ class TestRemoveTags:
         )
 
         assert result['success'] is True
+        # Removing every current tag must clear the tag list, not just leave
+        # the old tags untouched.
+        calls = mock_applescript_manager.execute_applescript.call_args_list
+        set_tags_script = calls[1].args[0]
+        assert 'set tag names of targetTodo to ""' in set_tags_script
 
 
 class TestGetTaggedItems:
@@ -534,6 +598,13 @@ class TestTagEdgeCases:
             )
 
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert (
+                'set tag names of targetTodo to '
+                '"tag-with-dash, tag_with_underscore, tag.with.dots"'
+            ) in set_tags_script
+            assert_balanced_quotes(set_tags_script)
 
     @pytest.mark.asyncio
     async def test_very_long_tag_name(self, things_tools, mock_applescript_manager):
@@ -553,6 +624,9 @@ class TestTagEdgeCases:
             result = await things_tools.add_tags(todo_id='abc123', tags=[long_tag])
 
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert f'set tag names of targetTodo to "{long_tag}"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_duplicate_tags_in_list(self, things_tools, mock_applescript_manager):
@@ -575,6 +649,12 @@ class TestTagEdgeCases:
 
             # Should deduplicate and add once
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "work"' in set_tags_script
+            # "work" must appear exactly once in the emitted tag-names value,
+            # not three times.
+            assert set_tags_script.count('work') == 1
 
     @pytest.mark.asyncio
     async def test_comma_separated_with_spaces_parsing(self, things_tools, mock_applescript_manager):
@@ -597,6 +677,12 @@ class TestTagEdgeCases:
             )
 
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            # The re-joined tag-names value must not carry a leading space on
+            # "urgent" (i.e. " urgent" would be a distinct, wrong tag name).
+            assert 'set tag names of targetTodo to "work, urgent"' in set_tags_script
+            assert '"work,  urgent"' not in set_tags_script
 
 
 class TestTagValidationAndCreation:
@@ -625,6 +711,9 @@ class TestTagValidationAndCreation:
             # In fallback mode (no config), tags are accepted but may fail in Things 3
             # This documents current behavior; with config, validation would fail
             assert result['success'] is True
+            calls = mock_applescript_manager.execute_applescript.call_args_list
+            set_tags_script = calls[1].args[0]
+            assert 'set tag names of targetTodo to "new-tag-that-does-not-exist"' in set_tags_script
 
     @pytest.mark.asyncio
     async def test_tag_existence_workflow(self, things_tools):
@@ -679,6 +768,12 @@ class TestTagsInBulkOperations:
             )
 
             assert result['success'] is True
+            script = mock_applescript_manager.execute_applescript.call_args.args[0]
+            # Every todo id in the batch must get its own tag-names statement
+            # with both tags - not just the last one in the batch.
+            for todo_id in ('id1', 'id2', 'id3'):
+                assert f'to do id "{todo_id}"' in script
+            assert script.count('set tag names of targetTodo to "urgent, Q4"') == 3
 
     @pytest.mark.asyncio
     async def test_bulk_update_multi_field_with_tags(self, things_tools, mock_applescript_manager):
@@ -703,6 +798,17 @@ class TestTagsInBulkOperations:
             )
 
             assert result['success'] is True
+            # This pins the multi-field bulk update regression (CLAUDE.md
+            # "Fixed: Bulk Update Multi-Field Support") where only the last
+            # field in a multi-field update was applied - both notes and
+            # tags must be present in the emitted script for every todo.
+            # The bulk field-update script is the *first* execute_applescript
+            # call; 'when' scheduling issues separate per-todo calls after it.
+            script = mock_applescript_manager.execute_applescript.call_args_list[0].args[0]
+            for todo_id in ('id1', 'id2'):
+                assert f'to do id "{todo_id}"' in script
+            assert script.count('set notes of targetTodo to "Updated in batch"') == 2
+            assert script.count('set tag names of targetTodo to "urgent, work"') == 2
 
 
 class TestAdvancedSearchWithTags:

@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from things_mcp.tools import ThingsTools
+from test_applescript_utils import assert_balanced_quotes
 
 
 class TestBoundaryConditions:
@@ -122,6 +123,9 @@ class TestSpecialCharacters:
         result = await tools_with_mock.add_todo(title=title_with_emoji)
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert title_with_emoji in script
+        assert_balanced_quotes(script)
 
     @pytest.mark.asyncio
     async def test_quotes_in_title(self, tools_with_mock, mock_applescript_manager):
@@ -217,6 +221,14 @@ class TestSpecialCharacters:
         result = await tools_with_mock.add_todo(title="Test", notes=markdown_notes)
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        # Markdown special chars (#, *, -, [], (), newlines) must survive
+        # escaping without breaking the AppleScript string literal.
+        assert "Header" in script
+        assert "Bold" in script
+        assert "List item 1" in script
+        assert "https://example.com" in script
+        assert_balanced_quotes(script)
 
     @pytest.mark.asyncio
     async def test_unicode_characters(self, tools_with_mock, mock_applescript_manager):
@@ -232,6 +244,9 @@ class TestSpecialCharacters:
         result = await tools_with_mock.add_todo(title=unicode_title)
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert unicode_title in script
+        assert_balanced_quotes(script)
 
 
 class TestInvalidInputs:
@@ -261,6 +276,9 @@ class TestInvalidInputs:
 
         # Should still succeed - Things 3 allows empty titles
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'name:""' in script
+        assert_balanced_quotes(script)
 
     @pytest.mark.asyncio
     async def test_invalid_todo_id(self, tools_with_mock):
@@ -286,6 +304,14 @@ class TestInvalidInputs:
 
         # Should still attempt to create (AppleScript will handle the error)
         assert result["success"] is True
+        # The todo-creation script must still be built correctly regardless
+        # of the unparseable 'when' value; the literal invalid-date string
+        # is passed through to a later scheduling attempt (list_fallback).
+        creation_script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'name:"Test"' in creation_script
+        assert_balanced_quotes(creation_script)
+        all_scripts = "\n".join(c["script"] for c in mock_applescript_manager.execution_calls)
+        assert "invalid-date" in all_scripts
 
     @pytest.mark.asyncio
     async def test_invalid_reminder_format(self, tools_with_mock, mock_applescript_manager):
@@ -314,6 +340,12 @@ class TestInvalidInputs:
         result = await tools_with_mock.update_todo(todo_id="fake-id", title="New Title")
 
         assert result["success"] is False
+        # Even though Things reports failure, the update must still have
+        # targeted the requested id and title in the emitted script.
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'to do id "fake-id"' in script
+        assert 'name of' in script and '"New Title"' in script
+        assert_balanced_quotes(script)
 
     @pytest.mark.asyncio
     async def test_move_to_invalid_destination(self, tools_with_mock, mock_applescript_manager):
@@ -398,6 +430,13 @@ class TestChecklistItems:
         # Verify checklist was created (no warning, has checklist_count)
         assert "checklist_count" in result
         assert result["checklist_count"] == 3
+        # Checklist items go through the Things URL scheme, joined by
+        # newlines into a single 'checklist-items' parameter.
+        assert len(mock_applescript_manager.url_scheme_calls) == 1
+        url_call = mock_applescript_manager.url_scheme_calls[0]
+        assert url_call["action"] == "add"
+        assert url_call["parameters"]["checklist-items"] == "Item 1\nItem 2\nItem 3"
+        assert url_call["parameters"]["title"] == "Todo with checklist"
 
     @pytest.mark.asyncio
     async def test_empty_checklist(self, tools_with_mock, mock_applescript_manager):
@@ -414,6 +453,12 @@ class TestChecklistItems:
         )
 
         assert result["success"] is True
+        # An empty checklist is falsy, so add_todo must take the fast
+        # AppleScript path (not the URL scheme) - no url_scheme_calls,
+        # and the title must appear in the AppleScript creation script.
+        assert mock_applescript_manager.url_scheme_calls == []
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'name:"Test"' in script
 
     @pytest.mark.asyncio
     async def test_checklist_with_special_chars(self, tools_with_mock, mock_applescript_manager):
@@ -432,6 +477,13 @@ class TestChecklistItems:
         )
 
         assert result["success"] is True
+        # Special characters (quotes, backslash, emoji) must survive the
+        # newline-join into the URL scheme parameter unescaped/unmodified -
+        # the Things URL scheme, not AppleScript, is responsible for this
+        # value, so no AppleScript-style backslash-escaping should occur.
+        assert len(mock_applescript_manager.url_scheme_calls) == 1
+        joined = mock_applescript_manager.url_scheme_calls[0]["parameters"]["checklist-items"]
+        assert joined == '✓ Item with emoji\n"Quoted item"\nItem with\\backslash'
 
     @pytest.mark.asyncio
     async def test_retrieve_checklist_items(self, tools_with_mock):
@@ -464,6 +516,15 @@ class TestURLAndMetadata:
         return ThingsTools(mock_applescript_manager)
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
+               "TodoOperations.add_todo/_build_create_todo_script never reads "
+               "kwargs['url'], so the URL never reaches the AppleScript "
+               "'make new to do' properties or notes. Note: server.py's "
+               "add_todo MCP tool does not expose a url parameter, so this "
+               "is a dead tools-layer kwarg, not a user-facing bug.",
+    )
     async def test_create_todo_with_url(self, tools_with_mock, mock_applescript_manager):
         """Test creating todo with URL."""
         url = "https://example.com/page?param=value&other=123"
@@ -480,8 +541,19 @@ class TestURLAndMetadata:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert url in script
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
+               "TodoOperations.add_todo/_build_create_todo_script never reads "
+               "kwargs['url'], so the URL never reaches the AppleScript "
+               "'make new to do' properties or notes. Note: server.py's "
+               "add_todo MCP tool does not expose a url parameter, so this "
+               "is a dead tools-layer kwarg, not a user-facing bug.",
+    )
     async def test_url_with_special_chars(self, tools_with_mock, mock_applescript_manager):
         """Test URL with special characters."""
         url = "https://example.com/search?q=test&tags=work,urgent"
@@ -498,6 +570,8 @@ class TestURLAndMetadata:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert url in script
 
     @pytest.mark.asyncio
     async def test_retrieve_metadata(self, tools_with_mock):
@@ -532,6 +606,16 @@ class TestStatusValues:
         return ThingsTools(mock_applescript_manager)
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
+               "TodoOperations.add_todo never reads kwargs['status'] "
+               "(tentative/confirmed), so it has no effect on the emitted "
+               "AppleScript at all (Things 3 to-dos have no such status "
+               "concept). Note: server.py's add_todo MCP tool does not "
+               "expose a status parameter, so this is a dead tools-layer "
+               "kwarg, not a user-facing bug.",
+    )
     async def test_create_with_status_tentative(self, tools_with_mock, mock_applescript_manager):
         """Test creating todo with tentative status."""
         mock_applescript_manager.set_mock_response("default", {
@@ -546,8 +630,20 @@ class TestStatusValues:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert "tentative" in script
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
+               "TodoOperations.add_todo never reads kwargs['status'] "
+               "(tentative/confirmed), so it has no effect on the emitted "
+               "AppleScript at all (Things 3 to-dos have no such status "
+               "concept). Note: server.py's add_todo MCP tool does not "
+               "expose a status parameter, so this is a dead tools-layer "
+               "kwarg, not a user-facing bug.",
+    )
     async def test_create_with_status_confirmed(self, tools_with_mock, mock_applescript_manager):
         """Test creating todo with confirmed status."""
         mock_applescript_manager.set_mock_response("default", {
@@ -562,6 +658,8 @@ class TestStatusValues:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert "confirmed" in script
 
     @pytest.mark.asyncio
     async def test_complete_todo(self, tools_with_mock, mock_applescript_manager):
@@ -578,6 +676,9 @@ class TestStatusValues:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'to do id "todo-123"' in script
+        assert "set status of targetTodo to completed" in script
 
     @pytest.mark.asyncio
     async def test_cancel_todo(self, tools_with_mock, mock_applescript_manager):
@@ -594,6 +695,9 @@ class TestStatusValues:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert 'to do id "todo-123"' in script
+        assert "set status of targetTodo to canceled" in script
 
     @pytest.mark.asyncio
     async def test_retrieve_completed_todos(self, tools_with_mock):
@@ -702,6 +806,12 @@ class TestDateBoundaries:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        future = date.today() + timedelta(days=3650)
+        assert f"set year of deadlineDate to {future.year}" in script
+        assert f"set month of deadlineDate to {future.month}" in script
+        assert f"set day of deadlineDate to {future.day}" in script
+        assert "set due date of newTodo to deadlineDate" in script
 
     @pytest.mark.asyncio
     async def test_past_date(self, tools_with_mock, mock_applescript_manager):
@@ -720,6 +830,12 @@ class TestDateBoundaries:
         )
 
         assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        past = date.today() - timedelta(days=365)
+        assert f"set year of deadlineDate to {past.year}" in script
+        assert f"set month of deadlineDate to {past.month}" in script
+        assert f"set day of deadlineDate to {past.day}" in script
+        assert "set due date of newTodo to deadlineDate" in script
 
     @pytest.mark.asyncio
     async def test_reminder_midnight(self, tools_with_mock, mock_applescript_manager):
