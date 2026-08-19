@@ -1073,8 +1073,12 @@ class ThingsMCPServer:
             Inbox in any case, since Inbox items cannot belong to a project.
             """
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_inbox(limit=limit)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_inbox(limit=None)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1082,9 +1086,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
@@ -1097,8 +1101,12 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_today(limit=limit, include_projects=include_projects)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_today(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1106,9 +1114,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
@@ -1149,8 +1157,12 @@ class ThingsMCPServer:
                         result['days'] = days
                         return result
 
-                # Original behavior: get items from Things 3's Upcoming list
-                raw_data = await self.tools.get_upcoming(limit=limit, include_projects=include_projects)
+                # Original behavior: get items from Things 3's Upcoming list.
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`.
+                full_data = await self.tools.get_upcoming(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1158,9 +1170,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
@@ -1173,8 +1185,12 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_anytime(limit=limit, include_projects=include_projects)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_anytime(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1182,9 +1198,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
@@ -1198,10 +1214,14 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(
-                    limit=limit, include_project_tasks=include_project_tasks,
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_someday(
+                    limit=None, include_project_tasks=include_project_tasks,
                     include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1209,9 +1229,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
@@ -1219,12 +1239,14 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_logbook(
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
-            period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
+            period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$"),
+            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Get completed todos from Logbook. Supports limit (max 100) and period filters (e.g., '7d', '1w')."""
+            """Get completed todos from Logbook. Supports limit (max 100), offset, and period filters (e.g., '7d', '1w')."""
             try:
-                logbook_data = await self.tools.get_logbook(limit=limit, period=period)
-                result = self._read_result(logbook_data, mode='standard', limit=limit)
+                logbook_data = await self.tools.get_logbook(limit=limit, period=period, offset=offset)
+                total = getattr(logbook_data, 'total_count', None)
+                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -1438,9 +1460,10 @@ class ThingsMCPServer:
             query: str = Field(..., description="Search term to look for in todo titles and notes"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None,
-            status: Optional[str] = 'incomplete'
+            status: Optional[str] = 'incomplete',
+            offset: int = Field(0, description="Number of matching results to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Search todos by query term. Supports limit (1-500) and response modes for context optimization.
+            """Search todos by query term. Supports limit (1-500), offset, and response modes for context optimization.
 
             Args:
                 query: Search term to look for in todo titles and notes (case-insensitive
@@ -1451,6 +1474,7 @@ class ThingsMCPServer:
                     'completed', 'canceled', or None to search all statuses. Note the default
                     means a completed or canceled todo will NOT match unless you pass
                     status='completed'/'canceled'/None explicitly.
+                offset: Number of matching results to skip before applying limit (default 0).
 
             Note: filter_someday_project_tasks is NOT applied to search - todos inside a
             Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can still
@@ -1502,7 +1526,10 @@ class ThingsMCPServer:
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
 
                 # Get raw data from tools layer
-                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status)
+                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status, offset=offset)
+                pre_limit_total = getattr(raw_data, 'total_count', None)
+                if pre_limit_total is None:
+                    pre_limit_total = len(raw_data)
 
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
@@ -1517,7 +1544,8 @@ class ThingsMCPServer:
                     optimized_response,
                     mode=response_mode.value,
                     limit=final_limit,
-                    total=len(raw_data),
+                    offset=offset,
+                    total=pre_limit_total,
                 )
 
             except Exception as e:
@@ -1533,9 +1561,10 @@ class ThingsMCPServer:
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
-            mode: Optional[str] = None
+            mode: Optional[str] = None,
+            offset: int = Field(0, description="Number of matching results to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval.
+            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes, limit (1-500), and offset for efficient retrieval.
 
             Note: the tag filter is case-sensitive. An unknown tag (including a
             wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
@@ -1598,14 +1627,14 @@ class ThingsMCPServer:
                     'limit': limit,
                     'mode': mode
                 }
-                
+
                 # Apply smart defaults and optimization
                 optimized_params, was_modified = self.context_manager.optimize_request('search_advanced', request_params)
-                
+
                 # Extract optimized parameters
                 final_limit = optimized_params.get('limit', 50)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                
+
                 # Get raw data from tools layer
                 raw_data = await self.tools.search_advanced(
                     status=status,
@@ -1614,7 +1643,8 @@ class ThingsMCPServer:
                     area=area,
                     start_date=start_date,
                     deadline=deadline,
-                    limit=final_limit
+                    limit=final_limit,
+                    offset=offset
                 )
 
                 # A structured error (e.g. unknown_tag) comes back as a
@@ -1629,6 +1659,10 @@ class ThingsMCPServer:
                 ):
                     return raw_data[0]
 
+                pre_limit_total = getattr(raw_data, 'total_count', None)
+                if pre_limit_total is None:
+                    pre_limit_total = len(raw_data)
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_advanced', response_mode, optimized_params
@@ -1642,7 +1676,8 @@ class ThingsMCPServer:
                     optimized_response,
                     mode=response_mode.value,
                     limit=final_limit,
-                    total=len(raw_data),
+                    offset=offset,
+                    total=pre_limit_total,
                 )
 
             except Exception as e:

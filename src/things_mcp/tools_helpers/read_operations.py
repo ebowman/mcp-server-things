@@ -20,6 +20,29 @@ things = LazyThingsProxy()
 logger = logging.getLogger(__name__)
 
 
+class ListWithTotal(list):
+    """A plain list that also carries the pre-limit/offset total item count.
+
+    Used by search_todos/search_advanced/get_logbook so their public
+    signature and behavior stay exactly `List[Dict]` (existing callers doing
+    `isinstance(result, list)`, `len(result)`, `result == []`, `result[0]`
+    etc. keep working unchanged) while still giving server.py a way to read
+    the true pre-limit total via the `.total_count` attribute for the
+    `total` field in `_read_result`. Falls back to `len(self)` if a caller
+    (e.g. an older mock) returns a plain list without setting it.
+    """
+
+    total_count: int = None
+
+    def __new__(cls, iterable=(), total_count: Optional[int] = None):
+        obj = super().__new__(cls)
+        return obj
+
+    def __init__(self, iterable=(), total_count: Optional[int] = None):
+        super().__init__(iterable)
+        self.total_count = total_count if total_count is not None else len(self)
+
+
 def _get_someday_project_ids() -> set:
     """Return the set of project UUIDs whose start state is 'Someday'.
 
@@ -555,7 +578,7 @@ class ReadOperations:
 
     async def search_todos(
         self, query: str, limit: Optional[int] = None,
-        status: Optional[str] = 'incomplete'
+        status: Optional[str] = 'incomplete', offset: int = 0
     ) -> List[Dict]:
         """Search todos using things.py.
 
@@ -564,11 +587,11 @@ class ReadOperations:
         Upcoming in the Things UI) can still match a search.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_sync, query, limit, status)
+        return await loop.run_in_executor(None, self._search_sync, query, limit, status, offset)
 
     def _search_sync(
         self, query: str, limit: Optional[int] = None,
-        status: Optional[str] = 'incomplete'
+        status: Optional[str] = 'incomplete', offset: int = 0
     ) -> List[Dict]:
         """Synchronous search implementation.
 
@@ -578,27 +601,40 @@ class ReadOperations:
             status: 'incomplete' (default, matches things.py's own default and
                 preserves backward compatibility), 'completed', 'canceled', or
                 None to search all statuses.
+            offset: Number of matching results to skip before applying limit
+                (same semantics as get_trash's offset). Applied after the full
+                filtered match set is collected, before limit.
+
+        Returns:
+            A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
+            existing callers, but also carries the true pre-limit/offset match
+            count on ``.total_count`` (used by server.py to populate `total`).
         """
         try:
             all_todos = things.todos(status=status)
             query_lower = query.lower()
 
-            results = []
+            matches = []
             for todo in all_todos:
                 title = todo.get('title', '').lower()
                 notes = todo.get('notes', '').lower()
 
                 if query_lower in title or query_lower in notes:
-                    results.append(ToolsHelpers.convert_todo(todo))
+                    matches.append(todo)
 
-                    if limit and len(results) >= limit:
-                        break
+            total_count = len(matches)
 
-            return results
+            windowed = matches[offset:]
+            if limit:
+                windowed = windowed[:limit]
+
+            results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+
+            return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _search_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get todos from Inbox."""
@@ -799,13 +835,27 @@ class ReadOperations:
             logger.error(f"Error in _get_someday_sync: {e}")
             return []
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
         """Get completed todos from Logbook."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period)
+        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period, offset)
 
-    def _get_logbook_sync(self, limit: int = 50, period: str = "7d") -> List[Dict]:
-        """Synchronous implementation."""
+    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
+        """Synchronous implementation.
+
+        Args:
+            limit: Maximum number of items to return, applied after sorting
+                and after offset.
+            period: Time window to look back (e.g. '7d').
+            offset: Number of sorted items to skip before applying limit
+                (same semantics as get_trash's offset).
+
+        Returns:
+            A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
+            existing callers, but also carries the true pre-limit/offset item
+            count within the period on ``.total_count`` (used by server.py to
+            populate `total`).
+        """
         try:
             completed_todos = things.todos(status='completed')
 
@@ -837,12 +887,17 @@ class ReadOperations:
             for todo in result:
                 todo.pop('_sort_date', None)
 
-            # Apply limit after sorting
-            return result[:limit]
+            total_count = len(result)
+
+            # Apply offset then limit, after sorting
+            windowed = result[offset:]
+            windowed = windowed[:limit]
+
+            return ListWithTotal(windowed, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _get_logbook_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:
@@ -1210,10 +1265,13 @@ class ReadOperations:
         UI) can still match search_advanced.
 
         Returns:
-            List of matching todos with full details. If ``tag`` is unknown
+            A ``ListWithTotal`` of matching todos with full details - behaves
+            exactly like ``List[Dict]`` for all existing callers, but also
+            carries the true pre-limit/offset match count on ``.total_count``
+            (used by server.py to populate `total`). If ``tag`` is unknown
             to things.py (things.py raises ValueError, e.g. for a wrong-case
-            variant of a real tag), returns a single-element list containing
-            a structured error dict: ``[{'success': False, 'error':
+            variant of a real tag), returns a plain single-element list
+            containing a structured error dict: ``[{'success': False, 'error':
             'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
             suggestions are case-insensitive title matches from
             ``things.tags()``. This mirrors the existing structured-error
@@ -1230,6 +1288,7 @@ class ReadOperations:
             deadline = filters.get('deadline')
             project = filters.get('project')
             limit = filters.get('limit')
+            offset = filters.get('offset', 0) or 0
 
             # Validate type against the values things.py's tasks() accepts.
             valid_types = {'to-do', 'project', 'heading'}
@@ -1285,7 +1344,7 @@ class ReadOperations:
                 raise
 
             # Filter by query text if provided (things.py doesn't support text search natively)
-            results = []
+            matches = []
             for todo in todos:
                 # Apply text search filter
                 if query:
@@ -1294,19 +1353,23 @@ class ReadOperations:
                     if query not in title and query not in notes:
                         continue
 
-                # Convert and add to results
-                results.append(ToolsHelpers.convert_todo(todo))
+                matches.append(todo)
 
-                # Apply limit
-                if limit and len(results) >= limit:
-                    break
+            total_count = len(matches)
 
-            logger.debug(f"search_advanced found {len(results)} todos using things.py")
-            return results
+            # Apply offset then limit, after the full filtered match set is known
+            windowed = matches[offset:]
+            if limit:
+                windowed = windowed[:limit]
+
+            results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+
+            logger.debug(f"search_advanced found {total_count} matching todos using things.py")
+            return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _search_advanced_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_recent(
         self, period: str,

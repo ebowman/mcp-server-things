@@ -359,6 +359,10 @@ The structured shape is consistent across list-returning tools:
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
 - `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`
 
+`total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
+
+`offset: int = 0` (paired with `limit`, same semantics as `get_trash`) is supported on `search_todos`, `search_advanced`, and `get_logbook` in addition to `get_trash`, so results past the first page are reachable: call again with `offset += limit` to fetch the next window. `offset` windows over an unchanged underlying dataset are disjoint and, taken together, cover the full matching set exactly once.
+
 Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 `get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.

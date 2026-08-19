@@ -97,9 +97,9 @@ class ThingsTools:
         return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
 
     async def search_todos(self, query: str, limit: Optional[int] = None,
-                            status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Search todos directly in database with optional limit and status filter."""
-        return await self.read_ops.search_todos(query=query, limit=limit, status=status)
+                            status: Optional[str] = 'incomplete', offset: int = 0) -> List[Dict]:
+        """Search todos directly in database with optional limit, offset, and status filter."""
+        return await self.read_ops.search_todos(query=query, limit=limit, status=status, offset=offset)
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get inbox items directly from database."""
@@ -133,9 +133,9 @@ class ThingsTools:
             limit=limit, include_project_tasks=include_project_tasks,
             include_projects=include_projects)
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
         """Get completed items directly from database."""
-        return await self.read_ops.get_logbook(limit=limit, period=period)
+        return await self.read_ops.get_logbook(limit=limit, period=period, offset=offset)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:
