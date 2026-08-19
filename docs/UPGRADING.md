@@ -106,6 +106,22 @@ have automation or prompts that depend on exact output shape, check these:
   project instead (fetch the project by `project` uuid), and if you check
   for a `checklist` key's *presence* to mean "has a checklist", switch to
   the new `hasChecklist` boolean.
+- **`update_todo`/`update_project`/`update_area`/`bulk_update_todos` can now
+  clear `notes`, `deadline`, and `tags` by passing `''` (an empty string).**
+  Previously an empty string for any of these fields was silently treated
+  the same as "not provided" (a no-op) — there was no way to clear a
+  todo/project's notes or deadline, or remove all its tags, through any
+  tool. `notes=''`/`deadline=''` now clear those fields; `tags=''` now
+  clears all tags. Two related tightenings ship alongside this:
+  `title=''` (or whitespace-only) is now rejected with a structured
+  `VALIDATION_ERROR` (titles cannot be cleared — previously this was
+  silently ignored), and `when=''` is now rejected the same way, with a
+  hint to use `when='anytime'` or `when='someday'` to unschedule instead.
+  What to do: if any caller relied on passing `''` as a no-op sentinel for
+  `notes`/`deadline`/`tags`, switch to omitting the parameter (or passing
+  `None`) to preserve the old "leave unchanged" behavior; if any caller
+  passed `title=''` or `when=''` expecting it to be silently ignored,
+  expect a `VALIDATION_ERROR` response instead.
 
 ## Recommended: switch to uvx
 

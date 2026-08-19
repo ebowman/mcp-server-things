@@ -487,12 +487,42 @@ class TestValidateUpdateParams:
         assert result['completed'] is True
         assert result['canceled'] is False
 
-    def test_update_params_empty_values(self):
-        """Test update params with empty values."""
-        result = ParameterValidator.validate_update_params(title="  ", notes="")
-        # Empty strings should be sanitized to None
-        assert 'title' not in result or result['title'] is None
-        assert 'notes' not in result or result['notes'] is None
+    def test_update_params_empty_title_rejected(self):
+        """title='' (or whitespace-only) is rejected - titles cannot be cleared (hq-nxu.9)."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_update_params(title="  ")
+        assert "cannot be empty" in str(exc_info.value)
+        assert exc_info.value.field == 'title'
+
+    def test_update_params_empty_notes_clears(self):
+        """notes='' is a valid clear-field request and is preserved as '' (hq-nxu.9)."""
+        result = ParameterValidator.validate_update_params(notes="")
+        assert result['notes'] == ''
+
+    def test_update_params_empty_deadline_clears(self):
+        """deadline='' is a valid clear-field request and is preserved as '' (hq-nxu.9)."""
+        result = ParameterValidator.validate_update_params(deadline="")
+        assert result['deadline'] == ''
+
+    def test_update_params_empty_tags_clears(self):
+        """tags='' is a valid clear-field request and is preserved as [] (hq-nxu.9)."""
+        result = ParameterValidator.validate_update_params(tags="")
+        assert result['tags'] == []
+
+    def test_update_params_empty_when_rejected(self):
+        """when='' is rejected - use 'anytime'/'someday' to unschedule instead (hq-nxu.9)."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_update_params(when="")
+        assert "anytime" in str(exc_info.value)
+        assert "someday" in str(exc_info.value)
+        assert exc_info.value.field == 'when'
+
+    def test_update_params_none_values_leave_unchanged(self):
+        """None values (fields not provided) are absent from the result entirely."""
+        result = ParameterValidator.validate_update_params(
+            title=None, notes=None, tags=None, when=None, deadline=None
+        )
+        assert result == {}
 
 
 class TestCreateValidationErrorResponse:

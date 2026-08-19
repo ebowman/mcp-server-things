@@ -186,6 +186,42 @@ bulk_update_todos(
 - Each todo gets all specified fields updated
 - Use for 2-50 todos (for larger batches, consider chunking)
 
+### Clearing Fields on update_todo / update_project / update_area / bulk_update_todos
+
+Partial updates distinguish "field not provided" (leave unchanged) from "field
+explicitly cleared" by using the empty string (or an empty tag list for `tags`):
+
+| Field | Omit (leave unchanged) | `''` (empty string) |
+|---|---|---|
+| `title` | unchanged | **rejected** - `"title cannot be empty"` (titles cannot be cleared) |
+| `notes` | unchanged | clears notes (todo, project) |
+| `deadline` | unchanged | clears the deadline (todo, project) |
+| `tags` | unchanged | clears all tags (todo, project, area) |
+| `when` | unchanged | **rejected** - use `when='anytime'` or `when='someday'` to unschedule instead |
+
+```python
+# Clear notes and deadline, leave everything else (including tags) unchanged
+update_todo(id="abc123", notes="", deadline="")
+
+# Clear all tags on a project without touching its title/notes/deadline
+update_project(id="proj123", tags="")
+
+# Clear notes on every todo in a bulk update
+bulk_update_todos(todo_ids="id1,id2,id3", notes="")
+
+# WRONG - title cannot be cleared; this returns a VALIDATION_ERROR
+update_todo(id="abc123", title="")
+
+# WRONG - when='' is rejected; unschedule with 'anytime' or 'someday' instead
+update_todo(id="abc123", when="anytime")
+```
+
+**Note on tag policy interaction:** if `tags` is a non-empty request and the
+configured `tag_creation_policy` filters out every requested tag (e.g. all of
+them are unknown under `filter_silent`/`filter_warn`), the result is a no-op -
+existing tags are left unchanged, not cleared. Only an explicit `tags=''`
+clears tags.
+
 ### Testing Notes
 
 Both bugs were discovered through comprehensive edge case testing:

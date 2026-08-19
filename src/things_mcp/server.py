@@ -47,6 +47,28 @@ def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
     return tag_list or None
 
 
+def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated tag string for update_todo/update_project/update_area/
+    bulk_update_todos, preserving the "clear all tags" signal.
+
+    Unlike `_parse_tag_list`, an explicit empty string (or a string that is
+    only commas/whitespace, e.g. " , ") is treated as a request to clear all
+    tags and returns `[]` rather than `None`. `None` (the field omitted
+    entirely) still means "leave tags unchanged".
+
+    Args:
+        tags: Comma-separated tag names, "" to clear, or None to leave unchanged.
+
+    Returns:
+        A list of non-empty, stripped tag names; `[]` if `tags` was an
+        explicit (post-strip) empty string; or `None` if `tags` was `None`.
+    """
+    if tags is None:
+        return None
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    return tag_list
+
+
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
@@ -447,17 +469,27 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_todo(
             id: str = Field(..., description="ID of the todo to update"),
-            title: Optional[str] = Field(None, description="New title"),
-            notes: Optional[str] = Field(None, description="New notes"),
-            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="New deadline"),
+            title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content."""
+            """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
+
+            Clear-field semantics for partial updates: a field left at its
+            default (None/omitted) leaves the existing value unchanged.
+            Passing notes='' or deadline='' clears that field. Passing
+            tags='' clears all tags. title='' is rejected with a validation
+            error (titles cannot be cleared). when='' is also rejected -
+            use when='anytime' or when='someday' to unschedule instead.
+            """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.update_todo), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -480,8 +512,9 @@ class ThingsMCPServer:
                             "message": str(e)
                         }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -524,17 +557,28 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def bulk_update_todos(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to update"),
-            title: Optional[str] = Field(None, description="New title for all todos"),
-            notes: Optional[str] = Field(None, description="New notes for all todos"),
-            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos"),
-            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25')"),
-            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD)"),
+            title: Optional[str] = Field(None, description="New title for all todos. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes for all todos. Omit to leave unchanged; pass '' to clear notes on all todos"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags on all todos"),
+            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD). Omit to leave unchanged; pass '' to clear the deadline on all todos"),
             completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update multiple todos with the same changes in a single operation."""
+            """Update multiple todos with the same changes in a single operation.
+
+            Clear-field semantics for partial updates (same contract as
+            update_todo): a field left at its default (None/omitted) leaves
+            the existing value unchanged for every todo. Passing notes=''
+            or deadline='' clears that field. Passing tags='' clears all
+            tags. title='' is rejected with a validation error (titles
+            cannot be cleared). when='' is also rejected - use
+            when='anytime' or when='someday' to unschedule instead.
+            """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.bulk_update_todos), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -567,8 +611,9 @@ class ThingsMCPServer:
                         "updated_count": 0
                     }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -856,11 +901,11 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_project(
             id: str = Field(..., description="ID of the project to update"),
-            title: Optional[str] = Field(None, description="New title"),
-            notes: Optional[str] = Field(None, description="New notes"),
-            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="New deadline"),
+            title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
             area_id: Optional[str] = Field(None, description="ID of area to move to"),
             area_title: Optional[str] = Field(None, description="Title of area to move to"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
@@ -872,9 +917,18 @@ class ThingsMCPServer:
             given (e.g. completed='false', canceled='true' results in canceled). Passing
             completed='false' or canceled='false' alone (with the other omitted) reopens the
             project. Omitting both leaves status unchanged.
+
+            Clear-field semantics for partial updates: a field left at its
+            default (None/omitted) leaves the existing value unchanged.
+            Passing notes='' or deadline='' clears that field. Passing
+            tags='' clears all tags. title='' is rejected with a validation
+            error (titles cannot be cleared). when='' is also rejected -
+            use when='anytime' or when='someday' to unschedule instead.
             """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.update_project), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -897,8 +951,9 @@ class ThingsMCPServer:
                             "message": str(e)
                         }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -987,12 +1042,20 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_area(
             id: str = Field(..., description="ID of the area to update"),
-            title: Optional[str] = Field(None, description="New title for the area"),
-            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Tags that don't already exist in Things 3 are silently filtered out.")
+            title: Optional[str] = Field(None, description="New title for the area. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Omit to leave unchanged; pass '' to clear all tags. Tags that don't already exist in Things 3 are silently filtered out.")
         ) -> Dict[str, Any]:
-            """Update an existing area's title and/or tags. Only provided fields are changed. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            """Update an existing area's title and/or tags. Only provided fields are changed.
+            Note: there is no delete_area tool, since deleting an area also deletes its projects.
+
+            Clear-field semantics: title left at its default (None/omitted) leaves the
+            existing title unchanged; title='' is rejected with a validation error
+            (titles cannot be cleared). tags left at its default (None/omitted) leaves
+            existing tags unchanged; tags='' clears all tags.
+            """
             try:
-                tag_list = _parse_tag_list(tags)
+                # '' clears all tags, None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
                 return await self.tools.update_area(area_id=id, title=title, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error updating area: {e}")

@@ -141,14 +141,31 @@ class WriteOperations:
 
         try:
             tags = kwargs.get('tags', [])
+            # An explicit clear request (tags=[] from validate_update_params,
+            # as opposed to tags not being provided at all) skips tag policy
+            # validation entirely - there is nothing to validate when clearing.
+            is_explicit_clear = 'tags' in kwargs and tags == []
             error_response, valid_tags, tag_info = await self._prepare_tags(tags)
 
             if error_response:
                 return error_response
 
-            if valid_tags is not None and valid_tags != tags:
+            if is_explicit_clear:
+                # Preserve the explicit [] so the update path clears tags,
+                # regardless of what _prepare_tags returned for an empty list.
+                kwargs['tags'] = []
+            elif valid_tags is not None and valid_tags != tags:
+                # Policy filtered some/all requested tags. If everything was
+                # filtered out, valid_tags == [] here - but that must NOT be
+                # confused with an explicit clear request, so we deliberately
+                # drop the 'tags' key rather than setting it to [] and leave
+                # the todo's existing tags untouched (matches update_area's
+                # "all filtered -> no-op" behaviour).
                 kwargs = dict(kwargs)
-                kwargs['tags'] = valid_tags
+                if valid_tags:
+                    kwargs['tags'] = valid_tags
+                else:
+                    kwargs.pop('tags', None)
 
             result = await self.reliable_scheduler.update_todo(todo_id=todo_id, **kwargs)
 
@@ -217,17 +234,55 @@ class WriteOperations:
             }
 
     async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
-        """Update a project using AppleScript."""
+        """Update a project using AppleScript.
+
+        Applies the same clear-field validation as update_todo
+        (ParameterValidator.validate_update_params): notes='' and
+        deadline='' clear those fields, tags='' clears tags, title=''
+        is rejected, when='' is rejected. area_id/area_title are passed
+        through unvalidated (validate_update_params does not cover them).
+        """
+        try:
+            project_id = ParameterValidator.validate_non_empty_string(project_id, 'project_id')
+            # Only re-validate the fields validate_update_params understands;
+            # area_id/area_title/area are project-specific and pass through as-is.
+            validate_kwargs = {k: v for k, v in kwargs.items()
+                                if k in ('title', 'notes', 'tags', 'when', 'deadline',
+                                         'completed', 'canceled')}
+            validated_params = ParameterValidator.validate_update_params(**validate_kwargs)
+            kwargs.update(validated_params)
+
+        except ValidationError as e:
+            logger.error(f"Validation error in update_project: {e}")
+            return create_validation_error_response(e)
+
         try:
             tags = kwargs.get('tags', [])
+            # An explicit clear request (tags=[] from validate_update_params,
+            # as opposed to tags not being provided at all) skips tag policy
+            # validation entirely - there is nothing to validate when clearing.
+            is_explicit_clear = 'tags' in kwargs and tags == []
             error_response, valid_tags, tag_info = await self._prepare_tags(tags)
 
             if error_response:
                 return error_response
 
-            if valid_tags is not None and valid_tags != tags:
+            if is_explicit_clear:
+                # Preserve the explicit [] so the update path clears tags,
+                # regardless of what _prepare_tags returned for an empty list.
+                kwargs['tags'] = []
+            elif valid_tags is not None and valid_tags != tags:
+                # Policy filtered some/all requested tags. If everything was
+                # filtered out, valid_tags == [] here - but that must NOT be
+                # confused with an explicit clear request, so we deliberately
+                # drop the 'tags' key rather than setting it to [] and leave
+                # the project's existing tags untouched (matches update_area's
+                # "all filtered -> no-op" behaviour).
                 kwargs = dict(kwargs)
-                kwargs['tags'] = valid_tags
+                if valid_tags:
+                    kwargs['tags'] = valid_tags
+                else:
+                    kwargs.pop('tags', None)
 
             result = await self.reliable_scheduler.update_project(project_id=project_id, **kwargs)
 
@@ -329,23 +384,32 @@ class WriteOperations:
                            tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """Update an existing area using AppleScript.
 
+        Clear-field contract: title left at None (not provided) leaves the
+        existing title unchanged; title='' (or whitespace-only) is rejected
+        with a ValidationError - titles cannot be cleared. tags left at
+        None (not provided) leaves existing tags unchanged; tags=[] (an
+        explicit empty list) clears all tags.
+
         Args:
             area_id: ID of the area to update (required)
-            title: New name for the area (optional)
-            tags: New list of existing tag names to apply to the area (optional).
-                  Tags that do not already exist in Things 3 are silently
-                  filtered out by Things itself (AI cannot create tags).
+            title: New name for the area (optional; '' is rejected)
+            tags: New list of existing tag names to apply to the area
+                  (optional). [] clears all tags. Tags that do not already
+                  exist in Things 3 are silently filtered out by Things
+                  itself (AI cannot create tags).
 
         Returns:
             Dict with success status and message.
         """
         try:
             area_id = ParameterValidator.validate_non_empty_string(area_id, 'area_id')
+            if title is not None and title.strip() == '':
+                raise ValidationError('title', 'title cannot be empty', title)
         except ValidationError as e:
             logger.error(f"Validation error in update_area: {e}")
             return create_validation_error_response(e)
 
-        if not title and not tags:
+        if title is None and tags is None:
             return {
                 "success": False,
                 "error": "No fields provided to update",
@@ -353,7 +417,12 @@ class WriteOperations:
             }
 
         try:
-            error_response, valid_tags, tag_info = await self._prepare_tags(tags)
+            is_explicit_tags_clear = tags is not None and len(tags) == 0
+            # An explicit clear request skips tag policy validation entirely -
+            # there is nothing to validate when clearing.
+            error_response, valid_tags, tag_info = await self._prepare_tags(
+                None if is_explicit_tags_clear else tags
+            )
 
             if error_response:
                 return error_response
@@ -365,7 +434,8 @@ class WriteOperations:
 
             # If tags were requested but the policy filtered all of them out,
             # skip the "set tag names" statement entirely rather than clearing
-            # the area's existing tags.
+            # the area's existing tags. This is distinct from an explicit
+            # clear request (tags=[]), which does clear.
             tags_all_filtered = bool(tags) and valid_tags is not None and not valid_tags
 
             escaped_area_id = AppleScriptTemplates.escape_string(area_id)
@@ -380,7 +450,9 @@ class WriteOperations:
                 escaped_title = AppleScriptTemplates.escape_string(title)
                 script += f'set name of targetArea to {escaped_title}\n                    '
 
-            if effective_tags:
+            if is_explicit_tags_clear:
+                script += 'set tag names of targetArea to ""\n                    '
+            elif effective_tags:
                 tags_string = ', '.join(effective_tags)
                 escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
                 script += f'set tag names of targetArea to {escaped_tags_string}\n                    '

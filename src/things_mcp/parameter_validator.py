@@ -680,7 +680,22 @@ class ParameterValidator:
     @classmethod
     def validate_update_params(cls, **kwargs) -> Dict[str, Any]:
         """
-        Validate update_todo/bulk_update_todos parameters.
+        Validate update_todo/update_project/update_area/bulk_update_todos parameters.
+
+        Clear-field contract (applies to partial updates only - a parameter that
+        is omitted, or explicitly passed as ``None``, leaves the existing field
+        unchanged):
+
+        - ``notes=''`` and ``deadline=''`` are valid "clear this field" requests
+          and are passed through as the literal empty string ``''`` so callers
+          can distinguish "clear" from "leave unchanged" (``None``).
+        - ``tags=''`` is also a valid "clear all tags" request and is passed
+          through as ``[]`` (an explicit empty list, distinct from ``None``).
+        - ``title=''`` (or whitespace-only) is rejected with a ValidationError -
+          titles cannot be cleared.
+        - ``when=''`` is rejected with a ValidationError directing callers to
+          use ``when='anytime'`` or ``when='someday'`` to unschedule instead -
+          there is no "clear" semantics for ``when``.
 
         Args:
             **kwargs: Update parameters
@@ -695,22 +710,52 @@ class ParameterValidator:
 
         if 'title' in kwargs and kwargs['title'] is not None:
             sanitized_title = cls.sanitize_string(kwargs['title'])
-            if sanitized_title is not None:
-                validated['title'] = sanitized_title
+            if sanitized_title is None:
+                raise ValidationError('title', 'title cannot be empty', kwargs['title'])
+            validated['title'] = sanitized_title
 
         if 'notes' in kwargs and kwargs['notes'] is not None:
-            sanitized_notes = cls.sanitize_string(kwargs['notes'])
-            if sanitized_notes is not None:
-                validated['notes'] = sanitized_notes
+            if isinstance(kwargs['notes'], str) and kwargs['notes'].strip() == '':
+                # Explicit clear request - preserve as '' rather than sanitizing
+                # away to None, so downstream update paths can distinguish
+                # "clear notes" from "notes not provided".
+                validated['notes'] = ''
+            else:
+                sanitized_notes = cls.sanitize_string(kwargs['notes'])
+                if sanitized_notes is not None:
+                    validated['notes'] = sanitized_notes
 
         if 'tags' in kwargs and kwargs['tags'] is not None:
-            validated['tags'] = cls.validate_tag_list(kwargs['tags'])
+            raw_tags = kwargs['tags']
+            is_explicit_clear = (isinstance(raw_tags, str) and raw_tags.strip() == '') or \
+                (isinstance(raw_tags, list) and len(raw_tags) == 0)
+            if is_explicit_clear:
+                # Explicit clear request - preserve as [] rather than the
+                # normal validate_tag_list() None-on-empty behaviour, so
+                # downstream update paths can distinguish "clear tags" from
+                # "tags not provided".
+                validated['tags'] = []
+            else:
+                validated['tags'] = cls.validate_tag_list(raw_tags)
 
         if 'when' in kwargs and kwargs['when'] is not None:
+            if isinstance(kwargs['when'], str) and kwargs['when'].strip() == '':
+                raise ValidationError(
+                    'when',
+                    "use when='anytime' or when='someday' to unschedule",
+                    kwargs['when']
+                )
             validated['when'] = cls.validate_date_format(kwargs['when'], 'when', allow_relative=True)
 
         if 'deadline' in kwargs and kwargs['deadline'] is not None:
-            validated['deadline'] = cls.validate_date_format(kwargs['deadline'], 'deadline', allow_relative=True)
+            if isinstance(kwargs['deadline'], str) and kwargs['deadline'].strip() == '':
+                # Explicit clear request - preserve as '' rather than the
+                # normal validate_date_format() None-on-empty behaviour, so
+                # downstream update paths can distinguish "clear deadline"
+                # from "deadline not provided".
+                validated['deadline'] = ''
+            else:
+                validated['deadline'] = cls.validate_date_format(kwargs['deadline'], 'deadline', allow_relative=True)
 
         if 'completed' in kwargs and kwargs['completed'] is not None:
             validated['completed'] = cls.validate_boolean(kwargs['completed'], 'completed')

@@ -725,17 +725,25 @@ class TodoOperations:
                 "message": "Failed to replace checklist items"
             }
 
-    def _build_update_script(self, todo_id: str, title: str, notes: str, tags: List[str],
-                            deadline: str, area: str, project: str,
+    def _build_update_script(self, todo_id: str, title: Optional[str], notes: Optional[str],
+                            tags: Optional[List[str]],
+                            deadline: Optional[str], area: str, project: str,
                             completed: Optional[bool], canceled: Optional[bool]) -> str:
         """Build AppleScript for updating a todo.
 
+        Clear-field contract: ``None`` (or, for title/area/project, the empty
+        string produced by the old falsy-default calling convention) leaves
+        the field unchanged; ``notes=''``/``deadline=''`` clear the field;
+        ``tags=[]`` (an explicit empty list, as opposed to ``None`` or a
+        falsy default) clears all tags. Titles cannot be cleared - callers
+        must reject ``title=''`` before calling this method.
+
         Args:
             todo_id: Todo ID to update
-            title: New title (or empty)
-            notes: New notes (or empty)
-            tags: New tags list
-            deadline: New deadline date
+            title: New title, or None/empty to leave unchanged
+            notes: New notes, or None to leave unchanged, '' to clear
+            tags: New tags list, or None to leave unchanged, [] to clear
+            deadline: New deadline date, or None to leave unchanged, '' to clear
             area: New area
             project: New project
             completed: Completion status
@@ -750,15 +758,19 @@ class TodoOperations:
                     set targetTodo to to do id "{todo_id}"
             '''
 
-        # Update title if provided
+        # Update title if provided (titles cannot be cleared - callers reject
+        # title='' upstream, so any non-empty value here is a real update).
         if title:
             escaped_title = AppleScriptTemplates.escape_string(title)
             script += f'set name of targetTodo to {escaped_title}\n                    '
 
-        # Update notes if provided
-        if notes:
-            escaped_notes = AppleScriptTemplates.escape_string(notes)
-            script += f'set notes of targetTodo to {escaped_notes}\n                    '
+        # Update notes: None leaves unchanged, '' clears, anything else sets.
+        if notes is not None:
+            if notes == '':
+                script += 'set notes of targetTodo to ""\n                    '
+            else:
+                escaped_notes = AppleScriptTemplates.escape_string(notes)
+                script += f'set notes of targetTodo to {escaped_notes}\n                    '
 
         # Update area if provided
         if area:
@@ -770,18 +782,30 @@ class TodoOperations:
             escaped_project = AppleScriptTemplates.escape_string(project)
             script += f'set project of targetTodo to project {escaped_project}\n                    '
 
-        # Update tags if provided
-        if tags:
-            tags_string = ', '.join(tags)
-            escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
-            script += f'set tag names of targetTodo to {escaped_tags_string}\n                    '
+        # Update tags: None leaves unchanged, [] (explicit empty list) clears,
+        # a non-empty list sets. A falsy-but-not-[] value (e.g. omitted
+        # entirely and defaulted elsewhere) is treated as "unchanged" too.
+        if tags is not None:
+            if len(tags) == 0:
+                script += 'set tag names of targetTodo to ""\n                    '
+            else:
+                tags_string = ', '.join(tags)
+                escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
+                script += f'set tag names of targetTodo to {escaped_tags_string}\n                    '
 
-        # Update deadline if provided
-        if deadline:
-            date_components = locale_handler.normalize_date_input(deadline)
-            if date_components:
-                year, month, day = date_components
-                script += f'''
+        # Update deadline: None leaves unchanged, '' clears, anything else sets.
+        if deadline is not None:
+            if deadline == '':
+                # Things 3's AppleScript dictionary rejects
+                # `set due date of X to missing value` ("Can't make missing
+                # value into type date"); `delete` is the documented way to
+                # clear a date property.
+                script += 'delete due date of targetTodo\n                    '
+            else:
+                date_components = locale_handler.normalize_date_input(deadline)
+                if date_components:
+                    year, month, day = date_components
+                    script += f'''
                     set deadlineDate to (current date)
                     set time of deadlineDate to 0
                     set day of deadlineDate to 1
@@ -811,14 +835,25 @@ class TodoOperations:
         return script
 
     async def update_todo(self, todo_id: str, **kwargs) -> Dict[str, Any]:
-        """Update an existing todo using AppleScript."""
+        """Update an existing todo using AppleScript.
+
+        Clear-field contract (see _build_update_script): a field that is
+        omitted from kwargs, or explicitly None, leaves the existing value
+        unchanged. notes='' and deadline='' clear those fields. tags=[]
+        (an explicit empty list) clears all tags. title='' is rejected
+        upstream (ParameterValidator.validate_update_params) and should
+        never reach here.
+        """
         try:
-            # Extract parameters
+            # Extract parameters. title/area/project default to '' (falsy
+            # "unchanged") since they have no clear semantics here; notes/
+            # deadline/tags default to None so "not provided" (leave
+            # unchanged) can be distinguished from '' / [] (explicit clear).
             title = kwargs.get('title', '')
-            notes = kwargs.get('notes', '')
-            tags = kwargs.get('tags', [])
+            notes = kwargs.get('notes', None)
+            tags = kwargs.get('tags', None)
             when = kwargs.get('when', '')
-            deadline = kwargs.get('deadline', '')
+            deadline = kwargs.get('deadline', None)
             area = kwargs.get('area', '')
             project = kwargs.get('project', '')
 
@@ -1014,14 +1049,25 @@ class TodoOperations:
             }
 
     async def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
-        """Update an existing project using AppleScript."""
+        """Update an existing project using AppleScript.
+
+        Clear-field contract: a field that is omitted from kwargs, or
+        explicitly None, leaves the existing value unchanged. notes=''
+        and deadline='' clear those fields. tags=[] (an explicit empty
+        list) clears all tags. title='' is rejected upstream
+        (ParameterValidator.validate_update_params) and should never
+        reach here.
+        """
         try:
-            # Extract parameters
+            # Extract parameters. title/area default to '' (falsy
+            # "unchanged") since they have no clear semantics here; notes/
+            # deadline/tags default to None so "not provided" (leave
+            # unchanged) can be distinguished from '' / [] (explicit clear).
             title = kwargs.get('title', '')
-            notes = kwargs.get('notes', '')
-            tags = kwargs.get('tags', [])
+            notes = kwargs.get('notes', None)
+            tags = kwargs.get('tags', None)
             when = kwargs.get('when', '')
-            deadline = kwargs.get('deadline', '')
+            deadline = kwargs.get('deadline', None)
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
@@ -1037,15 +1083,19 @@ class TodoOperations:
                     set targetProject to project id "{project_id}"
             '''
 
-            # Update title if provided
+            # Update title if provided (titles cannot be cleared - callers
+            # reject title='' upstream, so any non-empty value here is real).
             if title:
                 escaped_title = AppleScriptTemplates.escape_string(title)
                 script += f'set name of targetProject to {escaped_title}\n                    '
 
-            # Update notes if provided
-            if notes:
-                escaped_notes = AppleScriptTemplates.escape_string(notes)
-                script += f'set notes of targetProject to {escaped_notes}\n                    '
+            # Update notes: None leaves unchanged, '' clears, anything else sets.
+            if notes is not None:
+                if notes == '':
+                    script += 'set notes of targetProject to ""\n                    '
+                else:
+                    escaped_notes = AppleScriptTemplates.escape_string(notes)
+                    script += f'set notes of targetProject to {escaped_notes}\n                    '
 
             # Update area if provided: prefer area_id (UUID) over area_title (name)
             if area_id:
@@ -1055,19 +1105,30 @@ class TodoOperations:
                 escaped_area_title = AppleScriptTemplates.escape_string(area_title)
                 script += f'set area of targetProject to area {escaped_area_title}\n                    '
 
-            # Update tags if provided
-            if tags:
-                # Things 3 expects tags as comma-separated string, not AppleScript list
-                tags_string = ', '.join(tags)
-                escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
-                script += f'set tag names of targetProject to {escaped_tags_string}\n                    '
+            # Update tags: None leaves unchanged, [] (explicit empty list)
+            # clears, a non-empty list sets.
+            if tags is not None:
+                if len(tags) == 0:
+                    script += 'set tag names of targetProject to ""\n                    '
+                else:
+                    # Things 3 expects tags as comma-separated string, not AppleScript list
+                    tags_string = ', '.join(tags)
+                    escaped_tags_string = AppleScriptTemplates.escape_string(tags_string)
+                    script += f'set tag names of targetProject to {escaped_tags_string}\n                    '
 
-            # Update deadline if provided
-            if deadline:
-                date_components = locale_handler.normalize_date_input(deadline)
-                if date_components:
-                    year, month, day = date_components
-                    script += f'''
+            # Update deadline: None leaves unchanged, '' clears, anything else sets.
+            if deadline is not None:
+                if deadline == '':
+                    # Things 3's AppleScript dictionary rejects
+                    # `set due date of X to missing value` ("Can't make
+                    # missing value into type date"); `delete` is the
+                    # documented way to clear a date property.
+                    script += 'delete due date of targetProject\n                    '
+                else:
+                    date_components = locale_handler.normalize_date_input(deadline)
+                    if date_components:
+                        year, month, day = date_components
+                        script += f'''
                     set deadlineDate to (current date)
                     set time of deadlineDate to 0
                     set day of deadlineDate to 1
