@@ -6,6 +6,12 @@
 
 A Model Context Protocol (MCP) server that connects Claude and other AI assistants to Things 3 for natural language task management.
 
+## Why this server?
+
+Writes go through **AppleScript**, not the Things URL scheme, which is what enables `delete_todo`, `move_record`/`bulk_move_records`, `remove_tags`, real IDs returned synchronously, and no Things auth token — at the honest cost of a one-time macOS Automation permission prompt on first write. Operationally it also ships built-in `doctor` diagnostics, `config --write` client setup, context-optimized response modes for large databases, and ~800 unit tests.
+
+[hald/things-mcp](https://github.com/hald/things-mcp) is a solid, lighter URL-scheme-based alternative — several of its ideas (Someday-project filtering, tag usage reporting, `.mcpb` packaging) are adopted here too. See [docs/COMPARISON.md](docs/COMPARISON.md) for the detailed matrix.
+
 ## Prerequisites
 
 - macOS 12+
