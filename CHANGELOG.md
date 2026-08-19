@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scripts/gen_manifest_tools.py`** - generates `manifest.json`'s `tools` array from the server's actually-registered MCP tools (`--check` to detect drift, `--write` to sync); `scripts/build_mcpb.sh` now runs `--check` before packing (best-effort: skipped with a warning if `fastmcp` isn't importable by the system `python3`), and a new unit test (`tests/unit/test_manifest_tools_sync.py`) guards against drift going forward. Fixes `manifest.json` listing a removed tool (`show_item`) and omitting 11 registered tools (`create_tag`, `delete_todo`, `get_todo_by_id`, `get_tag_usage`, `get_due_in_days`, `get_activating_in_days`, `health_check`, `queue_status`, `context_stats`, `get_server_capabilities`, `get_usage_recommendations`)
+
 ### Changed
 - `get_someday` no longer includes tasks from Someday projects by default; pass `include_project_tasks=true` to include them (marked `inheritedSomeday`)
 - Read tools return structured_content `{items, count, total, mode, limit, offset}`; under `mode=summary` count = number of preview items and the full count is in `total`

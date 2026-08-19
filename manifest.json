@@ -65,36 +65,166 @@
     }
   },
   "tools": [
-    { "name": "get_inbox", "description": "Get todos from Inbox" },
-    { "name": "get_today", "description": "Get todos due today" },
-    { "name": "get_upcoming", "description": "Get upcoming todos" },
-    { "name": "get_anytime", "description": "Get todos from Anytime list" },
-    { "name": "get_someday", "description": "Get todos from Someday list" },
-    { "name": "get_logbook", "description": "Get completed todos from Logbook" },
-    { "name": "get_trash", "description": "Get trashed todos" },
-    { "name": "get_todos", "description": "Get todos from Things, optionally filtered by project" },
-    { "name": "get_projects", "description": "Get all projects from Things" },
-    { "name": "get_areas", "description": "Get all areas from Things" },
-    { "name": "get_tags", "description": "Get all tags" },
-    { "name": "get_tagged_items", "description": "Get items with a specific tag" },
-    { "name": "search_todos", "description": "Search todos by title or notes" },
-    { "name": "search_advanced", "description": "Advanced search with multiple filters" },
-    { "name": "get_recent", "description": "Get recently created items" },
-    { "name": "add_todo", "description": "Add a new todo to Things" },
-    { "name": "add_project", "description": "Add a new project to Things" },
-    { "name": "add_area", "description": "Create a new Area in Things 3" },
-    { "name": "update_todo", "description": "Update an existing todo" },
-    { "name": "update_project", "description": "Update an existing project" },
-    { "name": "update_area", "description": "Update an existing Area in Things 3" },
-    { "name": "bulk_update_todos", "description": "Apply the same update to many todos in a single operation" },
-    { "name": "bulk_move_records", "description": "Move many todos to a new list/project in a single operation" },
-    { "name": "move_record", "description": "Move a todo to a different list or project" },
-    { "name": "add_tags", "description": "Add one or more tags to a todo" },
-    { "name": "remove_tags", "description": "Remove one or more tags from a todo" },
-    { "name": "add_checklist_items", "description": "Append checklist items to a todo" },
-    { "name": "prepend_checklist_items", "description": "Prepend checklist items to a todo" },
-    { "name": "replace_checklist_items", "description": "Replace all checklist items on a todo" },
-    { "name": "show_item", "description": "Show a specific item in the Things app" }
+    {
+      "name": "add_area",
+      "description": "Create a new area."
+    },
+    {
+      "name": "add_checklist_items",
+      "description": "Add checklist items to an existing todo."
+    },
+    {
+      "name": "add_project",
+      "description": "Create a new project."
+    },
+    {
+      "name": "add_tags",
+      "description": "Add tags to a todo."
+    },
+    {
+      "name": "add_todo",
+      "description": "Create a new todo."
+    },
+    {
+      "name": "bulk_move_records",
+      "description": "Move multiple todos to the same destination efficiently."
+    },
+    {
+      "name": "bulk_update_todos",
+      "description": "Update multiple todos with the same changes in a single operation."
+    },
+    {
+      "name": "context_stats",
+      "description": "Get context usage statistics and optimization insights."
+    },
+    {
+      "name": "create_tag",
+      "description": "Create a new tag."
+    },
+    {
+      "name": "delete_todo",
+      "description": "Delete a todo by ID."
+    },
+    {
+      "name": "get_activating_in_days",
+      "description": "Get todos activating within specified days (1-365)."
+    },
+    {
+      "name": "get_anytime",
+      "description": "Get todos from Anytime list."
+    },
+    {
+      "name": "get_areas",
+      "description": "Get all areas with optional project/task inclusion."
+    },
+    {
+      "name": "get_due_in_days",
+      "description": "Get todos due within specified days (1-365)."
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get todos from Inbox."
+    },
+    {
+      "name": "get_logbook",
+      "description": "Get completed todos from Logbook."
+    },
+    {
+      "name": "get_projects",
+      "description": "Get all projects with optional task inclusion."
+    },
+    {
+      "name": "get_recent",
+      "description": "Get recently created items within a time period (e.g., '3d', '1w')."
+    },
+    {
+      "name": "get_server_capabilities",
+      "description": "Get server capabilities, features, API coverage, and optimization settings."
+    },
+    {
+      "name": "get_someday",
+      "description": "Get todos from Someday list."
+    },
+    {
+      "name": "get_tag_usage",
+      "description": "Report how many items (todos and projects, open and total) use each tag, sorted by usage (highest first)."
+    },
+    {
+      "name": "get_tagged_items",
+      "description": "Get todos with a specific tag."
+    },
+    {
+      "name": "get_tags",
+      "description": "Get all tags with item counts or full items."
+    },
+    {
+      "name": "get_today",
+      "description": "Get todos due today."
+    },
+    {
+      "name": "get_todo_by_id",
+      "description": "Get a specific todo by its ID."
+    },
+    {
+      "name": "get_todos",
+      "description": "Get todos with context-aware response optimization."
+    },
+    {
+      "name": "get_trash",
+      "description": "Get trashed todos with pagination support."
+    },
+    {
+      "name": "get_upcoming",
+      "description": "Get upcoming todos."
+    },
+    {
+      "name": "get_usage_recommendations",
+      "description": "Get usage recommendations for efficient MCP operations."
+    },
+    {
+      "name": "health_check",
+      "description": "Check server health and Things 3 connectivity."
+    },
+    {
+      "name": "move_record",
+      "description": "Move a todo to a different list, project, or area."
+    },
+    {
+      "name": "prepend_checklist_items",
+      "description": "Prepend checklist items to an existing todo."
+    },
+    {
+      "name": "queue_status",
+      "description": "Get operation queue status and statistics."
+    },
+    {
+      "name": "remove_tags",
+      "description": "Remove tags from a todo."
+    },
+    {
+      "name": "replace_checklist_items",
+      "description": "Replace all checklist items in a todo."
+    },
+    {
+      "name": "search_advanced",
+      "description": "Advanced search with multiple filters: status, type, tag, area, start_date, deadline."
+    },
+    {
+      "name": "search_todos",
+      "description": "Search todos by query term."
+    },
+    {
+      "name": "update_area",
+      "description": "Update an existing area's title and/or tags."
+    },
+    {
+      "name": "update_project",
+      "description": "Update an existing project."
+    },
+    {
+      "name": "update_todo",
+      "description": "Update an existing todo."
+    }
   ],
   "keywords": [
     "things",

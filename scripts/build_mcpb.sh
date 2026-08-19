@@ -40,6 +40,31 @@ if [ -z "$VERSION" ]; then
 fi
 echo "Version: $VERSION"
 
+# --- Verify manifest.json's tools array matches the server's registered tools ---
+# This is a best-effort check: it requires the project's runtime deps -
+# notably a project-compatible fastmcp (see pyproject.toml: fastmcp>=3.0.0,<4)
+# exposing FastMCP.list_tools() - to be importable by `python3`. If the
+# ambient `python3` lacks fastmcp entirely, or has an incompatible version
+# (e.g. a stale fastmcp 2.x from an unrelated environment, which lacks
+# list_tools()), we skip the check with a warning rather than failing the
+# build, since this is a drift guard, not a build dependency.
+if python3 -c "
+import asyncio
+import fastmcp
+assert hasattr(fastmcp.FastMCP, 'list_tools')
+" >/dev/null 2>&1; then
+  echo "Checking manifest.json tools list against registered MCP tools..."
+  if ! PYTHONPATH=src python3 scripts/gen_manifest_tools.py --check; then
+    echo "ERROR: manifest.json 'tools' array is out of sync with the server's registered tools." >&2
+    echo "Run: python3 scripts/gen_manifest_tools.py --write   (then re-run this build)" >&2
+    exit 1
+  fi
+else
+  echo "WARNING: python3's fastmcp is missing or incompatible (need fastmcp>=3.0.0,<4 with FastMCP.list_tools());" >&2
+  echo "  skipping manifest.json tools sync check." >&2
+  echo "  Run 'PYTHONPATH=src python3 scripts/gen_manifest_tools.py --check' manually with the project venv active." >&2
+fi
+
 # --- Clean previous build ---
 rm -rf dist/
 mkdir -p dist/

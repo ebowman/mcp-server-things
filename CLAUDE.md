@@ -828,6 +828,7 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)
 - [ ] Built .mcpb (`scripts/build_mcpb.sh`) and attached `dist/*.mcpb` to the GitHub release
+- [ ] manifest tools list is generated — run `scripts/gen_manifest_tools.py --write` after adding/removing tools
 - [ ] AI reports the correct version when queried (`--version` / `get_server_capabilities`)
 
 ## Code Quality Improvements
