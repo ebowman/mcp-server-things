@@ -10,7 +10,7 @@ Covers:
   - The three checklist tools (add_checklist_items, prepend_checklist_items,
     replace_checklist_items) propagate that structured error instead of
     reporting success when nothing happened.
-  - _add_todo_with_checklist (things:///add) is unaffected by a missing token.
+  - _add_todo_via_url_scheme (things:///add) is unaffected by a missing token.
 """
 
 import pytest
@@ -238,7 +238,7 @@ class TestReplaceChecklistItemsAuthGate:
 
 
 class TestAddTodoWithChecklistUnaffected:
-    """things:///add does not require a token - _add_todo_with_checklist
+    """things:///add does not require a token - _add_todo_via_url_scheme
     must still proceed to completion when no token is configured."""
 
     @pytest.mark.asyncio
@@ -249,7 +249,7 @@ class TestAddTodoWithChecklistUnaffected:
         })
         ops = TodoOperations(mock_applescript_manager_no_token, Mock())
 
-        result = await ops._add_todo_with_checklist("Test Todo", checklist_items=["a", "b"])
+        result = await ops._add_todo_via_url_scheme("Test Todo", checklist_items=["a", "b"])
 
         assert result["success"] is True
         # Confirm the 'add' action was used (not gated) even without a token.

@@ -521,6 +521,11 @@ add_todo(title="Research competitors", list_id=project_id, heading="Research")
 add_todo(title="Create wireframes", list_id=project_id, heading="Design")
 add_todo(title="Implement homepage", list_id=project_id, heading="Development")
 
+# Add a todo by project/area title instead of id - resolved via exact-title
+# match against both projects and areas; an ambiguous title (matches more
+# than one) or an unknown title returns a structured error.
+add_todo(title="Draft outline", list_title="Website Redesign")
+
 # Update project
 update_project(
     id=project_id,
@@ -542,6 +547,42 @@ get_projects(mode='summary')  # Count and preview
 get_projects(mode='minimal')  # IDs and names only
 get_projects(mode='standard')  # Full details
 ```
+
+**Headings**: `heading` places a new to-do under an existing heading within
+the target project. It requires a target project via `list_id` or
+`list_title` - calling `add_todo(heading=...)` without one returns
+`{"success": false, "error": "heading requires a target project (list_id or
+list_title)"}` and never contacts Things. **The heading must already exist**
+in that project - Things 3's AppleScript dictionary has no heading class,
+so headings cannot be created via AppleScript; create one first via the
+Things 3 UI. Because a to-do with a `heading` is created via the Things URL
+scheme (`things:///add`), if the named heading does not exist in the target
+project **Things silently ignores it** - the to-do still lands in the
+project, just not under that heading, with no error from Things. `add_todo`
+pre-checks the heading against the project's known headings and adds a
+`warnings` entry to the response when it can't confirm the heading exists,
+but cannot force Things to honour a heading that isn't there.
+
+**No auth token required for `add`**: the Things URL scheme's `add` action
+does not require an auth token (only `update`/`json`-style actions do), so
+`add_todo` with `heading` or `checklist_items` works via URL scheme without
+any Things 3 auth-token configuration.
+
+**`list_title` resolution**: on every path - AppleScript (no heading, no
+checklist) and Things-URL-scheme (heading and/or checklist) - `list_title`
+is resolved to a concrete project/area id via an exact-title match before
+the write; an unknown or ambiguous title (matches more than one
+project/area) returns a structured error rather than silently landing the
+to-do in the Inbox.
+
+**`list_id` fallback when the Things database is unreadable**: `add_todo`
+normally resolves `list_id` to project-vs-area via a `things.py` lookup
+(`things.get()`). If that lookup itself raises (e.g. the Things SQLite
+database is unreadable or Full Disk Access hasn't been granted), `add_todo`
+falls back to treating `list_id` as a project id and proceeds via
+AppleScript alone (matching pre-1.7.0 behavior) rather than refusing the
+write - only a *successful* lookup that reports the id as unknown, or not a
+project/area, returns a structured error.
 
 **Status semantics (`completed`/`canceled`):**
 - `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
