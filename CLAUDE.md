@@ -4,13 +4,14 @@
 
 **Things 3 MCP Server** - A Model Context Protocol server that enables AI assistants to interact with Things 3 via AppleScript on macOS.
 
-### ✨ Latest Features (v1.5.0)
+### ✨ Latest Features (v1.7.0)
+- **📂 Heading support** - `get_project_headings` (read a project's heading structure), `add_project`'s `todos` payload supports real `##Heading` lines, and `update_todo(heading=..., list_id?, list_title?)` moves a to-do under a heading and/or into a different project or area
+- **🧹 List tools return to-dos only by default** - `get_today`/`get_upcoming`/`get_anytime`/`get_someday`/`get_trash` no longer mix in projects and headings; pass `include_projects=true` to opt back into projects (headings are never returned)
+- **🧾 Canonical structured error contracts** - every read tool returns `{"success": false, "error": "<snake_case_code>", "message": ...}`, every write tool returns `{"success": false, "error": "<UPPER_SNAKE_CODE>", "message": ...}`, both from a single shared implementation per contract
+- **🧵 Field completeness** - `convert_todo`/`convert_project` rewritten against the real things.py key set; completed/canceled items now correctly report `completionDate`/`cancellationDate`, and `hasChecklist` replaces the old ambiguous bool-or-list `checklist` field
+- **✂️ Field clearing** - `notes=''`/`deadline=''`/`tags=''` now clear those fields on `update_todo`/`update_project`/`update_area`/`bulk_update_todos` instead of silently no-op'ing
+- **📝 Multi-line notes preserved** - the AppleScript escaper no longer collapses newlines to spaces, fixing notes formatting loss on `add_project`/`update_project`/`add_todo`/`update_todo`
 - **🩺 Boot Diagnostics** - stderr boot-phase markers, a startup watchdog, and a bounded lazy import of `things` to make cold-start hangs diagnosable (see below)
-- **🏷️ Tag Management** - Fixed tag concatenation in all tag operations (add_tags, remove_tags, bulk_update_todos)
-- **⚡ Bulk Operations** - Fixed multi-field updates; tags now work correctly in batch operations
-- **📅 Date Scheduling** - Reliable scheduling with `today`, `tomorrow`, `someday`, or specific dates (YYYY-MM-DD)
-- **✅ Validation** - Parameter validation prevents common errors and edge cases
-- **📊 Context Optimization** - Response modes provide 5-12x better performance than documented
 
 ### Architecture
 - **Framework**: FastMCP 3.x (Python 3.8+)
@@ -92,7 +93,7 @@ marker instead of hanging silently. See README "Boot diagnostics" for the
 diagnosis recipe.
 
 ### API Coverage Status
-- **Implemented**: 25+ operations (40% of AppleScript API)
+- **Implemented**: 41 MCP tools (reads via things.py, writes via AppleScript + Things URL scheme for headings/checklists/evening scheduling) - see README "Available MCP Tools" for the full list
 - **Tested**: All features verified with comprehensive integration tests
 - **Roadmap**: See `docs/ROADMAP.md` for future features
 - **Priority**: Focus on daily workflow operations
@@ -1126,8 +1127,9 @@ replace_checklist_items(
 - Todo ID is retrieved after creation by snapshotting existing to-do ids with
   that title before the URL call and polling (up to 3s, every 250ms) for a
   new id afterward, so two same-titled to-dos created within a second still
-  resolve to distinct correct ids (see CHANGELOG hq-nxu.12); a lookup that
-  times out returns `success: false` rather than a false-positive success.
+  resolve to distinct correct ids (see CHANGELOG.md's `[1.7.0]` Fixed entry
+  on `add_todo` id disambiguation); a lookup that times out returns
+  `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
 - The auth token is loaded once at server startup; a token file added or
   edited afterwards requires a server restart to take effect. An
