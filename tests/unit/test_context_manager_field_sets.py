@@ -36,6 +36,28 @@ SAMPLE_ITEM = {
     'reminderTime': '09:00',
 }
 
+# A project row as produced by ToolsHelpers.convert_project - distinct from
+# SAMPLE_ITEM (a todo row) because projects carry area/areaTitle instead of
+# project/projectTitle/heading/headingTitle (hq-f0w.32).
+SAMPLE_PROJECT_ITEM = {
+    'uuid': 'project-1',
+    'title': 'Sample project',
+    'type': 'project',
+    'status': 'open',
+    'notes': 'Project notes',
+    'tags': ['work'],
+    'area': 'area-uuid',
+    'areaTitle': 'My Area',
+    'start': 'Anytime',
+    'creationDate': '2026-08-01 10:00:00',
+    'modificationDate': '2026-08-19 10:00:00',
+    'dueDate': '2026-09-01',
+    'startDate': '2026-08-10',
+    'index': -100,
+    'todayIndex': 0,
+    'reminderTime': '09:00',
+}
+
 
 def _engine():
     return ContextAwareResponseManager(ContextBudget())
@@ -111,6 +133,59 @@ class TestFieldFilteringByMode:
         standard = engine._apply_field_filtering([SAMPLE_ITEM], ResponseMode.STANDARD)[0]
         assert 'index' not in standard
         assert 'todoCount' not in standard
+
+    def test_project_rows_standard_and_minimal_keep_area_fields(self):
+        """hq-f0w.32: get_projects(mode='standard'/'minimal') must keep a
+        project's area, not just detailed/raw - project rows are filtered
+        against PROJECT_FIELD_SETS (not the todo-shaped TODO_FIELD_SETS)
+        when method_name == 'get_projects'."""
+        engine = _engine()
+
+        minimal = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.MINIMAL, method_name='get_projects'
+        )[0]
+        assert minimal.get('area') == 'area-uuid'
+
+        standard = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.STANDARD, method_name='get_projects'
+        )[0]
+        assert standard.get('area') == 'area-uuid'
+        assert standard.get('areaTitle') == 'My Area'
+
+    def test_project_rows_minimal_lacks_areaTitle_but_keeps_type_and_status(self):
+        engine = _engine()
+        minimal = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.MINIMAL, method_name='get_projects'
+        )[0]
+        for key in ('uuid', 'title', 'status', 'type', 'area'):
+            assert key in minimal, f"MINIMAL project mode dropped required field: {key}"
+
+    def test_project_rows_summary_mode_unchanged_fields(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.SUMMARY, method_name='get_projects'
+        )[0]
+        assert set(filtered.keys()) <= {'uuid', 'title', 'status', 'tags', 'dueDate'}
+
+    def test_project_rows_detailed_mode_returns_all_fields(self):
+        engine = _engine()
+        filtered = engine._apply_field_filtering(
+            [SAMPLE_PROJECT_ITEM], ResponseMode.DETAILED, method_name='get_projects'
+        )[0]
+        assert filtered == SAMPLE_PROJECT_ITEM
+
+    def test_todo_rows_unaffected_by_get_projects_field_sets(self):
+        """A todo row filtered without method_name='get_projects' must keep
+        using TODO_FIELD_SETS, not accidentally pick up PROJECT_FIELD_SETS."""
+        engine = _engine()
+        minimal = engine._apply_field_filtering([SAMPLE_ITEM], ResponseMode.MINIMAL)[0]
+        assert minimal == engine._apply_field_filtering(
+            [SAMPLE_ITEM], ResponseMode.MINIMAL, method_name='get_today'
+        )[0]
+        # 'project'/'projectTitle' (todo-shaped) survive; 'area' does not,
+        # matching the pre-existing todo STANDARD/MINIMAL behavior.
+        assert 'project' in minimal
+        assert 'area' not in minimal
 
     def test_project_headings_minimal_and_standard_keep_index_and_todo_count(self):
         """get_project_headings items use a distinct schema and are
@@ -194,6 +269,21 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
                 f"convert_todo/convert_project: {unknown}"
             )
 
+    def test_project_field_sets_are_subset_of_real_converter_output_keys(self):
+        """Every non-None field set in PROJECT_FIELD_SETS (hq-f0w.32) must
+        reference only keys that convert_project actually produces."""
+        engine = _engine()
+        real_keys = self._fully_populated_project_keys()
+
+        for mode, allowed_fields in engine.PROJECT_FIELD_SETS.items():
+            if allowed_fields is None:  # DETAILED: all fields, nothing to check
+                continue
+            unknown = allowed_fields - real_keys
+            assert not unknown, (
+                f"{mode}: PROJECT_FIELD_SETS references keys never produced "
+                f"by convert_project: {unknown}"
+            )
+
     def test_get_optimization_capabilities_field_sets_match_TODO_FIELD_SETS(self):
         """get_optimization_capabilities() must derive its advertised
         summary/minimal/standard field lists from the same TODO_FIELD_SETS
@@ -206,3 +296,14 @@ class TestModeFieldSetsReferenceOnlyRealKeys(object):
         assert advertised["summary"] == sorted(engine.TODO_FIELD_SETS[ResponseMode.SUMMARY])
         assert advertised["minimal"] == sorted(engine.TODO_FIELD_SETS[ResponseMode.MINIMAL])
         assert advertised["standard"] == sorted(engine.TODO_FIELD_SETS[ResponseMode.STANDARD])
+
+    def test_get_optimization_capabilities_project_field_sets_match_PROJECT_FIELD_SETS(self):
+        """get_optimization_capabilities() must also advertise the project
+        field sets (hq-f0w.32), derived from PROJECT_FIELD_SETS."""
+        engine = _engine()
+        capabilities = engine.get_optimization_capabilities()
+        advertised = capabilities["features"]["dynamic_field_filtering"]["project_field_sets"]
+
+        assert advertised["summary"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.SUMMARY])
+        assert advertised["minimal"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.MINIMAL])
+        assert advertised["standard"] == sorted(engine.PROJECT_FIELD_SETS[ResponseMode.STANDARD])

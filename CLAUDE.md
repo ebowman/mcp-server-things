@@ -543,9 +543,30 @@ reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
 as convert_todo where the concepts overlap - `start`, `startDate`, `index`,
 `todayIndex`, and `reminderTime` are all emitted on projects the same way they
 are on todos (hq-f0w.29), in addition to the project-specific `area`/
-`areaTitle` fields. Because context_manager.py's mode field-filtering is shared
-across todo/project/area rows, the `standard`/`detailed` field lists above
-apply to projects too.
+`areaTitle` fields.
+
+### Project field lists per mode (hq-f0w.32)
+
+`get_projects()` rows are filtered against a separate, project-shaped field
+set (`ContextAwareResponseManager.PROJECT_FIELD_SETS`), not the todo field
+lists above - the todo sets never carry `area`/`areaTitle` (to-do rows never
+have those keys), so filtering project rows against them silently dropped a
+project's area under `minimal`/`standard` mode until hq-f0w.32. `get_areas()`
+top-level rows are areas (`uuid`/`title`/`type`/`tags` from `convert_area`)
+and still use the todo field sets, which is sufficient for that small schema
+under every mode except `minimal` (which lacks `tags` for areas - tracked
+separately, out of scope for hq-f0w.32).
+
+- **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
+- **`minimal`**: `uuid`, `title`, `status`, `type`, `area`, `start`, `dueDate`,
+  `modificationDate`, `creationDate` - enough to locate a project (identity,
+  kind, and where it lives) without pulling notes
+- **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
+  `modificationDate`, `creationDate`, `tags`, `area`, `areaTitle`, `start`,
+  `startDate`, `reminderTime`
+- **`detailed`** / **`raw`**: all fields, including `index`, `todayIndex`,
+  `completionDate`/`cancellationDate` (derived from things.py's single
+  `stop_date` field by `status`)
 
 ### Performance Tips
 

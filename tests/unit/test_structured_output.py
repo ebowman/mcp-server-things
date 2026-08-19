@@ -22,6 +22,19 @@ SAMPLE_TODO = {
     "dueDate": None,
 }
 
+SAMPLE_PROJECT = {
+    "uuid": "proj123",
+    "title": "Test project",
+    "type": "project",
+    "status": "open",
+    "notes": "Some notes",
+    "tags": ["work"],
+    "area": "area-uuid",
+    "areaTitle": "Work",
+    "start": "Anytime",
+    "dueDate": None,
+}
+
 
 def _make_server_with_mock_tools(**overrides):
     """Create a ThingsMCPServer with a MagicMock ThingsTools layer.
@@ -210,6 +223,35 @@ class TestStructuredContentShape:
         assert sc["count"] == 1
         assert sc["has_more"] is True
         assert sc["total_count"] == 5
+
+
+class TestGetProjectsFieldFiltering:
+    """hq-f0w.32: get_projects(mode='standard'/'minimal') must keep a
+    project's area/areaTitle - the shared todo field sets used to be applied
+    to project rows too, and never carried area/areaTitle."""
+
+    @pytest.mark.asyncio
+    async def test_standard_mode_keeps_area_fields(self):
+        server = _make_server_with_mock_tools(get_projects=[SAMPLE_PROJECT])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "standard"})
+
+        item = result.structured_content["items"][0]
+        assert item["area"] == "area-uuid"
+        assert item["areaTitle"] == "Work"
+
+    @pytest.mark.asyncio
+    async def test_minimal_mode_keeps_area_field(self):
+        server = _make_server_with_mock_tools(get_projects=[SAMPLE_PROJECT])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "minimal"})
+
+        item = result.structured_content["items"][0]
+        assert item["area"] == "area-uuid"
 
 
 class TestAutoModeReportsEffectiveMode:
