@@ -59,6 +59,12 @@ THINGS_GET_PATCH = "things_mcp.scheduling.todo_operations.things.get"
 THINGS_PROJECTS_PATCH = "things_mcp.scheduling.todo_operations.things.projects"
 THINGS_AREAS_PATCH = "things_mcp.scheduling.todo_operations.things.areas"
 THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
+# write_operations.py holds its own separate LazyThingsProxy instance (not
+# the same object as todo_operations.things above) - delete_todo()'s
+# type-resolution things.get() call (hq-f0w.40) needs its own patch so it
+# doesn't fall through to the real things.py package against a sentinel id
+# that doesn't exist in the developer's database.
+WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -211,6 +217,11 @@ def _patched_things_lookups():
     - things.tasks(type='heading', ...) is empty - heading-exists checks
       degrade to a (harmless, ignored) warning rather than blocking the
       write.
+    - write_operations.things.get(<any id>) always resolves as a to-do
+      (separate LazyThingsProxy instance from the one above) - covers
+      delete_todo()'s own type-resolution things.get() call (hq-f0w.40),
+      keeping delete_todo(todo_id=<sentinel>) on its `to do id` script path
+      instead of hitting the real, unpatched things.py package.
     """
     return [
         patch(THINGS_GET_PATCH, return_value={"type": "project"}),
@@ -220,6 +231,7 @@ def _patched_things_lookups():
         ),
         patch(THINGS_AREAS_PATCH, return_value=[]),
         patch(THINGS_TASKS_PATCH, return_value=[]),
+        patch(WRITE_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
     ]
 
 

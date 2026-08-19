@@ -909,9 +909,19 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def delete_todo(
-            todo_id: str = Field(..., description="ID of the todo to delete")
+            todo_id: str = Field(..., description="ID of the todo or project to delete")
         ) -> Dict[str, Any]:
-            """Delete a todo by ID."""
+            """Trash a to-do or project by ID (moves it to Things' Trash, not a permanent delete).
+
+            Works for both to-do ids and project ids - the type is
+            auto-detected so the right AppleScript delete form is used
+            (Things' AppleScript dictionary does not accept a project id
+            where a to-do id is expected, and vice versa). Headings, areas,
+            and tags cannot be deleted via this tool (Things' AppleScript
+            dictionary has no delete support for them); those ids return a
+            structured `not_deletable` error explaining what to use instead
+            - delete them manually in the Things UI.
+            """
             try:
                 return await self.tools.delete_todo(todo_id)
             except Exception as e:
