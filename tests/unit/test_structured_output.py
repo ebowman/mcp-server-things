@@ -212,6 +212,125 @@ class TestStructuredContentShape:
         assert sc["total_count"] == 5
 
 
+class TestAutoModeReportsEffectiveMode:
+    """mode='auto' (or omitted) must report the effective mode actually chosen by
+    context_manager.optimize_response, not echo back 'auto' (hq-48d)."""
+
+    @pytest.mark.asyncio
+    async def test_get_todos_auto_mode_reports_effective_mode_not_auto(self):
+        """With enough items that AUTO mode selection resolves to 'minimal',
+        structured_content['mode'] must equal that resolved mode, not 'auto'."""
+        # get_todos applies a default limit of 50 when none is given, so request
+        # more items than that default *and* pass an explicit limit large enough
+        # that AUTO mode selection sees the full 100-item set (not truncated to 50).
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(100)]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_todos", {"mode": "auto", "limit": 100}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+
+        # The effective mode must be surfaced from meta['mode'], and must not be 'auto'.
+        assert sc["mode"] != "auto"
+        assert sc["mode"] == sc["meta"]["mode"]
+        assert sc["mode"] == "minimal"
+
+        # The originally-requested mode is preserved separately.
+        assert sc["requested_mode"] == "auto"
+
+    def test_read_result_auto_mode_prefers_meta_mode_directly(self):
+        """Direct unit test of ThingsMCPServer._read_result: given a synthetic
+        {"data": [...], "meta": {"mode": "minimal", ...}} payload and mode='auto',
+        the resolved 'mode' key must come from meta['mode'], and 'requested_mode'
+        must preserve the original 'auto' request."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "data": [{"uuid": "1", "title": "a"}, {"uuid": "2", "title": "b"}],
+            "meta": {"mode": "minimal", "count": 2},
+        }
+
+        result = server._read_result(synthetic_response, mode="auto", total=2)
+
+        assert result["mode"] == "minimal"
+        assert result["requested_mode"] == "auto"
+        assert result["count"] == 2
+        assert result["total"] == 2
+
+    def test_read_result_none_mode_prefers_meta_mode(self):
+        """When mode is not passed at all (None), the effective mode from
+        meta['mode'] should still be surfaced rather than left as None."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "data": [{"uuid": "1", "title": "a"}],
+            "meta": {"mode": "summary", "count": 1},
+        }
+
+        result = server._read_result(synthetic_response, total=1)
+
+        assert result["mode"] == "summary"
+        assert result["requested_mode"] is None
+
+    def test_read_result_explicit_mode_is_not_overridden_by_meta(self):
+        """When the caller passes a concrete (non-auto) mode, that mode wins even
+        if meta carries a different value - explicit requests are honored."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "data": [{"uuid": "1", "title": "a"}],
+            "meta": {"mode": "minimal", "count": 1},
+        }
+
+        result = server._read_result(synthetic_response, mode="standard", total=1)
+
+        assert result["mode"] == "standard"
+        assert result["requested_mode"] == "standard"
+
+    def test_read_result_auto_mode_prefers_top_level_mode_when_no_meta(self):
+        """create_summary_response() (used when AUTO resolves to SUMMARY) returns a
+        top-level 'mode': 'summary' key with NO 'meta' dict at all. mode='auto' must
+        still resolve to 'summary' in that case, not fall through to 'auto'."""
+        server = ThingsMCPServer()
+        summary_shaped_response = {
+            "success": True,
+            "count": 150,
+            "mode": "summary",
+            "data_available": True,
+            "message": "Found 150 items",
+            "recent_preview": [{"uuid": "1", "title": "a"}],
+        }
+
+        result = server._read_result(summary_shaped_response, mode="auto", total=150)
+
+        assert result["mode"] == "summary"
+        assert result["requested_mode"] == "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_todos_auto_mode_resolves_to_summary_not_auto(self):
+        """End-to-end: enough items with large notes that AUTO mode selection
+        resolves to SUMMARY (the create_summary_response shape, which carries no
+        'meta'). structured_content['mode'] must be 'summary', not 'auto'."""
+        todos = [
+            dict(SAMPLE_TODO, uuid=f"id{i}", notes="n" * 800) for i in range(150)
+        ]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_todos", {"mode": "auto", "limit": 200}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc["mode"] == "summary"
+        assert sc["requested_mode"] == "auto"
+
+
 class TestGetSomedayIncludeProjectTasks:
     """Verify the get_someday MCP tool threads include_project_tasks through to
     ThingsTools.get_someday, and defaults to False (opt-in inheritance)."""

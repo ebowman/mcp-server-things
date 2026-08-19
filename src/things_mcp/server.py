@@ -1813,7 +1813,13 @@ class ThingsMCPServer:
             - ``count``: len(items)
             - ``total``: total items available before any limit was applied (falls back to
               ``count`` when the true pre-limit total isn't known/tracked).
-            - ``mode``: the effective response mode, if known.
+            - ``mode``: the effective response mode that was actually applied. If the
+              caller requested ``'auto'`` (or omitted ``mode``), this reports the concrete
+              mode resolved by ``context_manager.optimize_response`` (from ``meta['mode']``)
+              rather than echoing back ``'auto'``.
+            - ``requested_mode``: the mode originally requested by the caller (may be
+              ``'auto'`` or ``None``), preserved for callers that want to distinguish
+              "what was asked for" from "what was returned".
             - ``limit`` / ``offset``: echoed back from the request, or None.
 
         Any other keys already present on a dict ``response`` (e.g. ``meta``,
@@ -1825,7 +1831,10 @@ class ThingsMCPServer:
                 (which may be a summary-style dict with a preview list, or a
                 {"data": [...], "meta": {...}} dict), or a raw list of item dicts for tools
                 that don't apply response-mode optimization.
-            mode: Effective response mode, if known (e.g. 'summary', 'standard').
+            mode: Requested response mode, if known (e.g. 'auto', 'summary', 'standard').
+                When this is 'auto' or None, the resolved effective mode is reported
+                instead: meta['mode'] if present, else a top-level 'mode' key (summary
+                responses carry no meta), else the requested value.
             limit: The limit that was applied/requested, if any.
             offset: The offset that was applied/requested, if any.
             total: Total item count before limiting, if known/tracked separately from the
@@ -1871,7 +1880,17 @@ class ThingsMCPServer:
 
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
 
-        effective_mode = mode or result.get("mode") or meta.get("mode")
+        # When the requested mode is 'auto' (or unspecified), the *effective* mode chosen
+        # by context_manager.optimize_response is recorded either in meta['mode'] (the
+        # {"data": ..., "meta": ...} shape) or as a top-level 'mode' key (the summary-shaped
+        # payload from create_summary_response, which carries no 'meta' at all). Prefer
+        # whichever of those is actually present so structured_content reflects what was
+        # returned, per docs, instead of echoing back the literal 'auto' request.
+        requested_mode = mode
+        if mode in (None, "auto"):
+            effective_mode = meta.get("mode") or result.get("mode") or mode
+        else:
+            effective_mode = mode or result.get("mode") or meta.get("mode")
         effective_total = total
         if effective_total is None:
             effective_total = meta.get("total") if isinstance(meta.get("total"), int) else None
@@ -1886,6 +1905,7 @@ class ThingsMCPServer:
         result["count"] = len(items)
         result["total"] = effective_total
         result["mode"] = effective_mode
+        result["requested_mode"] = requested_mode
         result["limit"] = limit
         result["offset"] = offset
 
