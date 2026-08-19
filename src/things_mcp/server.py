@@ -1239,9 +1239,18 @@ class ThingsMCPServer:
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
         ) -> Dict[str, Any]:
-            """Get todos with a specific tag."""
+            """Get todos with a specific tag.
+
+            Note: tag matching is case-sensitive. An unknown tag (including a
+            wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
+            structured error ({"success": false, "error": "unknown_tag", ...})
+            with case-insensitive suggestions instead of an empty result.
+            """
             try:
                 tagged_items = await self.tools.get_tagged_items(tag=tag)
+                if isinstance(tagged_items, dict) and tagged_items.get('error') == 'unknown_tag':
+                    tagged_items['tag'] = tag
+                    return tagged_items
                 result = self._read_result(tagged_items, mode='standard')
                 result['tag'] = tag
                 return result
@@ -1346,14 +1355,20 @@ class ThingsMCPServer:
         async def search_advanced(
             status: Optional[str] = Field(None, description="Filter by todo status", pattern="^(incomplete|completed|canceled)$"),
             type: Optional[str] = Field(None, description="Filter by item type", pattern="^(to-do|project|heading)$"),
-            tag: Optional[str] = Field(None, description="Filter by tag"),
+            tag: Optional[str] = Field(None, description="Filter by tag (case-sensitive)"),
             area: Optional[str] = Field(None, description="Filter by area UUID"),
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None
         ) -> Dict[str, Any]:
-            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval."""
+            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval.
+
+            Note: the tag filter is case-sensitive. An unknown tag (including a
+            wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
+            structured error ({"success": false, "error": "unknown_tag", ...})
+            with case-insensitive suggestions instead of an empty result.
+            """
             try:
                 # Import datetime for validation
                 from datetime import datetime
@@ -1419,6 +1434,18 @@ class ThingsMCPServer:
                     deadline=deadline,
                     limit=final_limit
                 )
+
+                # A structured error (e.g. unknown_tag) comes back as a
+                # single-element list wrapping an error dict, per the
+                # existing convention (see also the invalid `type` filter
+                # error above). Surface it directly rather than feeding it
+                # through optimize_response, which expects a list of todos.
+                if (
+                    len(raw_data) == 1
+                    and isinstance(raw_data[0], dict)
+                    and raw_data[0].get('success') is False
+                ):
+                    return raw_data[0]
 
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy
@@ -41,6 +41,44 @@ def _get_someday_project_ids() -> set:
     except Exception as e:
         logger.debug(f"Error loading Someday project ids: {e}")
         return set()
+
+
+def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
+    """Build a structured error for a tag that things.py did not recognize.
+
+    Things 3 tag matching is exact-case (e.g. 'llm-wiki' and 'LLM-WIKI' are
+    different tags to things.py), and things.py raises ValueError when asked
+    for a tag it doesn't recognize rather than returning an empty list. This
+    distinguishes that "unknown/wrong-case tag" case from a genuinely empty
+    (zero-item) tag by returning a structured error with case-insensitive
+    suggestions pulled from the live tag list, instead of silently returning [].
+
+    Args:
+        tag: The tag string that was requested and rejected by things.py.
+
+    Returns:
+        Dict with success=False, error='unknown_tag', the offending tag, and
+        a (possibly empty) list of case-insensitive title matches from
+        things.tags() to help the caller find the correctly-cased tag.
+    """
+    suggestions: List[str] = []
+    try:
+        all_tags = things.tags() or []
+        tag_lower = tag.lower()
+        suggestions = [
+            t.get('title', t.get('name', ''))
+            for t in all_tags
+            if t.get('title', t.get('name', '')).lower() == tag_lower
+        ]
+    except Exception as e:
+        logger.debug(f"Error building tag suggestions for '{tag}': {e}")
+
+    return {
+        'success': False,
+        'error': 'unknown_tag',
+        'tag': tag,
+        'suggestions': suggestions,
+    }
 
 
 def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]]) -> Optional[str]:
@@ -833,16 +871,36 @@ class ReadOperations:
                 'has_more': False
             }
 
-    async def get_tagged_items(self, tag: str) -> List[Dict]:
-        """Get todos with a specific tag."""
+    async def get_tagged_items(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
+        """Get todos with a specific tag.
+
+        Note: tag matching is case-sensitive (things.py exact-match semantics).
+        If ``tag`` doesn't match any existing tag (including wrong-case
+        variants of a real tag), a structured error dict is returned instead
+        of a list - see ``_get_tagged_items_sync``.
+        """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_tagged_items_sync, tag)
 
-    def _get_tagged_items_sync(self, tag: str) -> List[Dict]:
-        """Synchronous implementation."""
+    def _get_tagged_items_sync(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
+        """Synchronous implementation.
+
+        Returns:
+            A list of converted todo dicts on success. If ``tag`` is unknown
+            to things.py (things.py raises ValueError, e.g. for a wrong-case
+            variant of a real tag - tag matching is case-sensitive), returns
+            a structured error dict instead:
+            ``{'success': False, 'error': 'unknown_tag', 'tag': tag,
+            'suggestions': [...]}`` where suggestions are case-insensitive
+            title matches from ``things.tags()``.
+        """
         try:
             tagged_todos = things.todos(tag=tag)
             return [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+
+        except ValueError as e:
+            logger.info(f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}")
+            return _build_unknown_tag_error(tag)
 
         except Exception as e:
             logger.error(f"Error in _get_tagged_items_sync: {e}")
@@ -1017,6 +1075,10 @@ class ReadOperations:
         Optimized to use things.py for 10-100x faster performance.
         NOW SEARCHES ENTIRE DATABASE including todos inside projects!
         (Previously limited to Today, Upcoming, Anytime, Someday, Inbox lists only)
+
+        Note: the ``tag`` filter is case-sensitive (things.py exact-match
+        semantics). An unknown/wrong-case tag returns a single-element list
+        containing a structured error dict - see ``_search_advanced_sync``.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._search_advanced_sync, filters)
@@ -1029,7 +1091,9 @@ class ReadOperations:
                 - query: Text to search in title/notes
                 - status: 'incomplete', 'completed', 'canceled', or None for all
                 - type: 'to-do', 'project', 'heading'
-                - tag: Tag name to filter by
+                - tag: Tag name to filter by (case-sensitive - things.py does
+                  exact-match tag lookups, so e.g. 'Work' and 'work' are
+                  different tags)
                 - area: Area UUID to filter by
                 - start_date: Start date or operator (e.g., '<=2025-12-31', 'future')
                 - deadline: Deadline date or operator (e.g., '<=2025-12-31', 'past')
@@ -1037,7 +1101,14 @@ class ReadOperations:
                 - limit: Maximum number of results
 
         Returns:
-            List of matching todos with full details
+            List of matching todos with full details. If ``tag`` is unknown
+            to things.py (things.py raises ValueError, e.g. for a wrong-case
+            variant of a real tag), returns a single-element list containing
+            a structured error dict: ``[{'success': False, 'error':
+            'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
+            suggestions are case-insensitive title matches from
+            ``things.tags()``. This mirrors the existing structured-error
+            convention used above for an invalid ``type`` filter.
         """
         try:
             # Extract filters
@@ -1088,10 +1159,16 @@ class ReadOperations:
             # things.todos() is a thin wrapper around things.tasks(type="to-do", **kwargs),
             # so when the caller supplies their own `type` we must call things.tasks()
             # directly to avoid a "multiple values for keyword argument 'type'" TypeError.
-            if 'type' in query_params:
-                todos = things.tasks(**query_params)
-            else:
-                todos = things.todos(**query_params)
+            try:
+                if 'type' in query_params:
+                    todos = things.tasks(**query_params)
+                else:
+                    todos = things.todos(**query_params)
+            except ValueError as e:
+                if tag:
+                    logger.info(f"Unknown tag '{tag}' in _search_advanced_sync: {e}")
+                    return [_build_unknown_tag_error(tag)]
+                raise
 
             # Filter by query text if provided (things.py doesn't support text search natively)
             results = []

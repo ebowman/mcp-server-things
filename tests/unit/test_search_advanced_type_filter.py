@@ -111,3 +111,48 @@ class TestSearchAdvancedTypeFilter:
             assert len(results) == 1
             assert results[0].get('error') is True
             assert 'bogus-type' in results[0].get('message', '')
+
+    @pytest.mark.asyncio
+    async def test_unknown_tag_returns_structured_error(self, tools):
+        """An unknown/wrong-case tag (things.py raises ValueError) returns a structured error."""
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos, \
+                patch('things_mcp.tools_helpers.read_operations.things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError('Unrecognized tag type')
+            mock_tags.return_value = [{'uuid': 'tag1', 'title': 'llm-wiki'}]
+
+            results = await tools.search_advanced(tag='LLM-WIKI')
+
+            assert len(results) == 1
+            assert results[0] == {
+                'success': False,
+                'error': 'unknown_tag',
+                'tag': 'LLM-WIKI',
+                'suggestions': ['llm-wiki'],
+            }
+
+    @pytest.mark.asyncio
+    async def test_unknown_tag_with_no_matches_returns_empty_suggestions(self, tools):
+        """An unknown tag with no case-insensitive match returns an empty suggestions list."""
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos, \
+                patch('things_mcp.tools_helpers.read_operations.things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError('Unrecognized tag type')
+            mock_tags.return_value = [{'uuid': 'tag1', 'title': 'Work'}]
+
+            results = await tools.search_advanced(tag='totally-nonexistent')
+
+            assert len(results) == 1
+            assert results[0]['success'] is False
+            assert results[0]['error'] == 'unknown_tag'
+            assert results[0]['suggestions'] == []
+
+    @pytest.mark.asyncio
+    async def test_value_error_without_tag_filter_is_not_treated_as_unknown_tag(self, tools):
+        """A ValueError from things.py with no `tag` filter falls through to the generic handler."""
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
+            mock_todos.side_effect = ValueError('some other things.py error')
+
+            results = await tools.search_advanced(status='incomplete')
+
+            # No tag filter was supplied, so this must not be reinterpreted as
+            # an unknown_tag error - falls back to the existing empty-list behavior.
+            assert results == []
