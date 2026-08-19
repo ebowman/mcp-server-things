@@ -77,3 +77,6 @@ htmlcov/
 # Local tooling artifacts
 CLAUDE.md.bak.*
 .gastown-ignore
+
+# Beads proxied DB (local)
+.beads/proxieddb/
