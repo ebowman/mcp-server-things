@@ -1,6 +1,7 @@
 """Todo and project creation/update operations."""
 
 import asyncio
+import json
 import logging
 import time
 from typing import Dict, Any, List, Optional, Tuple
@@ -1607,8 +1608,13 @@ class TodoOperations:
                     set newTodoInProject to make new to do in newProject with properties {{name:{escaped_todo}}}
                         '''
 
+        # Return the new project's id and the number of to-dos it actually
+        # ended up with, each on its own line, so add_project can verify
+        # that every requested todo line was really created (see hq-f0w.41
+        # - a one-off run once reported only 1 of 2 requested to-dos
+        # present) instead of trusting the requested count blindly.
         script += '''
-                    return id of newProject
+                    return (id of newProject) & "\\n" & (count of to dos of newProject)
                 on error errMsg
                     return "error: " & errMsg
                 end try
@@ -1617,8 +1623,236 @@ class TodoOperations:
 
         return script
 
+    async def _find_project_ids_by_title(self, title: str) -> List[str]:
+        """Return the ids of all (non-trashed) projects with the exact title.
+
+        Used by _add_project_via_url_scheme to snapshot existing project
+        ids before a URL-scheme create and poll for new ones afterward,
+        the same way _find_todo_ids_by_title does for to-dos (the URL
+        scheme does not return the created project's id). Uses AppleScript
+        (rather than the things.py proxy) for the same reason: an exact,
+        live-database comparison that is not subject to things.py's
+        on-disk SQLite snapshot lagging a fresh write.
+
+        Returns an empty list (rather than raising) on any AppleScript
+        failure, so a lookup glitch degrades to "no ids found" instead of
+        crashing the create.
+        """
+        script = f'''
+        tell application "Things3"
+            try
+                set foundProjects to projects whose name is {AppleScriptTemplates.escape_string(title)}
+                set idList to {{}}
+                repeat with aProject in foundProjects
+                    set end of idList to (id of aProject)
+                end repeat
+                set AppleScript's text item delimiters to "\\n"
+                set idText to idList as text
+                set AppleScript's text item delimiters to ""
+                return idText
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if not result.get('success'):
+            logger.debug(f"Failed to look up project ids for title {title!r}: {result.get('error')}")
+            return []
+
+        output = (result.get('output') or '').strip()
+        if not output or output.startswith('error:'):
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error looking up project ids for title {title!r}: {output}")
+            return []
+
+        return [line.strip() for line in output.split('\n') if line.strip()]
+
+    async def _add_project_via_url_scheme(self, title: str, **kwargs) -> Dict[str, Any]:
+        """Add a project using the Things URL scheme's ``json`` action.
+
+        This is the only way to seed real headings (and to-dos nested
+        under them) at project-creation time - the AppleScript
+        ``make new to do`` path and the documented ``add-project``
+        ``to-dos`` param both only create plain to-dos, never headings
+        (verified live for hq-f0w.41). Only called from add_project when
+        the todos payload contains at least one ``##`` line.
+
+        Args:
+            title: Project title
+            notes: Optional notes
+            tags: Optional tag list (already policy-filtered by the caller)
+            when: Optional scheduling date (applied via schedule_todo_reliable
+                after creation, same as the AppleScript path - the ``json``
+                action has no direct "This Evening" equivalent for projects
+                either)
+            deadline: Optional deadline date (YYYY-MM-DD)
+            area_id: Optional area UUID (takes precedence over area_title)
+            area_title: Optional area name
+            todos: List of todo/heading lines; a line starting with ``##``
+                becomes a heading, all other lines become to-dos nested
+                under the most recently seen heading (or un-nested, before
+                the first heading)
+
+        Returns:
+            Dict with success status, project_id, todos_created, and
+            headings_created (when headings were requested).
+        """
+        try:
+            items: List[Dict[str, Any]] = []
+            heading_count = 0
+            todo_count = 0
+            for line in kwargs.get('todos') or []:
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith('##'):
+                    heading_title = line[2:].strip()
+                    if not heading_title:
+                        return {
+                            "success": False,
+                            "error": (
+                                f"Empty heading title in todos line {line!r}; "
+                                "a '##' line must be followed by a non-empty "
+                                "heading title."
+                            ),
+                            "message": "Failed to add project"
+                        }
+                    items.append({"type": "heading", "attributes": {"title": heading_title}})
+                    heading_count += 1
+                else:
+                    items.append({"type": "to-do", "attributes": {"title": line}})
+                    todo_count += 1
+
+            attributes: Dict[str, Any] = {"title": title}
+            if kwargs.get('notes'):
+                attributes['notes'] = kwargs['notes']
+            if kwargs.get('tags'):
+                attributes['tags'] = list(kwargs['tags'])
+            if kwargs.get('deadline'):
+                attributes['deadline'] = kwargs['deadline']
+            # area_id takes precedence over area_title, same convention as
+            # the AppleScript path.
+            if kwargs.get('area_id'):
+                attributes['area-id'] = kwargs['area_id']
+            elif kwargs.get('area_title'):
+                attributes['area'] = kwargs['area_title']
+            if items:
+                attributes['items'] = items
+
+            payload = [{"type": "project", "attributes": attributes}]
+
+            # Snapshot existing project ids with this exact title *before*
+            # issuing the URL-scheme create, then poll for a new one
+            # afterward (before/after set difference) - same pattern as
+            # _add_todo_via_url_scheme, for the same reason: the URL
+            # scheme itself does not return the created item's id.
+            before_ids = await self._find_project_ids_by_title(title)
+
+            result = await self.applescript.execute_url_scheme('json', {'data': json.dumps(payload)})
+            if not result.get('success'):
+                return {
+                    "success": False,
+                    "error": result.get('error', 'Unknown error'),
+                    "message": "Failed to create project via URL scheme"
+                }
+
+            new_ids: List[str] = []
+            deadline_ts = time.monotonic() + self._URL_SCHEME_LOOKUP_DEADLINE_SECS
+            while True:
+                await asyncio.sleep(self._URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS)
+                after_ids = await self._find_project_ids_by_title(title)
+                new_ids = [pid for pid in after_ids if pid not in before_ids]
+                if new_ids or time.monotonic() >= deadline_ts:
+                    break
+
+            if not new_ids:
+                return {
+                    "success": False,
+                    "error": (
+                        "Project could not be confirmed created within "
+                        f"{self._URL_SCHEME_LOOKUP_DEADLINE_SECS}s of the "
+                        "URL scheme call; the project may still have been "
+                        "created in Things - check manually before "
+                        "retrying to avoid a duplicate."
+                    ),
+                    "message": "Project creation could not be confirmed"
+                }
+
+            # Multiple new projects with the same title cannot be
+            # disambiguated by creation date the way todos can (there is
+            # no equivalent "project id <id>" AppleScript accessor pattern
+            # already in use here), so just take the first and warn.
+            project_id = new_ids[0]
+            response: Dict[str, Any] = {
+                "success": True,
+                "project_id": project_id,
+                "message": "Project created successfully",
+            }
+            verification_warnings: List[str] = []
+            if todo_count:
+                # Verify via things.py rather than trusting the requested
+                # count blindly (same reasoning as the AppleScript path's
+                # "count of to dos of newProject" check) - the id-lookup
+                # poll above already waited for Things to register the
+                # create, so a things.py read at this point should be
+                # current. things.py is best-effort here: any failure
+                # (import error, etc.) falls back to the requested count
+                # rather than failing the whole create.
+                try:
+                    actual_todo_count = len(things.todos(project=project_id) or [])
+                except Exception as e:
+                    logger.debug(f"Could not verify todo count for project {project_id}: {e}")
+                    actual_todo_count = todo_count
+                response["todos_created"] = actual_todo_count
+                if actual_todo_count < todo_count:
+                    verification_warnings.append(
+                        f"Requested {todo_count} to-dos but only "
+                        f"{actual_todo_count} were created in the project; "
+                        "verify manually before retrying to avoid duplicates."
+                    )
+            if heading_count:
+                try:
+                    actual_heading_count = len(
+                        things.tasks(type='heading', project=project_id, status=None) or []
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not verify heading count for project {project_id}: {e}")
+                    actual_heading_count = heading_count
+                response["headings_created"] = actual_heading_count
+                if actual_heading_count < heading_count:
+                    verification_warnings.append(
+                        f"Requested {heading_count} headings but only "
+                        f"{actual_heading_count} were created in the project; "
+                        "verify manually before retrying to avoid duplicates."
+                    )
+            if verification_warnings:
+                response.setdefault("warnings", []).extend(verification_warnings)
+            if len(new_ids) > 1:
+                response.setdefault("warnings", []).append(
+                    "Multiple new projects with this title were found; "
+                    "returned the first one created."
+                )
+
+            when = kwargs.get('when')
+            if when:
+                schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
+                response["message"] = "Project created and scheduled successfully"
+                response["scheduling"] = schedule_result
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error adding project via URL scheme: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to add project"
+            }
+
     async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
-        """Add a new project using AppleScript.
+        """Add a new project using AppleScript, or the Things URL scheme's
+        ``json`` action when the ``todos`` payload requests headings.
 
         when='evening'/'tonight' is rejected: Things has no "This Evening"
         concept for projects (only to-dos can be scheduled for This
@@ -1626,6 +1860,18 @@ class TodoOperations:
         "Today" schedule (as schedule_todo_reliable's list-fallback would
         otherwise do for an unrecognized when value) would misrepresent
         what was actually applied.
+
+        Headings (hq-f0w.41): a ``todos`` line prefixed with ``##`` is a
+        request for a heading. The AppleScript ``make new to do`` path has
+        no heading concept at all - it would create a to-do literally
+        titled "##Heading" - so any ``##`` line routes the whole call to
+        _add_project_via_url_scheme, which uses ``things:///json`` (the
+        only Things URL-scheme action that can create real headings at
+        project-creation time; verified live - the documented ``to-dos``
+        param on ``add-project`` does NOT turn ``##`` lines into headings,
+        it creates a literal to-do titled "##Heading" just like the
+        AppleScript path). Without a ``##`` line, the plain AppleScript
+        path is used as before (faster, no URL-scheme round trip).
         """
         try:
             # Extract parameters
@@ -1655,31 +1901,62 @@ class TodoOperations:
                 # Split by newlines and filter out empty strings
                 todos = [t.strip() for t in todos_param.split('\n') if t.strip()]
             elif isinstance(todos_param, list):
-                todos = todos_param
+                todos = [t.strip() for t in todos_param if t and t.strip()]
             else:
                 todos = []
+
+            if any(t.startswith('##') for t in todos):
+                return await self._add_project_via_url_scheme(
+                    title, notes=notes, tags=tags, when=when, deadline=deadline,
+                    area_id=area_id, area_title=area_title, todos=todos
+                )
 
             # Build and execute script
             script = self._build_create_project_script(title, notes, tags, deadline, area_id, area_title, todos)
             result = await self.applescript.execute_applescript(script)
 
             if result.get("success"):
-                project_id = result.get("output", "").strip()
+                output_lines = (result.get("output", "") or "").strip().split("\n")
+                project_id = output_lines[0].strip() if output_lines else ""
                 if project_id and not project_id.startswith("error:"):
-                    # Schedule if when date provided
-                    if when:
-                        schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
-                        return {
-                            "success": True,
-                            "project_id": project_id,
-                            "message": "Project created and scheduled successfully",
-                            "scheduling": schedule_result
-                        }
-                    return {
+                    # Verify every requested todo line actually landed in
+                    # the project (hq-f0w.41: a one-off live run once
+                    # reported only 1 of 2 requested to-dos present).
+                    # _build_create_project_script returns the id and the
+                    # live "count of to dos of newProject" on separate
+                    # lines, read from the same AppleScript call that
+                    # created the project (no separate things.py read,
+                    # which lags a fresh write via its on-disk SQLite
+                    # snapshot - see _add_todo_via_url_scheme).
+                    todos_created: Optional[int] = None
+                    if len(output_lines) > 1:
+                        try:
+                            todos_created = int(output_lines[1].strip())
+                        except ValueError:
+                            todos_created = None
+
+                    response: Dict[str, Any] = {
                         "success": True,
                         "project_id": project_id,
                         "message": "Project created successfully"
                     }
+                    if todos:
+                        response["todos_created"] = (
+                            todos_created if todos_created is not None else len(todos)
+                        )
+                        if todos_created is not None and todos_created < len(todos):
+                            response["warnings"] = [
+                                f"Requested {len(todos)} initial to-dos but only "
+                                f"{todos_created} were created in the project; "
+                                "verify manually before retrying to avoid duplicates."
+                            ]
+
+                    # Schedule if when date provided
+                    if when:
+                        schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
+                        response["message"] = "Project created and scheduled successfully"
+                        response["scheduling"] = schedule_result
+                    return response
                 return {
                     "success": False,
                     "error": project_id,

@@ -959,11 +959,12 @@ structured error (`{"error": true, "error_type": ..., "message": ...}`) instead 
 An invalid `mode` value returns `{"success": false, "error": "Invalid mode", "message": ...}`,
 matching `get_projects`/`get_areas`.
 
-**This tool is read-only by design.** Headings cannot be created, renamed, or deleted via
-any public Things 3 API - there is no AppleScript heading class, and the URL scheme can
-only place to-dos under headings that already exist, or seed headings at project-creation
-time via `add_project(todos=...)`'s `##` lines. To add a todo under an existing heading,
-use `add_todo(title=..., list_id=project_id, heading="Existing Heading Title")`.
+**This tool is read-only by design.** Headings cannot be renamed or deleted via any public
+Things 3 API - there is no AppleScript heading class, and the only way to place a to-do
+under a heading via the URL scheme is a heading that already exists (`add_todo(...,
+heading=...)`), or one seeded at project-creation time via `add_project(todos=...)`'s `##`
+lines (see below). To add a todo under an existing heading, use `add_todo(title=...,
+list_id=project_id, heading="Existing Heading Title")`.
 
 ### Moving Todos Between Projects
 
@@ -1241,7 +1242,16 @@ add_todo(title="Task 2", list_id=project_id)
 add_todo(title="Task 3", list_id=project_id)
 ```
 
-**Note**: The `todos` parameter accepts newline-separated todo titles and creates them atomically with the project.
+**Note**: The `todos` parameter accepts newline-separated todo titles and creates them atomically with the project. A line prefixed with `##` (e.g. `"##Phase 1"`) creates a real heading instead of a to-do, and subsequent to-do lines nest under the most recently seen heading:
+
+```python
+project_id = add_project(
+    title="Release v2.0",
+    todos="##Planning\nWrite spec\nReview spec\n##Execution\nShip it"
+)
+```
+
+**Implementation note**: any `##` line routes the whole call through the Things URL scheme's `json` action (the only Things API able to create real headings at project-creation time) instead of the faster AppleScript path; a `todos` payload with no `##` lines still uses AppleScript. Both paths verify what was actually created (a fresh `things.py` read for the URL-scheme path once the created project's id is confirmed; an in-script `count of to dos of newProject` for the AppleScript path) and report `todos_created` (and `headings_created` when headings were requested) rather than echoing the requested counts, with a `warnings` entry if fewer than requested were actually created.
 
 ### 7. Large Dataset Queries
 

@@ -1066,9 +1066,9 @@ class ThingsMCPServer:
             deadline: Optional[str] = Field(None, description="Deadline for the project. Must be YYYY-MM-DD - relative keywords like 'today' are rejected"),
             area_id: Optional[str] = Field(None, description="ID of area to add to"),
             area_title: Optional[str] = Field(None, description="Title of area to add to"),
-            todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
+            todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project. A line prefixed with '##' (e.g. '##Phase 1') creates a real heading instead of a to-do, and subsequent lines nest under the most recently seen heading; any '##' line routes the whole call through the Things URL scheme instead of the faster AppleScript-only path")
         ) -> Dict[str, Any]:
-            """Create a new project. Supports areas, deadlines, tags, initial todos, and scheduling."""
+            """Create a new project. Supports areas, deadlines, tags, initial todos (optionally organized under '##'-prefixed headings), and scheduling. The response includes todos_created (and headings_created, when requested) so callers can confirm every requested line was actually created."""
             try:
                 # Validate date parameters. Whitespace-only when (e.g. '   ')
                 # must be rejected explicitly here: validate_date_format()
@@ -1616,12 +1616,13 @@ class ThingsMCPServer:
             lower sorts first), and todoCount (number of open to-dos directly
             under that heading, via things.todos(heading=uuid, status='incomplete')).
 
-            Read-only by design: headings cannot be created, renamed, or deleted
-            via any public Things 3 API. There is no AppleScript heading class,
-            and the URL scheme can only place to-dos under headings that already
-            exist, or seed headings at project-creation time via add-project's
-            ``##`` lines. This tool exists purely to read the heading structure
-            that already exists in a project.
+            Read-only by design: headings can only be created at
+            project-creation time, via add_project(todos=...)'s ``##`` lines
+            (things:///json) - not by this tool. Existing headings cannot be
+            renamed or deleted via any public Things 3 API: there is no
+            AppleScript heading class, and the URL scheme can only place
+            to-dos under headings that already exist. This tool exists purely
+            to read the heading structure that already exists in a project.
 
             Args:
                 project_id: UUID of the project. Must resolve to an item of

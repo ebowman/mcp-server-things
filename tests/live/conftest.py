@@ -122,17 +122,19 @@ def smoke_session(request, live_things_tools):
     """Creates ONE throwaway project for the whole live session and trashes
     it (and everything created inside it) on teardown - even on failure.
 
-    An attempt is made to seed one heading via add_project's ``todos``
-    payload using the ``##Heading`` line syntax - but add_project has no
-    real heading-seeding support: its AppleScript build path
-    (`_build_create_project_script` in scheduling/todo_operations.py)
-    unconditionally splits every line of the todos payload into a plain
-    to-do (`make new to do in newProject with properties {name:...}`),
-    with no special-casing of a leading ``##``. This is verified below by
-    reading the project's children back via things.py; if no real heading
-    was created (always, currently), `smoke_session.heading_title` is left
-    None so heading-dependent tests can skip with a clear reason instead
-    of silently testing against a project with no heading.
+    Seeds one real heading via add_project's ``todos`` payload using the
+    ``##Heading`` line syntax (hq-f0w.41): a ``##``-prefixed line now
+    routes add_project through the Things URL scheme's ``json`` action
+    (`_add_project_via_url_scheme` in scheduling/todo_operations.py),
+    which is the only Things API able to create a real heading at
+    project-creation time - the AppleScript build path
+    (`_build_create_project_script`) still has no heading concept and
+    would create a plain to-do literally titled "##Heading" instead. This
+    is verified below by reading the project's children back via
+    things.py; if no real heading was created (e.g. a live-environment
+    regression), `smoke_session.heading_title` is left None so
+    heading-dependent tests skip with a clear reason instead of silently
+    testing against a project with no heading.
     """
     import things
 
@@ -152,12 +154,10 @@ def smoke_session(request, live_things_tools):
     assert result.get("success"), f"Failed to create smoke project: {result}"
     project_id = result["project_id"]
 
-    # add_project has no ##Heading-seeding support (see the docstring
-    # above) - this always resolves to no heading found today, but is kept
-    # as a real check (rather than a hardcoded skip) so heading-dependent
-    # tests would automatically un-skip if that support is ever added.
-    # heading-dependent tests must skip with a clear reason rather than
-    # silently running against a project with no heading.
+    # Verify the heading was really created (rather than trusting
+    # add_project's response blindly) via a fresh things.py read - this is
+    # what lets heading-dependent tests un-skip automatically, and would
+    # re-skip them with a clear reason if heading creation ever regresses.
     time.sleep(1)  # let Things settle before reading back via things.py
     headings = [
         t for t in things.tasks(project=project_id, type="heading") or []
@@ -168,10 +168,9 @@ def smoke_session(request, live_things_tools):
     session = _SmokeSession(project_id, project_name, resolved_heading_title)
 
     # Track every to-do the seed payload actually produced (not just ones
-    # matching an expected title - each line becomes a plain to-do, not a
-    # heading, see resolved_heading_title above, and observed live to
-    # sometimes leave only one of the two seed lines as a to-do rather
-    # than both), so teardown's leftover-check covers every seed item
+    # matching an expected title - defensive in case a future Things
+    # version's json-action heading placement changes), so teardown's
+    # leftover-check covers every seed item
     # explicitly rather than relying solely on the project delete
     # cascading (which, per the review-round-2 finding above
     # _trash_and_verify's own docstring, does not actually cascade a
@@ -200,6 +199,20 @@ def _trash_and_verify(session: _SmokeSession) -> None:
     and union those uuids into the set to delete/verify - this catches
     seed/test items that were created but never explicitly tracked via
     session.track(), not just the ones already in created_todo_ids.
+
+    Headings (hq-f0w.41 review): a heading seeded via add_project's
+    ``##Heading`` lines (things:///json) is a real heading now, but
+    Things' AppleScript dictionary has no heading class at all - there is
+    no `delete`/`move` verb that can target one directly (confirmed live:
+    every `heading id "..."` form errors). _delete_via_applescript is
+    therefore skipped entirely for heading ids (it would only waste three
+    failing osascript round-trips), and the leftover check treats a
+    heading as cleaned up if its parent project (`things.get(id,
+    trashed=None)['project']`) is itself trashed - the heading is not
+    independently reachable as an active item once its project is in the
+    Trash, even though things.py never sets a `trashed` flag on the
+    heading record itself. Any other still-untrashed record (a genuine
+    leftover) still fails this check as before.
     """
     import things
 
@@ -212,6 +225,12 @@ def _trash_and_verify(session: _SmokeSession) -> None:
     leftovers = []
 
     for item_id in all_ids:
+        record = things.get(item_id, trashed=None)
+        if record is not None and record.get("type") == "heading":
+            # No AppleScript heading class - nothing to delete directly;
+            # the heading is cleaned up once its parent project is
+            # trashed (see leftover check below).
+            continue
         _delete_via_applescript(item_id)
 
     # Give Things a moment to process the deletes before verifying.
@@ -222,8 +241,16 @@ def _trash_and_verify(session: _SmokeSession) -> None:
         if record is None:
             # Not found at all (fully purged) counts as cleaned up.
             continue
-        if not record.get("trashed"):
-            leftovers.append(item_id)
+        if record.get("trashed"):
+            continue
+        if record.get("type") == "heading":
+            parent_project_id = record.get("project")
+            parent = things.get(parent_project_id, trashed=None) if parent_project_id else None
+            if parent is not None and parent.get("trashed"):
+                # Heading has no independent trashed flag, but its parent
+                # project is trashed - not reachable as an active item.
+                continue
+        leftovers.append(item_id)
 
     if leftovers:
         raise AssertionError(

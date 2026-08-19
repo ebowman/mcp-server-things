@@ -364,9 +364,9 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ### Project Management
 - `get_projects(include_items?)` - List projects
-- `add_project(title, ...)` - Create new project
+- `add_project(title, ..., todos?)` - Create new project; a `##`-prefixed line in `todos` creates a real heading (via the Things URL scheme's `json` action), with subsequent lines nesting under it
 - `update_project(id, ...)` - Update existing project
-- `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings cannot be created/renamed/deleted via any public Things 3 API.
+- `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings can only be created at project-creation time (`add_project`'s `##` lines) and cannot be renamed/deleted via any public Things 3 API.
 
 ### Area Management
 - `get_areas(include_items?)` - List areas

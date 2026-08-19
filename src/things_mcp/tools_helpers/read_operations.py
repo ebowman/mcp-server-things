@@ -1135,11 +1135,13 @@ class ReadOperations:
     async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
         """Get the heading structure of a project, in Things' display order.
 
-        Headings cannot be created, renamed, or deleted via the public Things 3
-        APIs (there is no AppleScript heading class; the URL scheme can only
-        place to-dos under existing headings, or seed headings at project
-        creation time via ``add-project`` ``##`` lines). This is a read-only
-        view of the heading structure that already exists in a project.
+        Headings can only be created at project-creation time, via
+        add_project(todos=...)'s ``##`` lines (things:///json) - not by this
+        tool. Existing headings cannot be renamed or deleted via the public
+        Things 3 APIs (there is no AppleScript heading class; the URL scheme
+        can only place to-dos under headings that already exist). This is a
+        read-only view of the heading structure that already exists in a
+        project.
 
         Args:
             project_id: UUID of the project to read headings from.

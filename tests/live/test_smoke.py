@@ -89,16 +89,18 @@ async def test_update_project_multiline_notes_preserved(live_things_tools, smoke
 
 
 # (i) heading tests: add_todo with heading under the smoke project's seeded
-# heading -> headingTitle present. Skips with a clear reason since
-# add_project has no heading-seeding support at all (smoke_session.heading_title
-# is always None - see tests/live/conftest.py::smoke_session).
+# heading -> headingTitle present. add_project's ##-prefixed todos lines
+# route through the Things URL scheme's json action (hq-f0w.41) and do
+# create a real heading; smoke_session verifies this via a fresh things.py
+# read and only leaves heading_title None (skipping this test with a clear
+# reason) if that verification ever fails in a given live environment.
 @pytest.mark.asyncio
 async def test_add_todo_under_seeded_heading(live_things_tools, smoke_session):
     if not smoke_session.heading_title:
         pytest.skip(
-            "add_project has no ##Heading-seeding support - its AppleScript "
-            "path splits the todos payload into plain to-dos only, never a "
-            "real heading - skipping heading-dependent test"
+            "smoke_session could not verify a real heading was created by "
+            "add_project's ##Heading todos line (see tests/live/conftest.py"
+            "::smoke_session) - skipping heading-dependent test"
         )
 
     title = "Smoke: heading child todo"
