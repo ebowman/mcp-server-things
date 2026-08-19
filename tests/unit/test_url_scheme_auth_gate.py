@@ -243,10 +243,12 @@ class TestAddTodoWithChecklistUnaffected:
 
     @pytest.mark.asyncio
     async def test_add_with_checklist_no_token_still_proceeds(self, mock_applescript_manager_no_token):
-        mock_applescript_manager_no_token.execute_applescript = AsyncMock(return_value={
-            "success": True,
-            "output": "todo-id-123",
-        })
+        # First call is the pre-create snapshot (no existing todo with this
+        # title); second call is the post-create poll that finds the new id.
+        mock_applescript_manager_no_token.execute_applescript = AsyncMock(side_effect=[
+            {"success": True, "output": ""},
+            {"success": True, "output": "todo-id-123"},
+        ])
         ops = TodoOperations(mock_applescript_manager_no_token, Mock())
 
         result = await ops._add_todo_via_url_scheme("Test Todo", checklist_items=["a", "b"])

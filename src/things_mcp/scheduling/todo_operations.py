@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Dict, Any, List, Optional
 
 from ..locale_aware_dates import locale_handler
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 class TodoOperations:
     """Handles todo and project creation/update operations."""
+
+    # How long to keep polling for the new todo's id after a URL-scheme
+    # create before giving up (see _add_todo_via_url_scheme / hq-nxu.12).
+    _URL_SCHEME_LOOKUP_DEADLINE_SECS = 3.0
+    _URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS = 0.25
 
     def __init__(self, applescript_manager, scheduler):
         """Initialize with AppleScript manager and scheduler.
@@ -397,6 +403,95 @@ class TodoOperations:
             "place it under this heading."
         )
 
+    async def _find_todo_ids_by_title(self, title: str) -> List[str]:
+        """Return the ids of all (non-trashed) to-dos with the exact title.
+
+        Used by _add_todo_via_url_scheme to snapshot existing ids before a
+        URL-scheme create and poll for new ones afterward, since the URL
+        scheme itself does not return the created todo's id. Uses
+        AppleScript (rather than the things.py proxy) so the match is an
+        exact, live-database title comparison consistent with what Things
+        itself just did, and so it works even when the local things.py
+        SQLite snapshot lags a fresh write.
+
+        Returns an empty list (rather than raising) on any AppleScript
+        failure, so a lookup glitch degrades to "no ids found" instead of
+        crashing the create.
+        """
+        script = f'''
+        tell application "Things3"
+            try
+                set foundTodos to to dos whose name is {AppleScriptTemplates.escape_string(title)}
+                set idList to {{}}
+                repeat with aTodo in foundTodos
+                    set end of idList to (id of aTodo)
+                end repeat
+                set AppleScript's text item delimiters to "\\n"
+                set idText to idList as text
+                set AppleScript's text item delimiters to ""
+                return idText
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if not result.get('success'):
+            logger.debug(f"Failed to look up todo ids for title {title!r}: {result.get('error')}")
+            return []
+
+        output = (result.get('output') or '').strip()
+        if not output or output.startswith('error:'):
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error looking up todo ids for title {title!r}: {output}")
+            return []
+
+        return [line.strip() for line in output.split('\n') if line.strip()]
+
+    async def _newest_todo_id(self, ids: List[str]) -> str:
+        """Given several candidate todo ids, return the most recently created one.
+
+        Used as the tie-breaker when more than one new todo with the same
+        title appears between the pre-create snapshot and a post-create
+        poll in _add_todo_via_url_scheme. Falls back to the last id in
+        `ids` if the creation-date lookup itself fails, so a lookup
+        glitch still returns *some* id rather than raising.
+        """
+        id_list_literal = ", ".join(AppleScriptTemplates.escape_string(i) for i in ids)
+        script = f'''
+        tell application "Things3"
+            try
+                set candidateIds to {{{id_list_literal}}}
+                set newestId to ""
+                set newestDate to missing value
+                repeat with anId in candidateIds
+                    -- `anId` from `repeat...in list` is a reference into
+                    -- the list, not a plain string; coerce to text before
+                    -- using it as an id or returning it, otherwise it
+                    -- stringifies as "item N of {list}" instead of the id.
+                    set anIdText to anId as text
+                    set aTodo to to do id anIdText
+                    set aDate to creation date of aTodo
+                    if newestDate is missing value or aDate > newestDate then
+                        set newestId to anIdText
+                        set newestDate to aDate
+                    end if
+                end repeat
+                return newestId
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if result.get('success'):
+            output = (result.get('output') or '').strip()
+            if output and not output.startswith('error:'):
+                return output
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error resolving newest todo id: {output}")
+        return ids[-1]
+
     async def _add_todo_via_url_scheme(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a todo using the Things URL scheme.
 
@@ -492,6 +587,15 @@ class TodoOperations:
                 logger.debug(f"Final checklist-items param: {repr(params['checklist-items'])}")
 
             # Execute URL scheme
+            # Snapshot the set of existing todo uuids with this exact title
+            # *before* issuing the URL-scheme create, so the post-create
+            # lookup below can identify the new todo by set difference
+            # (after - before) instead of relying solely on "most recent
+            # creation date", which is ambiguous when two todos with the
+            # same title are created within the same 1s AppleScript
+            # creation-date granularity (see hq-nxu.12).
+            before_ids = await self._find_todo_ids_by_title(title)
+
             logger.debug(f"Creating todo via URL scheme: {params}")
             result = await self.applescript.execute_url_scheme('add', params)
 
@@ -501,38 +605,6 @@ class TodoOperations:
                     "error": result.get('error', 'Unknown error'),
                     "message": "Failed to create todo via URL scheme"
                 }
-
-            # URL scheme doesn't return the todo ID, so we need to find it
-            # Wait a moment for Things to process the URL
-            await asyncio.sleep(0.5)
-
-            # Search for the newly created todo by title
-            # Use AppleScript to find it
-            search_script = f'''
-            tell application "Things3"
-                try
-                    set foundTodos to to dos whose name is {AppleScriptTemplates.escape_string(title)}
-                    if (count of foundTodos) > 0 then
-                        -- Get the most recently created one
-                        set newestTodo to item 1 of foundTodos
-                        set newestDate to creation date of newestTodo
-                        repeat with aTodo in foundTodos
-                            if creation date of aTodo > newestDate then
-                                set newestTodo to aTodo
-                                set newestDate to creation date of aTodo
-                            end if
-                        end repeat
-                        return id of newestTodo
-                    else
-                        return "error: Todo not found after creation"
-                    end if
-                on error errMsg
-                    return "error: " & errMsg
-                end try
-            end tell
-            '''
-
-            search_result = await self.applescript.execute_applescript(search_script)
 
             # Calculate checklist count correctly
             checklist_items = kwargs.get('checklist_items', [])
@@ -545,40 +617,67 @@ class TodoOperations:
 
             message_suffix = f" with {item_count} checklist items" if item_count else ""
 
-            if search_result.get('success'):
-                todo_id = search_result.get('output', '').strip()
-                if todo_id and not todo_id.startswith('error:'):
-                    response = {
-                        "success": True,
-                        "todo_id": todo_id,
-                        "message": f"Todo created{message_suffix}",
-                        "checklist_count": item_count
-                    }
-                    if warnings:
-                        response["warnings"] = warnings
-                    return response
-                else:
-                    # Todo was created but we couldn't find it
-                    response = {
-                        "success": True,
-                        "message": f"Todo created{message_suffix} but ID could not be retrieved",
-                        "warning": "Todo ID not available",
-                        "checklist_count": item_count
-                    }
-                    if warnings:
-                        response["warnings"] = warnings
-                    return response
-            else:
-                # Todo was likely created but we couldn't find it
+            # URL scheme doesn't return the todo ID, so poll for it. Things
+            # processes the URL asynchronously, so give it up to
+            # _URL_SCHEME_LOOKUP_DEADLINE_SECS in
+            # _URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS steps, comparing the
+            # post-create id set against the pre-create snapshot on each
+            # poll rather than sleeping a fixed amount and hoping the todo
+            # has appeared by then.
+            new_ids: List[str] = []
+            deadline = time.monotonic() + self._URL_SCHEME_LOOKUP_DEADLINE_SECS
+            while True:
+                await asyncio.sleep(self._URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS)
+                after_ids = await self._find_todo_ids_by_title(title)
+                new_ids = [tid for tid in after_ids if tid not in before_ids]
+                if new_ids or time.monotonic() >= deadline:
+                    break
+
+            if len(new_ids) == 1:
                 response = {
                     "success": True,
-                    "message": f"Todo created{message_suffix} but ID could not be retrieved",
-                    "warning": "Todo ID not available",
+                    "todo_id": new_ids[0],
+                    "message": f"Todo created{message_suffix}",
                     "checklist_count": item_count
                 }
                 if warnings:
                     response["warnings"] = warnings
                 return response
+            elif len(new_ids) > 1:
+                # Several todos with this title appeared since the
+                # snapshot (e.g. a concurrent create with the same
+                # title) - return the newest one via creation date, but
+                # warn that the match is ambiguous.
+                newest_id = await self._newest_todo_id(new_ids)
+                response = {
+                    "success": True,
+                    "todo_id": newest_id,
+                    "message": f"Todo created{message_suffix}",
+                    "checklist_count": item_count,
+                    "warnings": warnings + [
+                        "Multiple new to-dos with this title were found; "
+                        "returned the most recently created one."
+                    ]
+                }
+                return response
+            else:
+                # No new todo with this title showed up within the
+                # deadline. The URL scheme call reported success, so the
+                # create may still have gone through in Things after our
+                # deadline expired - we just couldn't confirm its id.
+                return {
+                    "success": False,
+                    "error": (
+                        "Todo could not be confirmed created within "
+                        f"{self._URL_SCHEME_LOOKUP_DEADLINE_SECS}s of the "
+                        "URL scheme call; the to-do may still have been "
+                        "created in Things - check manually before "
+                        "retrying to avoid a duplicate."
+                    ),
+                    "message": f"Todo creation{message_suffix} could not be confirmed",
+                    "checklist_count": item_count,
+                    **({"warnings": warnings} if warnings else {})
+                }
 
         except Exception as e:
             logger.error(f"Error adding todo via URL scheme: {e}")

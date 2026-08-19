@@ -414,12 +414,15 @@ class TestChecklistItems:
         """
         checklist_items = ["Item 1", "Item 2", "Item 3"]
 
-        # Mock URL scheme execution for checklist creation
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-checklist",
-            "error": None
-        })
+        # _add_todo_via_url_scheme snapshots existing todo ids with this
+        # title before the create and polls for a new id afterward
+        # (hq-nxu.12): the first execute_applescript call is the
+        # pre-create snapshot (no existing todo), the rest are the
+        # post-create poll that finds the new id.
+        mock_applescript_manager.execute_applescript = AsyncMock(side_effect=[
+            {"success": True, "output": "", "error": None},
+            {"success": True, "output": "todo-checklist", "error": None},
+        ])
 
         result = await tools_with_mock.add_todo(
             title="Todo with checklist",
@@ -465,11 +468,12 @@ class TestChecklistItems:
         """Test checklist items with special characters."""
         checklist_items = ['✓ Item with emoji', '"Quoted item"', 'Item with\\backslash']
 
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-special-checklist",
-            "error": None
-        })
+        # See test_create_todo_with_checklist above: first call is the
+        # pre-create snapshot, second is the post-create poll.
+        mock_applescript_manager.execute_applescript = AsyncMock(side_effect=[
+            {"success": True, "output": "", "error": None},
+            {"success": True, "output": "todo-special-checklist", "error": None},
+        ])
 
         result = await tools_with_mock.add_todo(
             title="Test",

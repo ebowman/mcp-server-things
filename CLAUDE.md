@@ -864,7 +864,11 @@ replace_checklist_items(
 **Implementation Details:**
 - Checklists use Things URL scheme API (not AppleScript)
 - URL scheme is automatically used when `checklist_items` parameter is provided
-- Todo ID is retrieved after creation by searching for the newly created todo
+- Todo ID is retrieved after creation by snapshotting existing to-do ids with
+  that title before the URL call and polling (up to 3s, every 250ms) for a
+  new id afterward, so two same-titled to-dos created within a second still
+  resolve to distinct correct ids (see CHANGELOG hq-nxu.12); a lookup that
+  times out returns `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
 - The auth token is loaded once at server startup; a token file added or
   edited afterwards requires a server restart to take effect. An
