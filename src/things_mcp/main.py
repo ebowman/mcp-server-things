@@ -99,13 +99,28 @@ Examples:
   %(prog)s --retry-count 5          # Set retry count to 5 attempts
   %(prog)s --health-check           # Check system health and exit
   %(prog)s --version                # Show version information
+  %(prog)s doctor                   # Run diagnostic checks and exit
+  %(prog)s doctor --json            # Diagnostic checks with machine-readable JSON output
 
 Environment:
   The server requires Things 3 to be installed on macOS.
   AppleScript execution is used for interacting with Things 3.
         """
     )
-    
+
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["doctor"],
+        help="Optional subcommand. 'doctor' runs read-only diagnostic checks and exits."
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With 'doctor': print machine-readable JSON instead of a table"
+    )
+
     # Server options
     parser.add_argument(
         "--debug",
@@ -279,7 +294,11 @@ def main():
     arm_boot_watchdog()
     parser = create_parser()
     args = parser.parse_args()
-    
+
+    if args.command == "doctor":
+        from .doctor import run_doctor
+        return run_doctor(json_output=args.json)
+
     # Handle utility commands
     if args.version:
         show_version()

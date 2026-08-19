@@ -336,6 +336,15 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ## Troubleshooting
 
+Run `mcp-server-things doctor` first. It's a read-only diagnostic that checks
+Things 3 installation, whether it's running, macOS Automation permission,
+database readability (Full Disk Access/TCC), `uv`/`uvx` availability, the
+optional auth token, and environment/version info - printing a PASS/FAIL/WARN
+table with a one-line fix hint per row (exits non-zero only if something
+actually needs fixing). Use `mcp-server-things doctor --json` for
+machine-readable output, or `python -m things_mcp doctor` if you're running
+from source.
+
 ### Common Issues
 
 #### Permission Denied Errors
