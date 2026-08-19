@@ -5,6 +5,11 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Docs
+- **README "Why this server?" section and `docs/COMPARISON.md`** - a new README section right after the opening description answers "why this instead of hald/things-mcp?" (AppleScript-enabled delete/move/remove-tags vs URL-scheme trade-offs, `doctor`/`config`/response-mode tooling), pointing to a new `docs/COMPARISON.md` with a detailed, dated feature matrix and a "which should you pick?" recommendation.
+
 ## [1.6.2] - 2026-08-19
 
 ### Fixed
