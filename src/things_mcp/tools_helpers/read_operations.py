@@ -234,8 +234,11 @@ class ReadOperations:
         """
         self.applescript = applescript_manager
 
+    #: Status values _get_todos_sync accepts, besides None (meaning "all statuses").
+    VALID_TODO_STATUSES = ('incomplete', 'completed', 'canceled')
+
     async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> List[Dict]:
+                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
         """Get todos using things.py, optionally scoped to a project.
 
         Historically, project-scoped queries went through AppleScript
@@ -257,13 +260,34 @@ class ReadOperations:
             project_uuid: Optional project UUID to filter by
             include_items: Include checklist items
             status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
+
+        Returns:
+            Normally a ``List[Dict]`` of converted todos. If ``status`` is not one
+            of 'incomplete'/'completed'/'canceled'/None, returns a structured error
+            dict instead: ``{"success": False, "error": "invalid_status", "message": ...}``
+            (server.py's get_todos tool already validates status before calling this,
+            so this is a defense-in-depth path for other/direct callers - see hq-nxu.14).
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
 
     def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Synchronous implementation of get_todos using things.py."""
+                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+        """Synchronous implementation of get_todos using things.py.
+
+        Returns a structured error dict (not a list) if ``status`` is unrecognized -
+        see `get_todos` docstring.
+        """
+        if status is not None and status not in self.VALID_TODO_STATUSES:
+            return {
+                "success": False,
+                "error": "invalid_status",
+                "message": (
+                    f"Status must be one of: {', '.join(repr(s) for s in self.VALID_TODO_STATUSES)}, "
+                    f"or None for all. Got: {status!r}"
+                ),
+            }
+
         try:
             extra_kwargs = {'project': project_uuid} if project_uuid else {}
 
@@ -273,14 +297,13 @@ class ReadOperations:
                 todos = things.todos(status='completed', **extra_kwargs)
             elif status == 'canceled':
                 todos = things.todos(status='canceled', **extra_kwargs)
-            elif status is None:
+            else:
+                # status is None here (validated above) - fetch all statuses.
                 all_todos = []
                 all_todos.extend(things.todos(status='incomplete', **extra_kwargs))
                 all_todos.extend(things.todos(status='completed', **extra_kwargs))
                 all_todos.extend(things.todos(status='canceled', **extra_kwargs))
                 todos = all_todos
-            else:
-                todos = things.todos(**extra_kwargs)
 
             result = []
             for todo in todos:
@@ -425,6 +448,12 @@ class ReadOperations:
               counted via `area_count` and included in `total_count`, so they will not
               appear as "unused" if used solely on an area. Areas have no open/closed
               state, so area usage never contributes to `open_count`.
+            - Headings are intentionally excluded from this report. Verified (hq-nxu.14,
+              both against the things.py schema and a live Things 3 database):
+              `things.tasks(type='heading')` rows never carry a `'tags'` key at all -
+              headings cannot have tags assigned in Things 3 (only to-dos and projects
+              can; see the `things.tasks()` docstring's per-type description). There is
+              therefore nothing for this report to undercount by skipping headings.
 
         Args:
             only_unused: If True, only include tags with total_count == 0.
@@ -440,6 +469,10 @@ class ReadOperations:
         share the same title (e.g. a parent tag and a same-named child tag), their
         counts are merged into one row and only one uuid is retained (see
         `get_tag_usage` docstring for details).
+
+        Deliberately does not iterate headings: headings cannot carry tags in
+        Things 3 (see `get_tag_usage` docstring "Headings are intentionally
+        excluded" caveat).
         """
         try:
             tags = things.tags()
@@ -833,10 +866,7 @@ class ReadOperations:
                 completed_date = todo.get('stop_date')
                 if completed_date:
                     try:
-                        if isinstance(completed_date, str):
-                            completed_dt = datetime.fromisoformat(completed_date.replace('Z', '+00:00'))
-                        else:
-                            completed_dt = completed_date
+                        completed_dt = ToolsHelpers.parse_things_datetime(completed_date)
 
                         if completed_dt >= cutoff_date:
                             converted_todo = ToolsHelpers.convert_todo(todo)
@@ -1385,10 +1415,7 @@ class ReadOperations:
                     created_date = item.get('created')
                     if created_date:
                         try:
-                            if isinstance(created_date, str):
-                                created_dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
-                            else:
-                                created_dt = created_date
+                            created_dt = ToolsHelpers.parse_things_datetime(created_date)
 
                             if created_dt >= cutoff_date:
                                 results.append(ToolsHelpers.convert_todo(item))

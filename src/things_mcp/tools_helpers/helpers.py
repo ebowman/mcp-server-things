@@ -1,7 +1,7 @@
 """Helper functions for Things 3 tools - conversion and utility methods."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 from datetime import datetime, timedelta
 
 from ..utils.applescript_utils import AppleScriptTemplates
@@ -319,3 +319,50 @@ class ToolsHelpers:
             return value * 365  # Approximate
         else:
             raise ValueError(f"Invalid period unit: '{unit}' (use d/w/m/y)")
+
+    @staticmethod
+    def parse_things_datetime(value: Union[str, datetime]) -> datetime:
+        """Parse a things.py timestamp string (or pass through a datetime) into a
+        naive-local ``datetime`` suitable for direct comparison against
+        ``datetime.now()``.
+
+        things.py normally emits local-naive strings like ``'2025-12-31 09:00:00'``,
+        but this helper also tolerates values that carry an explicit UTC/offset
+        marker (``'...Z'`` or ``'...+HH:MM'``) so that an aware value never raises
+        ``TypeError`` when compared against a naive cutoff (previously that
+        TypeError was caught as "invalid date" and the row was silently dropped -
+        see hq-nxu.14). Any timezone-aware result is converted to the local
+        timezone and then stripped of tzinfo so the return value always compares
+        cleanly against naive ``datetime.now()``-derived cutoffs.
+
+        Args:
+            value: Either a things.py date/datetime string, or an already-parsed
+                ``datetime`` (passed through, converted from aware to naive-local
+                if needed).
+
+        Returns:
+            A naive ``datetime`` in local time.
+
+        Raises:
+            ValueError: If ``value`` is a string that cannot be parsed.
+            TypeError: If ``value`` is neither a string nor a ``datetime``.
+        """
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            text = value.strip()
+            # datetime.fromisoformat only understands 'Z' from Python 3.11+;
+            # normalize it to an explicit UTC offset for compatibility.
+            if text.endswith('Z'):
+                text = text[:-1] + '+00:00'
+            parsed = datetime.fromisoformat(text)
+        else:
+            raise TypeError(f"Expected str or datetime, got {type(value).__name__}")
+
+        if parsed.tzinfo is not None:
+            # Aware value (e.g. carries a 'Z' or '+HH:MM' offset) - convert to
+            # local time, then drop tzinfo so it compares like-with-like against
+            # naive-local cutoffs computed from datetime.now().
+            parsed = parsed.astimezone().replace(tzinfo=None)
+
+        return parsed

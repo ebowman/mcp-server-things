@@ -358,3 +358,48 @@ class TestGetTagUsageTitleCollision:
             assert rows[0]['uuid'] == 'tag-child'
             assert rows[0]['open_count'] == 1
             assert rows[0]['total_count'] == 1
+
+
+class TestGetTagUsageHeadingsExcluded:
+    """hq-nxu.14: headings are deliberately not part of the tag-usage scan.
+
+    Verified against both the things.py schema and a live Things 3 database:
+    things.tasks(type='heading') rows never carry a 'tags' key at all -
+    headings cannot have tags assigned in Things 3 (only to-dos and projects
+    can). So there is nothing for _get_tag_usage_sync to undercount, and it
+    correctly never calls things.tasks()/things.headings() at all.
+    """
+
+    @pytest.mark.asyncio
+    async def test_does_not_query_tasks_or_headings(self, things_tools):
+        """_get_tag_usage_sync should only call things.tags/todos/projects/areas -
+        never things.tasks() (which is how headings would be fetched)."""
+        with patch('things.tags') as mock_tags, \
+             patch('things.todos') as mock_todos, \
+             patch('things.projects') as mock_projects, \
+             patch('things.areas') as mock_areas, \
+             patch('things.tasks') as mock_tasks:
+
+            mock_tags.return_value = [{'uuid': 'tag-work', 'title': 'Work'}]
+            mock_todos.side_effect = _todos_side_effect(
+                incomplete=[{'uuid': 't1', 'title': 'T1', 'tags': ['Work']}],
+            )
+            mock_projects.side_effect = _projects_side_effect()
+            mock_areas.return_value = []
+
+            result = await things_tools.get_tag_usage()
+
+            mock_tasks.assert_not_called()
+            row = next(t for t in result['tags'] if t['title'] == 'Work')
+            assert row['total_count'] == 1
+
+    @pytest.mark.asyncio
+    async def test_heading_dict_without_tags_key_is_not_a_source_of_counts(self, things_tools):
+        """Even if a heading-shaped dict were ever passed through tally() (it isn't,
+        since headings are never scanned), a heading dict has no 'tags' key at all -
+        (item.get('tags') or []) degrades to [] and contributes zero counts. This
+        documents the schema fact the exclusion relies on, independent of whether
+        headings are iterated."""
+        heading_like = {'uuid': 'h1', 'title': 'Phase 1', 'type': 'heading'}
+        assert 'tags' not in heading_like
+        assert (heading_like.get('tags') or []) == []

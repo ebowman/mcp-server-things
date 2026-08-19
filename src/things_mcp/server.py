@@ -324,6 +324,14 @@ class ThingsMCPServer:
                     status=final_status
                 )
 
+                # Defense in depth: _get_todos_sync also validates status and
+                # returns a structured error dict for values that somehow slip
+                # past the pre-validation above (e.g. a direct/non-MCP caller
+                # of the tools layer). Surface it as-is, same pattern as
+                # search_todos's "Invalid status" short-circuit.
+                if isinstance(raw_data, dict):
+                    return raw_data
+
                 # Track pre-limit total, then apply limit if specified
                 pre_limit_total = len(raw_data)
                 if final_limit and len(raw_data) > final_limit:

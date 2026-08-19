@@ -163,3 +163,34 @@ class TestStatusFilter:
         # Should default to 'incomplete'
         mock_things.todos.assert_called_once_with(status='incomplete')
         assert len(result) == 1
+
+
+class TestUnrecognizedStatusRejected:
+    """hq-nxu.14: an unrecognized status must return a structured error, not
+    silently fall through to 'no status filter' (things.todos(**extra_kwargs)
+    with no status= at all)."""
+
+    @pytest.mark.asyncio
+    async def test_unrecognized_status_returns_structured_error(self, tools, mock_things):
+        """status='done' (not a valid Things status) must be rejected."""
+        result = await tools.get_todos(status='done')
+
+        assert result == {
+            "success": False,
+            "error": "invalid_status",
+            "message": (
+                "Status must be one of: 'incomplete', 'completed', 'canceled', "
+                "or None for all. Got: 'done'"
+            ),
+        }
+        # Must not have queried things.py at all with a bad status.
+        mock_things.todos.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unrecognized_status_with_project_uuid_returns_structured_error(self, tools, mock_things):
+        """Same validation applies when project_uuid is also given."""
+        result = await tools.get_todos(project_uuid='project-1', status='bogus')
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_status"
+        mock_things.todos.assert_not_called()

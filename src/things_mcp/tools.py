@@ -71,8 +71,13 @@ class ThingsTools:
 
     # ========== READ OPERATIONS (delegate to ReadOperations) ==========
 
-    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise."""
+    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise.
+
+        Returns a structured error dict (``{"success": False, "error": "invalid_status", ...}``)
+        instead of a list if ``status`` is not 'incomplete'/'completed'/'canceled'/None - see
+        ReadOperations.get_todos.
+        """
         return await self.read_ops.get_todos(project_uuid=project_uuid, include_items=include_items, status=status)
 
     async def get_projects(self, include_items: bool = False) -> List[Dict]:
