@@ -236,58 +236,28 @@ class ReadOperations:
 
     async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
                        status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise.
+        """Get todos using things.py, optionally scoped to a project.
 
-        BUG FIX: When querying by project_uuid, use AppleScript to avoid sync timing issues.
+        Historically, project-scoped queries went through AppleScript
+        instead of things.py to work around a suspected database sync
+        timing issue (things.py reading a stale SQLite snapshot right after
+        an AppleScript-driven create/update). Measured directly (hq-nxu.8):
+        creating a to-do via AppleScript and immediately calling
+        things.todos(project=...) in a tight poll loop showed the new item
+        visible on the very first check, with a mean lag of ~6ms across 5
+        trials (see bead notes) - i.e. no meaningful lag exists on this
+        macOS/Things 3 version. The AppleScript branch (and its bespoke
+        heading/start enrichment shim, since things.py already returns
+        heading/start natively) has therefore been removed; both project-
+        scoped and unscoped queries now go through the single things.py
+        path in `_get_todos_sync`, which returns one consistent
+        `convert_todo` key set regardless of whether project_uuid is given.
 
         Args:
             project_uuid: Optional project UUID to filter by
             include_items: Include checklist items
             status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
         """
-        # Use AppleScript for project queries to avoid database sync timing issues
-        if project_uuid:
-            try:
-                applescript_todos = await self.applescript.get_todos(project_uuid=project_uuid)
-
-                result = []
-                for todo in applescript_todos:
-                    todo_status = todo.get('status', 'open').lower()
-                    if todo_status == 'open':
-                        todo_status = 'incomplete'
-
-                    if status is None or todo_status == status:
-                        converted = ToolsHelpers.convert_applescript_todo(todo)
-                        result.append(converted)
-
-                logger.debug(f"Retrieved {len(result)} todos for project {project_uuid} via AppleScript")
-
-                # Best-effort enrichment: the AppleScript read path has no
-                # heading concept, so headingTitle/heading/projectTitle/start
-                # are missing from convert_applescript_todo's output. Fill
-                # them in from things.py's own project-scoped query, keyed by
-                # uuid. Never let this fail the call - AppleScript data is
-                # still returned as-is if things.py is unavailable/errors.
-                try:
-                    things_rows = things.todos(project=project_uuid)
-                    by_uuid = {row['uuid']: row for row in things_rows if row.get('uuid')}
-                    for todo in result:
-                        row = by_uuid.get(todo.get('uuid'))
-                        if row:
-                            todo['heading'] = row.get('heading')
-                            todo['headingTitle'] = row.get('heading_title')
-                            todo['projectTitle'] = row.get('project_title')
-                            todo['start'] = row.get('start')
-                except Exception as e:
-                    logger.debug(
-                        f"Best-effort heading/start enrichment failed for project {project_uuid}: {e}"
-                    )
-
-                return result
-            except Exception as e:
-                logger.error(f"AppleScript query failed for project {project_uuid}, falling back to things.py: {e}")
-
-        # Use things.py for all other queries
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
 
@@ -295,23 +265,22 @@ class ReadOperations:
                        status: Optional[str] = 'incomplete') -> List[Dict]:
         """Synchronous implementation of get_todos using things.py."""
         try:
-            if project_uuid:
-                todos = things.todos(project=project_uuid)
+            extra_kwargs = {'project': project_uuid} if project_uuid else {}
+
+            if status == 'incomplete':
+                todos = things.todos(status='incomplete', **extra_kwargs)
+            elif status == 'completed':
+                todos = things.todos(status='completed', **extra_kwargs)
+            elif status == 'canceled':
+                todos = things.todos(status='canceled', **extra_kwargs)
+            elif status is None:
+                all_todos = []
+                all_todos.extend(things.todos(status='incomplete', **extra_kwargs))
+                all_todos.extend(things.todos(status='completed', **extra_kwargs))
+                all_todos.extend(things.todos(status='canceled', **extra_kwargs))
+                todos = all_todos
             else:
-                if status == 'incomplete':
-                    todos = things.todos(status='incomplete')
-                elif status == 'completed':
-                    todos = things.todos(status='completed')
-                elif status == 'canceled':
-                    todos = things.todos(status='canceled')
-                elif status is None:
-                    all_todos = []
-                    all_todos.extend(things.todos(status='incomplete'))
-                    all_todos.extend(things.todos(status='completed'))
-                    all_todos.extend(things.todos(status='canceled'))
-                    todos = all_todos
-                else:
-                    todos = things.todos()
+                todos = things.todos(**extra_kwargs)
 
             result = []
             for todo in todos:

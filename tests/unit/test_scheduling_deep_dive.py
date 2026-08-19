@@ -479,14 +479,20 @@ class TestIntegrationScenarios:
             mock_today.return_value = []
             today_todos = await tools.get_today()
 
-        # 2. Get upcoming in next 7 days
-        with patch.object(tools.read_ops.applescript, 'get_todos_upcoming_in_days', new_callable=AsyncMock) as mock_upcoming:
-            mock_upcoming.return_value = []
+        # 2. Get upcoming in next 7 days (things.py-backed; the
+        # AppleScriptManager.get_todos_upcoming_in_days method this used to
+        # patch was dead code with no callers and was removed in hq-nxu.8 -
+        # ReadOperations.get_upcoming never called it).
+        with patch('things_mcp.tools_helpers.read_operations.things.upcoming') as mock_upcoming_things:
+            mock_upcoming_things.return_value = []
             upcoming = await tools.get_upcoming(days=7)
 
-        # 3. Check what's due soon
-        with patch.object(tools.read_ops.applescript, 'get_todos_due_in_days', new_callable=AsyncMock) as mock_due:
-            mock_due.return_value = []
+        # 3. Check what's due soon (things.py-backed; the
+        # AppleScriptManager.get_todos_due_in_days method this used to
+        # patch was dead code with no callers and was removed in hq-nxu.8 -
+        # ReadOperations.get_due_in_days never called it).
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_due_todos:
+            mock_due_todos.return_value = []
             due_soon = await tools.get_due_in_days(7)
 
         # All should return lists

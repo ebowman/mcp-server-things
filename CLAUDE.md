@@ -501,11 +501,11 @@ isn't under a heading/project respectively); other fields are omitted when `null
 
 Note: `area` was removed from the todo field sets (a to-do row from things.py
 never actually carries an `area` key - only projects do; the field was always
-absent in practice). Heading info (`heading`/`headingTitle`) comes directly from
-the Things database via things.py; when a read is served by the AppleScript path
-(`get_todos(project_uuid=...)`), these fields are filled in best-effort by a
-secondary things.py lookup after the AppleScript fetch and are omitted/`null` if
-that lookup fails. `reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
+absent in practice). `heading`/`headingTitle`/`projectTitle`/`start` come
+directly from things.py on every read path, including `get_todos(project_uuid=...)`
+(the former AppleScript-backed project read path was removed in favor of
+things.py - see CHANGELOG).
+`reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
 is only present on the small subset of to-dos/projects that actually carry a
 reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
 

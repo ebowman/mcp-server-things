@@ -1,7 +1,7 @@
 """Test status filter functionality for get_todos."""
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 from things_mcp.tools import ThingsTools
 
 
@@ -105,21 +105,21 @@ class TestStatusFilter:
     async def test_get_todos_project_with_status(self, tools, mock_things, mock_applescript_manager):
         """Test project filtering with status parameter.
 
-        When project_uuid is provided, the implementation uses AppleScript (not things.py),
-        then filters the results by status.
+        When project_uuid is provided, the implementation uses things.py
+        (hq-nxu.8 removed the AppleScript project-scoped read path -
+        measurement showed no meaningful database sync lag), passing both
+        project and status straight through to things.todos().
         """
         project_uuid = 'project-123'
-        # Mock AppleScript to return todos with different statuses
-        mock_applescript_manager.get_todos = AsyncMock(return_value=[
-            {'id': '1', 'name': 'Completed Todo', 'status': 'completed'},
-            {'id': '2', 'name': 'Open Todo', 'status': 'open'}
-        ])
+        mock_things.todos.return_value = [
+            {'uuid': '1', 'title': 'Completed Todo', 'status': 'completed'},
+        ]
 
         result = await tools.get_todos(project_uuid=project_uuid, status='completed')
 
-        # Should use AppleScript, not things.py
-        mock_applescript_manager.get_todos.assert_called_once_with(project_uuid=project_uuid)
-        # Should filter to only completed todos
+        # Should use things.py, not AppleScript
+        mock_things.todos.assert_called_once_with(status='completed', project=project_uuid)
+        mock_applescript_manager.get_todos.assert_not_called()
         assert len(result) == 1
         assert result[0]['status'] == 'completed'
 
@@ -127,21 +127,26 @@ class TestStatusFilter:
     async def test_get_todos_project_all_statuses(self, tools, mock_things, mock_applescript_manager):
         """Test getting all todos in a project regardless of status.
 
-        When project_uuid is provided, the implementation uses AppleScript (not things.py),
-        and when status=None, returns all todos without filtering.
+        When project_uuid is provided and status=None, the implementation
+        makes 3 things.py calls (incomplete/completed/canceled), each
+        scoped to the project, and merges the results - matching the
+        non-project status=None behavior.
         """
         project_uuid = 'project-456'
-        # Mock AppleScript to return todos with different statuses
-        mock_applescript_manager.get_todos = AsyncMock(return_value=[
-            {'id': '1', 'name': 'Incomplete', 'status': 'open'},
-            {'id': '2', 'name': 'Completed', 'status': 'completed'},
-            {'id': '3', 'name': 'Canceled', 'status': 'canceled'}
-        ])
+        mock_things.todos.side_effect = [
+            [{'uuid': '1', 'title': 'Incomplete', 'status': 'incomplete'}],
+            [{'uuid': '2', 'title': 'Completed', 'status': 'completed'}],
+            [{'uuid': '3', 'title': 'Canceled', 'status': 'canceled'}],
+        ]
 
         result = await tools.get_todos(project_uuid=project_uuid, status=None)
 
-        # Should use AppleScript, not things.py
-        mock_applescript_manager.get_todos.assert_called_once_with(project_uuid=project_uuid)
+        # Should use things.py, not AppleScript
+        mock_applescript_manager.get_todos.assert_not_called()
+        assert mock_things.todos.call_count == 3
+        mock_things.todos.assert_any_call(status='incomplete', project=project_uuid)
+        mock_things.todos.assert_any_call(status='completed', project=project_uuid)
+        mock_things.todos.assert_any_call(status='canceled', project=project_uuid)
         # Should return all todos without filtering
         assert len(result) == 3
 
