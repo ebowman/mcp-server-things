@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+from things_mcp.services.tag_service import TagValidationService, TagValidationResult
 
 
 @pytest.fixture
@@ -24,6 +25,17 @@ def mock_applescript_manager():
 def things_tools(mock_applescript_manager):
     """Create ThingsTools instance with mocked AppleScript."""
     return ThingsTools(mock_applescript_manager)
+
+
+def _install_mock_tag_service(things_tools, result: TagValidationResult):
+    """Attach a mocked policy-aware TagValidationService to things_tools.write_ops.
+
+    Returns the mock service so tests can assert on how it was called.
+    """
+    mock_service = Mock(spec=TagValidationService)
+    mock_service.validate_and_filter_tags = AsyncMock(return_value=result)
+    things_tools.write_ops.tag_validation_service = mock_service
+    return mock_service
 
 
 class TestAddArea:
@@ -174,3 +186,147 @@ class TestUpdateArea:
         script = mock_applescript_manager.execute_applescript.call_args[0][0]
         assert '\\"Title\\"' in script
         assert 'Weird \\"Title\\"\\\\Name' in script
+
+
+class TestAddAreaTagPolicy:
+    """Test that add_area honours a configured tag_creation_policy via TagValidationService."""
+
+    @pytest.mark.asyncio
+    async def test_add_area_filters_unknown_tags(self, things_tools, mock_applescript_manager):
+        """filter_unknown-style policy: only the valid tag reaches AppleScript."""
+        mock_applescript_manager.execute_applescript.return_value = {
+            "success": True,
+            "output": "AREA-ID-999",
+        }
+        result_obj = TagValidationResult(
+            valid_tags=["work"],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=["Filtered unknown tags: bogus. Only existing tags will be applied."],
+            errors=[]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.add_area(title="Filtered Area", tags=["work", "bogus"])
+
+        assert result["success"] is True
+        assert result["tag_info"]["existing"] == ["work"]
+        assert result["tag_info"]["filtered"] == ["bogus"]
+
+        script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert "tag names of newArea" in script
+        assert '"work"' in script
+        assert "bogus" not in script
+
+    @pytest.mark.asyncio
+    async def test_add_area_reject_unknown_aborts_without_applescript(self, things_tools, mock_applescript_manager):
+        """fail_on_unknown policy: operation is rejected before AppleScript runs."""
+        result_obj = TagValidationResult(
+            valid_tags=[],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=[],
+            errors=["Operation rejected due to unknown tags: bogus. Please create these tags first or change tag policy to allow/filter."]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.add_area(title="Rejected Area", tags=["bogus"])
+
+        assert result["success"] is False
+        assert "tag_info" in result
+        assert result["tag_info"]["errors"]
+
+        mock_applescript_manager.execute_applescript.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_add_area_all_tags_filtered_proceeds_without_tags(self, things_tools, mock_applescript_manager):
+        """When every requested tag is filtered out, area is still created, without a tag names statement."""
+        mock_applescript_manager.execute_applescript.return_value = {
+            "success": True,
+            "output": "AREA-ID-000",
+        }
+        result_obj = TagValidationResult(
+            valid_tags=[],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=["Filtered unknown tags: bogus. Only existing tags will be applied."],
+            errors=[]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.add_area(title="No Valid Tags Area", tags=["bogus"])
+
+        assert result["success"] is True
+        script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert "tag names of newArea" not in script
+
+
+class TestUpdateAreaTagPolicy:
+    """Test that update_area honours a configured tag_creation_policy via TagValidationService."""
+
+    @pytest.mark.asyncio
+    async def test_update_area_filters_unknown_tags(self, things_tools, mock_applescript_manager):
+        mock_applescript_manager.execute_applescript.return_value = {
+            "success": True,
+            "output": "updated",
+        }
+        result_obj = TagValidationResult(
+            valid_tags=["review"],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=["Filtered unknown tags: bogus. Only existing tags will be applied."],
+            errors=[]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.update_area(area_id="AREA-1", tags=["review", "bogus"])
+
+        assert result["success"] is True
+        assert result["tag_info"]["existing"] == ["review"]
+
+        script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert "tag names of targetArea" in script
+        assert '"review"' in script
+        assert "bogus" not in script
+
+    @pytest.mark.asyncio
+    async def test_update_area_reject_unknown_aborts_without_applescript(self, things_tools, mock_applescript_manager):
+        result_obj = TagValidationResult(
+            valid_tags=[],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=[],
+            errors=["Operation rejected due to unknown tags: bogus. Please create these tags first or change tag policy to allow/filter."]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.update_area(area_id="AREA-1", tags=["bogus"])
+
+        assert result["success"] is False
+        assert result["tag_info"]["errors"]
+
+        mock_applescript_manager.execute_applescript.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_area_all_tags_filtered_skips_tag_statement(self, things_tools, mock_applescript_manager):
+        """When every requested tag is filtered out, existing tags are left unchanged (no clearing)."""
+        mock_applescript_manager.execute_applescript.return_value = {
+            "success": True,
+            "output": "updated",
+        }
+        result_obj = TagValidationResult(
+            valid_tags=[],
+            filtered_tags=["bogus"],
+            created_tags=[],
+            warnings=["Filtered unknown tags: bogus. Only existing tags will be applied."],
+            errors=[]
+        )
+        _install_mock_tag_service(things_tools, result_obj)
+
+        result = await things_tools.update_area(area_id="AREA-1", tags=["bogus"])
+
+        assert result["success"] is True
+        script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert "tag names of targetArea" not in script
+        # Message should reflect that tags were not applied
+        assert "no valid tags" in result["message"].lower()

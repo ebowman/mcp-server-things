@@ -204,6 +204,8 @@ Both bugs were discovered through comprehensive edge case testing:
 
 **Important**: Tags must be created in Things 3 before they can be used via the API. The AI assistant cannot create tags programmatically.
 
+The configured `tag_creation_policy` (allow_all / filter_silent / filter_warn / fail_on_unknown) applies uniformly to todos, projects, and areas - tags are validated and filtered before any write, not just for todos.
+
 ```python
 # Get all available tags
 tags = get_tags()  # Returns count-only by default
