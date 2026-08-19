@@ -3,14 +3,36 @@ Integration test fixtures for Things 3 MCP server.
 
 Provides cleanup fixtures and utilities for integration tests that interact
 with real Things 3 database.
+
+Live-write gate (hq-f0w.14): `cleanup_test_todos` and `real_things_tools`
+both construct a real `AppleScriptManager` and perform (or enable) real
+writes/deletes against whatever Things 3 database is open. Neither has any
+test-opt-in of its own, so both are gated here behind the same
+THINGS_MCP_LIVE_TESTS=1 environment variable used by tests/live - without
+it, any test that depends on either fixture is skipped before a real
+AppleScriptManager is ever constructed. Purely mock-based integration
+tests (fixtures that don't request these two) are unaffected and continue
+to run without the env var.
 """
 
+import os
 import pytest
 import asyncio
 from datetime import datetime
 from typing import List, Dict
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+_LIVE_SKIP_REASON = (
+    "requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 "
+    "to opt in (this fixture performs real writes/deletes against a live "
+    "Things 3 database)"
+)
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip(_LIVE_SKIP_REASON)
 
 
 @pytest.fixture
@@ -37,6 +59,8 @@ async def cleanup_test_todos():
     Returns:
         dict: Contains 'tag' (unique test identifier) and 'ids' (list to track created items)
     """
+    _require_live_tests_env()
+
     # Create unique tag for this test run
     test_tag = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     todo_ids = []
@@ -63,14 +87,28 @@ async def cleanup_test_todos():
                 except Exception as e:
                     print(f"Warning: Failed to cleanup todo {todo_id}: {e}")
 
-            # Delete all tracked projects
+            # Delete all tracked projects. Cancel first, then trash via
+            # `project id` AppleScript directly - delete_todo()'s
+            # `to do id` target does not resolve project ids (Things'
+            # AppleScript dictionary does not treat a project as a to-do
+            # subtype for delete; see tests/live/conftest.py's
+            # _delete_via_applescript docstring), so a project canceled
+            # this way was previously left behind, not trashed (hq-f0w.42
+            # NOTES: 'Cleanup Project Test - test_*' projects leaked).
             for project_id in project_ids:
                 try:
-                    # Delete project using update with canceled=true
-                    await tools.update_project(id=project_id, canceled="true")
-                    await tools.delete_todo(todo_id=project_id)
+                    await tools.update_project(project_id=project_id, canceled="true")
                 except Exception as e:
-                    print(f"Warning: Failed to cleanup project {project_id}: {e}")
+                    print(f"Warning: Failed to cancel project {project_id}: {e}")
+                try:
+                    escaped = project_id.replace('"', '\\"')
+                    await manager.execute_applescript(f'''
+                    tell application "Things3"
+                        delete project id "{escaped}"
+                    end tell
+                    ''')
+                except Exception as e:
+                    print(f"Warning: Failed to trash project {project_id}: {e}")
 
             # Also try to find and delete by tag
             try:
@@ -94,6 +132,8 @@ async def real_things_tools():
 
     Use this for integration tests that need to interact with actual Things 3.
     """
+    _require_live_tests_env()
+
     manager = AppleScriptManager()
     tools = ThingsTools(manager)
     yield tools

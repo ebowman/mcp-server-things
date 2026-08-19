@@ -156,5 +156,50 @@ class TestSearchAdvancedTypeFilter:
             results = await tools.search_advanced(status='incomplete')
 
             # No tag filter was supplied, so this must not be reinterpreted as
-            # an unknown_tag error - falls back to the existing empty-list behavior.
-            assert results == []
+            # an unknown_tag error - it surfaces as a structured
+            # invalid_parameter error instead of the empty-list fallback.
+            assert len(results) == 1
+            assert results[0]['success'] is False
+            assert results[0]['error'] == 'invalid_parameter'
+            assert 'some other things.py error' in results[0]['message']
+
+    @pytest.mark.asyncio
+    async def test_tag_plus_bad_start_date_is_not_treated_as_unknown_tag(self, tools):
+        """hq-f0w.18: a *valid* tag combined with an invalid start_date must not
+        be misreported as unknown_tag - things.py's own ValueError for a bad
+        start_date/deadline doesn't mention 'Unrecognized tag type', so the
+        tag-specific short-circuit must not swallow it."""
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos, \
+                patch('things_mcp.tools_helpers.read_operations.things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError(
+                "Invalid start_date argument: '2024-1-5'\n"
+                "Please see the documentation for `start_date` in `things.tasks`."
+            )
+
+            results = await tools.search_advanced(tag='llm-wiki', start_date='2024-1-5')
+
+            assert len(results) == 1
+            assert results[0]['success'] is False
+            assert results[0]['error'] == 'invalid_parameter'
+            assert results[0]['error'] != 'unknown_tag'
+            assert '2024-1-5' in results[0]['message']
+            # Must not have consulted things.tags() for suggestions - this
+            # never took the unknown-tag path.
+            mock_tags.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_tag_still_reported_as_unknown_tag_with_other_filters(self, tools):
+        """Sanity check: a genuinely unknown tag combined with other filters is
+        still reported as unknown_tag (not swallowed by the new guard)."""
+        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos, \
+                patch('things_mcp.tools_helpers.read_operations.things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError("Unrecognized tag type: 'LLM-WIKI'")
+            mock_tags.return_value = [{'uuid': 'tag1', 'title': 'llm-wiki'}]
+
+            results = await tools.search_advanced(tag='LLM-WIKI', start_date='2025-01-01')
+
+            assert len(results) == 1
+            assert results[0]['success'] is False
+            assert results[0]['error'] == 'unknown_tag'
+            assert results[0]['tag'] == 'LLM-WIKI'
+            assert results[0]['suggestions'] == ['llm-wiki']

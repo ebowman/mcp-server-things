@@ -221,34 +221,6 @@ class MockAppleScriptManager:
         self.url_scheme_calls.clear()
     
     # Add missing methods expected by tests
-    async def get_todos(self, project_uuid=None, **kwargs):
-        """Mock get_todos method."""
-        response = self.mock_responses.get("get_todos", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        # Return just the data array, not the wrapper
-        return response.get("data", [])
-    
-    async def get_projects(self, **kwargs):
-        """Mock get_projects method."""
-        response = self.mock_responses.get("get_projects", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        return response.get("data", [])
-    
-    async def get_areas(self, **kwargs):
-        """Mock get_areas method.""" 
-        response = self.mock_responses.get("get_areas", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        return response.get("data", [])
-    
     async def add_todo(self, **kwargs):
         """Mock add_todo method."""
         return self.mock_responses.get("add_todo", {
@@ -273,41 +245,6 @@ class MockAppleScriptManager:
             "error": None
         })
     
-    async def update_project_direct(self, project_id, **kwargs):
-        """Mock update_project_direct method."""
-        return self.mock_responses.get("update_project_direct", {
-            "success": True,
-            "data": {"id": project_id, "updated": True},
-            "error": None
-        })
-    
-    async def get_todos_due_in_days(self, days, **kwargs):
-        """Mock get_todos_due_in_days method."""
-        response = self.mock_responses.get("get_todos_due_in_days", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        return response.get("data", [])
-    
-    async def get_todos_activating_in_days(self, days, **kwargs):
-        """Mock get_todos_activating_in_days method."""
-        response = self.mock_responses.get("get_todos_activating_in_days", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        return response.get("data", [])
-    
-    async def get_todos_upcoming_in_days(self, days, **kwargs):
-        """Mock get_todos_upcoming_in_days method.""" 
-        response = self.mock_responses.get("get_todos_upcoming_in_days", {
-            "success": True,
-            "data": [],
-            "error": None
-        })
-        return response.get("data", [])
-
 
 @pytest.fixture
 def mock_applescript_manager():

@@ -31,9 +31,17 @@
 # Run tests before committing
 pytest                          # Run all tests
 pytest tests/unit/              # Unit tests only
-pytest tests/integration/       # Integration tests
+pytest tests/integration/       # Integration tests (mostly mock-based;
+                                 # real_things_tools/cleanup_test_todos, and the local fixtures in
+                                 # test_bulk_operations_comprehensive.py/test_search_comprehensive.py/
+                                 # test_search_performance.py, all require THINGS_MCP_LIVE_TESTS=1)
 pytest --cov=src/things_mcp     # With coverage
+THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # Opt-in live Things 3 smoke suite (make test-live)
 ```
+
+See `docs/TESTING.md` for the full testing policy (write-path assertion
+requirements, parser/fixture contracts, parameter-reach coverage, and the
+live smoke suite).
 
 ### File Organization
 ```
@@ -68,6 +76,7 @@ result = self.applescript_manager.execute_script(script)
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
 5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
+6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
 
 ### Boot Diagnostics (v1.5.0+)
 
@@ -390,11 +399,13 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
 `offset: int = 0` (paired with `limit`, same semantics as `get_trash`) is supported on `search_todos`, `search_advanced`, and `get_logbook` in addition to `get_trash`, so results past the first page are reachable: call again with `offset += limit` to fetch the next window. `offset` windows over an unchanged underlying dataset are disjoint and, taken together, cover the full matching set exactly once.
+
+`get_logbook` includes both completed **and** canceled to-dos by default (matching what the Things app itself shows in its Logbook list), sorted together by stop date (most recent first); each item's `status` field (`'completed'` or `'canceled'`) tells them apart. Pass `include_canceled=false` to restore the completed-only behavior. `limit` accepts up to 500 (was capped at 100 before `offset` existed).
 
 Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
@@ -543,9 +554,30 @@ reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
 as convert_todo where the concepts overlap - `start`, `startDate`, `index`,
 `todayIndex`, and `reminderTime` are all emitted on projects the same way they
 are on todos (hq-f0w.29), in addition to the project-specific `area`/
-`areaTitle` fields. Because context_manager.py's mode field-filtering is shared
-across todo/project/area rows, the `standard`/`detailed` field lists above
-apply to projects too.
+`areaTitle` fields.
+
+### Project field lists per mode (hq-f0w.32)
+
+`get_projects()` rows are filtered against a separate, project-shaped field
+set (`ContextAwareResponseManager.PROJECT_FIELD_SETS`), not the todo field
+lists above - the todo sets never carry `area`/`areaTitle` (to-do rows never
+have those keys), so filtering project rows against them silently dropped a
+project's area under `minimal`/`standard` mode until hq-f0w.32. `get_areas()`
+top-level rows are areas (`uuid`/`title`/`type`/`tags` from `convert_area`)
+and still use the todo field sets, which is sufficient for that small schema
+under every mode except `minimal` (which lacks `tags` for areas - tracked
+separately, out of scope for hq-f0w.32).
+
+- **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
+- **`minimal`**: `uuid`, `title`, `status`, `type`, `area`, `start`, `dueDate`,
+  `modificationDate`, `creationDate` - enough to locate a project (identity,
+  kind, and where it lives) without pulling notes
+- **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
+  `modificationDate`, `creationDate`, `tags`, `area`, `areaTitle`, `start`,
+  `startDate`, `reminderTime`
+- **`detailed`** / **`raw`**: all fields, including `index`, `todayIndex`,
+  `completionDate`/`cancellationDate` (derived from things.py's single
+  `stop_date` field by `status`)
 
 ### Performance Tips
 
@@ -712,6 +744,11 @@ update_todo(id="abc123", heading="Research")
 # (list-id + heading together in a single URL-scheme update)
 update_todo(id="abc123", heading="Research", list_id="project456")
 
+# list_title works the same way when list_id isn't known - resolved to an
+# id via an exact-title match (same as list_title without heading) before
+# being sent as 'list-id' alongside 'heading'
+update_todo(id="abc123", heading="Research", list_title="Website Redesign")
+
 # Combine with ordinary AppleScript fields in the same call - both are applied
 update_todo(id="abc123", heading="Research", title="Renamed", notes="Updated notes")
 ```
@@ -744,21 +781,112 @@ only appears on the heading record, not the to-do), so `update_todo` falls
 back to resolving the current project via the to-do's existing heading
 record rather than wrongly treating it as project-less.
 
-**`list_id` resolving to an area**: if `list_id` resolves to an area rather
-than a project, `update_todo` adds a `warnings` entry - Things' URL scheme
-ignores `heading` for area targets (the to-do moves into the area but is
-not placed under any heading).
+**`list_id`/`list_title` resolving to an area**: if the resolved id refers to
+an area rather than a project, `update_todo` adds a `warnings` entry -
+Things' URL scheme ignores `heading` for area targets (the to-do moves into
+the area but is not placed under any heading).
+
+**Unresolvable `list_id`/`list_title` on the heading path**: an unknown
+`list_id` (or one that refers to neither a project nor an area), or a
+`list_title` matching zero or more than one project/area, is pre-checked
+the same way as the non-heading move below and returns a structured error
+*before* any write - it is never sent to Things unresolved. This pre-check
+runs before the AppleScript write, so e.g. `update_todo(id=..., heading=...,
+list_id="bogus", title="New")` returns the structured error without applying
+`title` (or any other field in the same call) first - same "no partial
+update on a failed move" guarantee as the non-heading move path. The same
+DB-unreadable fallback documented for `add_todo`'s `list_id` above also
+applies here: if the `things.get()` lookup itself raises, `list_id` falls
+back to being treated as a project id rather than failing the whole call.
 
 **No project**: if the to-do doesn't belong to a project (directly or via a
-parent heading) and `list_id` isn't also given, `heading` has no effect
-(Things' URL scheme silently ignores it) - `update_todo` adds a `warnings`
-entry in this case rather than failing outright, since Things itself
-doesn't surface an error either.
+parent heading) and neither `list_id` nor `list_title` is also given,
+`heading` has no effect (Things' URL scheme silently ignores it) -
+`update_todo` adds a `warnings` entry in this case rather than failing
+outright, since Things itself doesn't surface an error either.
 
-**Status semantics (`completed`/`canceled`):**
-- `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
-- Passing `completed="false"` or `canceled="false"` alone reopens the project.
-- Omitting both parameters leaves the project's status unchanged.
+**Moving an existing to-do to a project or area** (without a heading):
+`update_todo(id=..., list_id=...)` (or `list_title=...`) moves the to-do
+directly into that project or area via AppleScript - resolved the same way
+as `add_todo`'s `list_id`/`list_title` (`list_id` is looked up via
+`things.get()` to tell project from area; `list_title` does an exact-title
+match against both projects and areas). This is a **plain AppleScript
+move**, applied in the same write as any other AppleScript-only fields
+passed in the same call (title, notes, tags, deadline, etc.) - it does not
+require the Things auth token. `list_id` takes precedence over `list_title`
+if both are given. An unresolvable `list_id` (unknown id, or one that
+refers to something other than a project/area) or `list_title` (no match,
+or ambiguous - matches more than one project/area) returns a structured
+error and no field in the same call is applied.
+
+```python
+# Move a to-do into a project
+update_todo(id="abc123", list_id="project456")
+
+# Move a to-do into an area, by title
+update_todo(id="abc123", list_title="Personal")
+
+# Combine with other AppleScript fields in the same write
+update_todo(id="abc123", list_id="project456", title="Renamed", tags="urgent")
+```
+
+**What `update_todo` cannot move a to-do to**: `list_id`/`list_title` (with
+or without `heading`) can only target a project or area - `update_todo` has
+no way to move a to-do into the inbox, today, anytime, or someday lists.
+Use `move_record()` for those destinations (see "Destination Formats"
+above). When `heading` IS also given, `list_id`/`list_title` are instead
+resolved and consumed by the URL-scheme heading-placement path described
+above (a single `things:///update` call moves-and-places-under-heading
+together), rather than by a separate plain AppleScript move.
+
+**`when='evening'` + `list_id`/`list_title` with no `heading`**: the move
+happens once, via the AppleScript write (same write as any other
+AppleScript-only fields in the call) - `list_id`/`list_title` is not also
+sent on the following URL-scheme call that applies the evening schedule,
+which would otherwise re-apply the same move a second time.
+
+> ⚠️ **Adding/moving into a completed or canceled project or heading is
+> rejected, not silently allowed.** Things reopens a completed/canceled
+> project or heading the moment a to-do is added or moved into it - a real,
+> visible change to pre-existing user data, not merely a scheduling
+> side-effect. Both `add_todo` and `update_todo` pre-check the *status* of
+> the resolved target (via `things.py`, read-only, before any write) and, if
+> the matched heading or the resolved target project (`list_id`/`list_title`)
+> is `completed`/`canceled`, return a structured error **before** any
+> AppleScript or URL-scheme write is issued:
+> ```json
+> {"success": false, "error": "TARGET_COMPLETED", "message": "Target project is completed; adding/moving into it would reopen it. Reopen it first or choose another target."}
+> ```
+> There is currently no `allow_reopen`-style override - reopen the target
+> manually first (`update_project(id=..., completed="false")`), or choose a
+> different target. Areas have no completed/canceled concept in Things and
+> are never rejected by this check.
+>
+> **Edge case**: `update_todo(id=..., heading=...)` with no `list_id`/
+> `list_title` falls back to the to-do's *current* project for this check
+> (same current-project resolution the heading-exists warning already
+> uses). If a to-do already sits inside a project that was completed/
+> canceled *after* the to-do was filed there, it cannot be re-headed within
+> that project via `update_todo` either - the same `TARGET_COMPLETED` error
+> is returned. Reopen the project first, or move the to-do to a different
+> (open) project via `list_id`/`list_title`.
+
+**Status semantics (`completed`/`canceled`) - identical across `update_todo`, `bulk_update_todos`, and `update_project` (hq-f0w.22):**
+
+Full 3x3 truth table (`completed` x `canceled`, each `"true"` / `"false"` / omitted):
+
+| `completed` \ `canceled` | `"true"` | `"false"` | omitted / `None` |
+|---|---|---|---|
+| `"true"` | canceled | completed | completed |
+| `"false"` | canceled | open (reopened) | open (reopened) |
+| omitted / `None` | canceled | open (reopened) | unchanged |
+
+- `canceled="true"` always wins, regardless of what `completed` is set to (even `completed="true"` in the same call).
+- Whenever `canceled` is not `"true"`, `completed` (if given) decides the result: `"true"` -> completed, `"false"` -> open.
+- `canceled="false"` alone (with `completed` omitted) also reopens the item - this is **not** a no-op, matching `completed="false"` alone.
+- Omitting both parameters leaves the item's status unchanged.
+- `completed`/`canceled` accept only an actual boolean or the strings `"true"`/`"false"` (case-insensitive, e.g. `"True"`/`"FALSE"` are fine). Any other value (`"yes"`, `"1"`, `"no"`, etc.) is rejected with a structured `{"success": false, "error": "VALIDATION_ERROR", "field": "completed"|"canceled", "message": ...}` error rather than being silently coerced - a prior looser parser turned any non-`"true"` string into `False`, which could unintentionally reopen a completed/canceled item.
+- Via the MCP tool interface, `completed`/`canceled` are typed `Optional[str]` - pass the strings `"true"`/`"false"` (case-insensitive), not JSON booleans; a literal JSON `true`/`false` is rejected by pydantic before it ever reaches this validation. Passing an actual Python `bool` only works for in-process/direct `ThingsTools`/`TodoOperations` callers, not through the MCP tool schema.
 
 ### Reading Project Headings
 
@@ -969,7 +1097,7 @@ replace_checklist_items(
 
 3. **Limits** - Respect parameter limits:
    - Search results: max 500
-   - Logbook: max 100
+   - Logbook: max 500
    - Date ranges: max 365 days
    - Bulk operations: optimal 2-50 todos
 
@@ -1119,6 +1247,7 @@ Then add the matching section to `CHANGELOG.md` (top of file):
 
 ```bash
 pytest tests/unit                       # gate also runs in CI
+THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # must pass on a machine with Things 3 running - see docs/TESTING.md
 git add src/things_mcp/__init__.py CHANGELOG.md
 git commit -m "Release vX.Y.Z - Brief description"
 git push origin main
@@ -1169,6 +1298,7 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] Version bumped in `src/things_mcp/__init__.py` (only here)
 - [ ] CHANGELOG.md updated with date and changes
 - [ ] `pytest tests/unit` passes
+- [ ] `THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` passes on a machine with Things 3 running
 - [ ] Committed, pushed to `main`, tag pushed
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)

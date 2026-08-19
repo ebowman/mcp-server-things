@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from ..locale_aware_dates import locale_handler
 from ..things_import import LazyThingsProxy
@@ -325,6 +325,15 @@ class TodoOperations:
                 else:
                     area_id = resolution["id"]
 
+            if project_id:
+                target_error = self._check_project_target_not_completed(project_id)
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+
             script = self._build_create_todo_script(
                 title, notes, tags, deadline, area,
                 project='', checklist=checklist,
@@ -369,24 +378,89 @@ class TodoOperations:
                 "message": "Failed to add todo"
             }
 
-    def _check_heading_exists(self, heading: str, list_id: str = '', list_title: str = '') -> Optional[str]:
-        """Check whether `heading` exists as a heading in the target project.
+    def _check_project_target_not_completed(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """Reject a write into a completed/canceled project before it happens.
 
-        The Things URL scheme silently ignores a heading that doesn't exist in
-        the target project (the to-do still lands in the project, just not
-        under that heading) - this pre-check lets callers surface that as a
-        warning instead of silent data loss.
+        Adding or moving a to-do into a completed or canceled project
+        reopens that project in Things (a real, visible change to
+        pre-existing user data), which is very unlikely to be the caller's
+        intent. This is a read-only pre-check via things.py - it never
+        writes anything itself.
 
         Args:
-            heading: Heading title to look for.
+            project_id: A project UUID (areas have no status/completion
+                concept in Things, so this is only meaningful for projects -
+                callers must not call this for an area_id).
+
+        Returns:
+            A structured error dict ({"error": "TARGET_COMPLETED", ...}) if
+            the project's things.py status is 'completed' or 'canceled', or
+            None if the project is open/incomplete, or if its status could
+            not be determined (things.py lookup failed or returned nothing)
+            - in which case we stay silent rather than block a write on a
+            lookup glitch.
+        """
+        try:
+            record = things.get(project_id)
+        except Exception as e:
+            logger.warning(
+                f"things.py lookup failed while checking completed status for "
+                f"project {project_id} (allowing the write to proceed "
+                f"unchecked): {e}"
+            )
+            return None
+
+        if not record:
+            return None
+
+        status = record.get('status')
+        if status in ('completed', 'canceled'):
+            return {
+                "error": "TARGET_COMPLETED",
+                "message": (
+                    f"Target project is {status}; adding/moving into it would "
+                    "reopen it. Reopen it first or choose another target."
+                )
+            }
+        return None
+
+    def _check_heading_status(
+        self, heading: str, list_id: str = '', list_title: str = ''
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Resolve the target project once and report both the heading's
+        existence/completion status in a single things.tasks() query.
+
+        Combines what used to be two separate checks (_check_heading_exists
+        and _check_heading_target_not_completed) - both needed the same
+        project resolution and the same status=None things.tasks() heading
+        list, so doing them separately issued that query twice per call.
+
+        The Things URL scheme silently ignores a heading that doesn't exist
+        in the target project (the to-do still lands in the project, just
+        not under that heading); adding/moving into a completed/canceled
+        project or heading reopens it in Things (a real, visible change to
+        pre-existing user data). This is a read-only pre-check via
+        things.py - it never writes anything itself.
+
+        Args:
+            heading: Heading title to look for within the resolved project.
             list_id: Project/area id supplied by the caller, if any.
             list_title: Project/area title supplied by the caller, if any.
 
         Returns:
-            A warning string if the heading could not be confirmed to exist
-            in the resolved project, or None if it was found (or the target
-            project could not be resolved, in which case we stay silent
-            rather than risk a false-positive warning).
+            A (target_error, warning) tuple - at most one is non-None:
+            - target_error: a structured error dict
+              ({"error": "TARGET_COMPLETED", ...}) if the resolved project,
+              or the matched heading row, is completed/canceled. The write
+              must be rejected before it happens when this is set.
+            - warning: a warning string if the heading could not be
+              confirmed to exist in the resolved project (and the project
+              itself is not completed/canceled).
+            (None, None) if the heading was found and open, or if the
+            target project could not be resolved (e.g. an area target, or
+            an unresolvable list_title/list_id - those cases are reported
+            by their own resolution errors elsewhere) - don't guess in
+            either case.
         """
         project_id = None
         if list_id:
@@ -399,25 +473,47 @@ class TodoOperations:
                 project_id = resolution["id"]
 
         if not project_id:
-            # Either no project could be resolved (e.g. area target, or an
-            # unresolvable list_title/list_id - those cases are reported by
-            # their own resolution errors elsewhere) - don't guess.
-            return None
+            return None, None
+
+        project_error = self._check_project_target_not_completed(project_id)
+        if project_error:
+            return project_error, None
 
         try:
-            existing_headings = things.tasks(type='heading', project=project_id) or []
+            # status=None: things.tasks() defaults to status='incomplete', so
+            # a completed heading (e.g. a past-dated recurring heading like
+            # "Johan" in a project) would otherwise be invisible here and
+            # produce a false "heading not found" warning even though the
+            # URL-scheme move actually succeeds (same root cause/fix as the
+            # heading map built in hq-f0w.24).
+            existing_headings = things.tasks(type='heading', project=project_id, status=None) or []
         except Exception as e:
-            logger.debug(f"Error checking heading existence for project {project_id}: {e}")
-            return None
+            logger.warning(
+                f"things.py lookup failed while checking heading '{heading}' "
+                f"status in project {project_id} (skipping heading "
+                f"existence/completion check for this call): {e}"
+            )
+            return None, None
 
-        if any(h.get('title') == heading for h in existing_headings):
-            return None
+        matched = next((h for h in existing_headings if h.get('title') == heading), None)
+        if matched is None:
+            return None, (
+                f"Heading '{heading}' was not found in the target project; "
+                "Things will still create the to-do in the project but may not "
+                "place it under this heading."
+            )
 
-        return (
-            f"Heading '{heading}' was not found in the target project; "
-            "Things will still create the to-do in the project but may not "
-            "place it under this heading."
-        )
+        if matched.get('status') in ('completed', 'canceled'):
+            return {
+                "error": "TARGET_COMPLETED",
+                "message": (
+                    f"Target heading '{heading}' is {matched.get('status')}; "
+                    "adding/moving into it would reopen it. Reopen it first "
+                    "or choose another target."
+                )
+            }, None
+
+        return None, None
 
     async def _find_todo_ids_by_title(self, title: str) -> List[str]:
         """Return the ids of all (non-trashed) to-dos with the exact title.
@@ -573,12 +669,38 @@ class TodoOperations:
                 params['list-id'] = resolution["id"]
 
             heading = kwargs.get('heading') or ''
+
+            # When heading is absent, the heading-target pre-check below
+            # never runs, so a list_id/list_title resolving to a completed/
+            # canceled project would otherwise reach execute_url_scheme('add')
+            # unchecked (e.g. add_todo(list_id=<completed>, checklist_items=[...])
+            # or when='evening' with no heading) - both still take this
+            # URL-scheme path for reasons unrelated to the project target
+            # (checklist items / the "This Evening" flag), so the project
+            # itself must still be checked here. _check_project_target_not_completed
+            # is a no-op for an area id (things.get() on an area has no
+            # 'completed'/'canceled' status), so areas pass through.
+            if not heading and params.get('list-id'):
+                target_error = self._check_project_target_not_completed(params['list-id'])
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+
             warnings: List[str] = []
             if heading:
-                params['heading'] = heading
-                heading_warning = self._check_heading_exists(
+                target_error, heading_warning = self._check_heading_status(
                     heading, kwargs.get('list_id', ''), kwargs.get('list_title', '')
                 )
+                if target_error:
+                    return {
+                        "success": False,
+                        "error": target_error["error"],
+                        "message": target_error["message"]
+                    }
+                params['heading'] = heading
                 if heading_warning:
                     warnings.append(heading_warning)
 
@@ -843,7 +965,9 @@ class TodoOperations:
     def _build_update_script(self, todo_id: str, title: Optional[str], notes: Optional[str],
                             tags: Optional[List[str]],
                             deadline: Optional[str], area: str, project: str,
-                            completed: Optional[bool], canceled: Optional[bool]) -> str:
+                            completed: Optional[bool], canceled: Optional[bool],
+                            project_id: Optional[str] = None,
+                            area_id: Optional[str] = None) -> str:
         """Build AppleScript for updating a todo.
 
         Clear-field contract: ``None`` (or, for title/area/project, the empty
@@ -853,16 +977,38 @@ class TodoOperations:
         falsy default) clears all tags. Titles cannot be cleared - callers
         must reject ``title=''`` before calling this method.
 
+        Note: the by-name ``area``/``project`` kwargs are a Python-API-only
+        affordance - the ``update_todo`` MCP tool (server.py) has no
+        ``area``/``project`` parameter and never populates them; only the
+        UUID-based ``area_id``/``project_id`` (driven by the MCP tool's
+        ``list_id``/``list_title``) are reachable from the MCP surface.
+
         Args:
             todo_id: Todo ID to update
             title: New title, or None/empty to leave unchanged
             notes: New notes, or None to leave unchanged, '' to clear
             tags: New tags list, or None to leave unchanged, [] to clear
             deadline: New deadline date, or None to leave unchanged, '' to clear
-            area: New area
-            project: New project
-            completed: Completion status
-            canceled: Canceled status
+            area: New area name (looked up by name via `area <name>`); kept
+                only for backwards compatibility - prefer area_id.
+            project: New project name (looked up by name via
+                `project <name>`); kept only for backwards compatibility -
+                prefer project_id.
+            completed: Completion status. None leaves status unchanged
+                (unless canceled=False is given - see canceled below);
+                True marks completed; False marks open (unless canceled=True
+                takes precedence).
+            canceled: Canceled status. canceled=True takes precedence over
+                completed (whatever completed is set to). canceled=False
+                with completed=None reopens the todo (matches
+                update_project's semantics - not a no-op). None leaves the
+                canceled state alone (fall through to completed handling).
+            project_id: Project UUID to move the todo into, escaped safely
+                via AppleScriptTemplates.escape_string and looked up by id
+                via `project id "..."`. Takes precedence over `project`.
+            area_id: Area UUID to move the todo into, escaped safely via
+                AppleScriptTemplates.escape_string and looked up by id via
+                `area id "..."`. Takes precedence over `area`.
 
         Returns:
             AppleScript code
@@ -887,13 +1033,21 @@ class TodoOperations:
                 escaped_notes = AppleScriptTemplates.escape_string(notes)
                 script += f'set notes of targetTodo to {escaped_notes}\n                    '
 
-        # Update area if provided
-        if area:
+        # Update area if provided. Resolved ids (from list_id/list_title)
+        # take precedence over the legacy by-name `area` argument.
+        if area_id:
+            escaped_area_id = AppleScriptTemplates.escape_string(area_id)
+            script += f'set area of targetTodo to area id {escaped_area_id}\n                    '
+        elif area:
             escaped_area = AppleScriptTemplates.escape_string(area)
             script += f'set area of targetTodo to area {escaped_area}\n                    '
 
-        # Update project if provided
-        if project:
+        # Update project if provided. Resolved ids (from list_id/list_title)
+        # take precedence over the legacy by-name `project` argument.
+        if project_id:
+            escaped_project_id = AppleScriptTemplates.escape_string(project_id)
+            script += f'set project of targetTodo to project id {escaped_project_id}\n                    '
+        elif project:
             escaped_project = AppleScriptTemplates.escape_string(project)
             script += f'set project of targetTodo to project {escaped_project}\n                    '
 
@@ -930,7 +1084,11 @@ class TodoOperations:
                     set due date of targetTodo to deadlineDate
                     '''
 
-        # Update status
+        # Update status if provided (canceled takes precedence over completed,
+        # matching update_project's precedence). canceled=False alone also
+        # reopens the todo (no completed given) so that
+        # update_todo(canceled='false') reliably returns the todo to
+        # 'incomplete' rather than being a silent no-op.
         if canceled is not None and canceled:
             script += 'set status of targetTodo to canceled\n                    '
         elif completed is not None:
@@ -938,6 +1096,8 @@ class TodoOperations:
                 script += 'set status of targetTodo to completed\n                    '
             else:
                 script += 'set status of targetTodo to open\n                    '
+        elif canceled is not None and not canceled:
+            script += 'set status of targetTodo to open\n                    '
 
         script += '''
                     return "updated"
@@ -968,16 +1128,23 @@ class TodoOperations:
         rejected outright (Things' URL scheme has no documented way to
         clear a to-do out of a heading via update - passing heading=''
         would either be ignored or produce undefined behavior, so we
-        surface a structured error instead of guessing). If list_id is
+        surface a structured error instead of guessing). If list_id (or,
+        when list_id is absent, list_title - resolved via
+        _resolve_list_title the same way as the non-heading move path) is
         also given, the to-do is moved to that project via 'list-id' in
         the same URL, with 'heading' resolved within the destination
-        project; if list_id resolves to an area rather than a project, a
-        warning is added since Things ignores 'heading' for area targets.
-        A to-do whose current parent is itself a heading reports
-        project=None from things.py (the project only appears on the
-        heading record) - the current-project fallback for the
-        heading-exists check/warning resolves that via the to-do's
-        heading record.
+        project. An unresolvable list_id/list_title on the heading path
+        (unknown id, a title matching zero or more than one project/area,
+        or a list_id that refers to neither a project nor an area) is a
+        structured error returned BEFORE any write - pre-checked via
+        _resolve_list_id/_resolve_list_title exactly like the non-heading
+        move path, rather than being sent to Things as-is. If the resolved
+        id refers to an area rather than a project, a warning is added
+        since Things ignores 'heading' for area targets. A to-do whose
+        current parent is itself a heading reports project=None from
+        things.py (the project only appears on the heading record) - the
+        current-project fallback for the heading-exists check/warning
+        resolves that via the to-do's heading record.
 
         when='evening' (alias 'tonight', normalized to 'evening' by
         ParameterValidator): Things 3's AppleScript 'schedule' command has
@@ -997,6 +1164,23 @@ class TodoOperations:
         second - if that URL-scheme call itself fails (e.g. a transient
         `open` failure), the already-applied AppleScript fields are NOT
         rolled back.
+
+        list_id / list_title (move to a project or area): when heading is
+        NOT also given, list_id (or list_title, resolved to an id the same
+        way as add_todo - see _resolve_list_id/_resolve_list_title) moves
+        the to-do directly into that project or area via AppleScript
+        (`set project of targetTodo to project id "..."` or `set area of
+        targetTodo to area id "..."`), applied in the same AppleScript
+        write as the other AppleScript-only fields. This can move a to-do
+        INTO a project/area but cannot place it in the inbox/today/anytime/
+        someday lists - use move_record() for those destinations. list_id
+        takes precedence over list_title if both are given. An unknown
+        list_id/list_title, or a list_title matching more than one
+        project/area, is a structured error returned before any write is
+        attempted. When heading IS also given, list_id/list_title are
+        instead resolved and consumed by the heading move above (as
+        'list-id' in the same things:///update call) rather than by this
+        plain AppleScript move - see the heading docs above.
         """
         try:
             # Extract parameters. title/area/project default to '' (falsy
@@ -1012,6 +1196,7 @@ class TodoOperations:
             project = kwargs.get('project', '')
             heading = kwargs.get('heading', None)
             list_id = kwargs.get('list_id', '')
+            list_title = kwargs.get('list_title', '')
 
             # Things 3's AppleScript 'schedule' command only accepts a date
             # object - there is no AppleScript way to set the "This Evening"
@@ -1070,22 +1255,167 @@ class TodoOperations:
 
             warnings: List[str] = []
 
+            # Resolve list_id/list_title to a project or area id BEFORE any
+            # write, in either of two mutually exclusive ways depending on
+            # whether heading is also given:
+            #   - heading is absent: resolve to project_id/area_id for a
+            #     plain AppleScript move (applied below).
+            #   - heading is present: list_id/list_title are instead
+            #     consumed by the URL-scheme block further down (move +
+            #     place-under-heading in one call), so they must NOT also
+            #     be resolved into project_id/area_id here (that would
+            #     double-apply the move, once via AppleScript and once via
+            #     the URL scheme). They are still resolved here - just into
+            #     effective_list_id_for_url / list_id_resolution - so that
+            #     an unknown/ambiguous list_id or list_title is reported as
+            #     a structured error before the AppleScript write below,
+            #     rather than after it.
+            # Either way, list_id takes precedence over list_title, matching
+            # add_todo's precedence.
+            project_id: Optional[str] = None
+            area_id: Optional[str] = None
+            effective_list_id_for_url: Optional[str] = None
+            list_id_resolution: Optional[Dict[str, Any]] = None
+            if not heading:
+                if list_id:
+                    resolution = self._resolve_list_id(list_id)
+                    if "error" in resolution:
+                        return {
+                            "success": False,
+                            "error": resolution["error"],
+                            "message": "Failed to update todo"
+                        }
+                    if resolution["kind"] == "project":
+                        project_id = resolution["id"]
+                    else:
+                        area_id = resolution["id"]
+                elif list_title:
+                    resolution = self._resolve_list_title(list_title)
+                    if "error" in resolution:
+                        return {
+                            "success": False,
+                            "error": resolution["error"],
+                            "message": "Failed to update todo"
+                        }
+                    if resolution["kind"] == "project":
+                        project_id = resolution["id"]
+                    else:
+                        area_id = resolution["id"]
+
+                if project_id:
+                    target_error = self._check_project_target_not_completed(project_id)
+                    if target_error:
+                        return {
+                            "success": False,
+                            "error": target_error["error"],
+                            "message": target_error["message"]
+                        }
+            else:
+                if list_id:
+                    # Pre-check list_id the same way the non-heading move
+                    # path does: an unknown id (or one that refers to
+                    # neither a project nor an area) is a structured error
+                    # returned before any write, rather than being sent to
+                    # Things as-is (things:///update silently no-ops on an
+                    # unrecognized list-id - pre-hq-nxu.13 behaviour left
+                    # that as a silent no-op with no error surfaced at all).
+                    list_id_resolution = self._resolve_list_id(list_id)
+                    if "error" in list_id_resolution:
+                        return {
+                            "success": False,
+                            "error": list_id_resolution["error"],
+                            "message": "Failed to update todo"
+                        }
+                    effective_list_id_for_url = list_id
+                elif list_title:
+                    # list_title has no direct URL-scheme 'list' id param
+                    # usable here (Things' 'list' targets by name,
+                    # ambiguously) - resolve it the same way as list_id
+                    # (_resolve_list_title) and pass the resolved id as
+                    # 'list-id', surfacing the same unknown/ambiguous
+                    # structured errors as the non-heading path instead of
+                    # silently dropping list_title.
+                    list_id_resolution = self._resolve_list_title(list_title)
+                    if "error" in list_id_resolution:
+                        return {
+                            "success": False,
+                            "error": list_id_resolution["error"],
+                            "message": "Failed to update todo"
+                        }
+                    effective_list_id_for_url = list_id_resolution["id"]
+
+            # When heading is given, pre-resolve which project the combined
+            # heading-completion check / heading-exists warning
+            # (_check_heading_status, further down) should be scoped to:
+            # the explicitly-requested list_id/list_title, or (if neither
+            # given) the to-do's current project. things.py reports
+            # project=None for a to-do whose parent is itself a heading (the
+            # PROJECT join is on TASK.project, which is NULL for heading
+            # children - the parent project only shows up on the heading
+            # record itself), so fall back to looking up the to-do's heading
+            # record's project in that case. The completed/canceled check
+            # itself must happen BEFORE the AppleScript write below so a
+            # completed/canceled target is rejected before anything is
+            # written, not after; the heading-exists warning is deferred to
+            # its usual spot further down since it never blocks a write.
+            effective_project_id: Optional[str] = None
+            heading_warning: Optional[str] = None
+            if heading:
+                effective_project_id = effective_list_id_for_url
+                if not effective_project_id:
+                    try:
+                        todo_record_for_project = things.get(todo_id)
+                    except Exception as e:
+                        logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
+                        todo_record_for_project = None
+                    if todo_record_for_project:
+                        effective_project_id = todo_record_for_project.get('project')
+                        if not effective_project_id and todo_record_for_project.get('heading'):
+                            try:
+                                heading_record_for_project = things.get(todo_record_for_project['heading'])
+                            except Exception as e:
+                                logger.debug(
+                                    f"Error looking up heading {todo_record_for_project['heading']} "
+                                    f"for project fallback: {e}"
+                                )
+                                heading_record_for_project = None
+                            if heading_record_for_project:
+                                effective_project_id = heading_record_for_project.get('project')
+
+                # Only pre-check when the target resolves to a project (not
+                # an area - list_id_resolution.kind == "area" is handled
+                # later as a warning, and areas have no completed/canceled
+                # status in Things).
+                if effective_project_id and not (
+                    list_id_resolution and list_id_resolution.get("kind") == "area"
+                ):
+                    target_error, heading_warning = self._check_heading_status(
+                        heading, list_id=effective_project_id
+                    )
+                    if target_error:
+                        return {
+                            "success": False,
+                            "error": target_error["error"],
+                            "message": target_error["message"]
+                        }
+
             # Apply the AppleScript-only fields first (title, notes, tags,
-            # deadline, area, project, completed, canceled). This mirrors the
-            # pre-existing unconditional behavior (the AppleScript write is
-            # always issued, even as a no-op "updated" round trip) EXCEPT
-            # when heading and/or when='evening' are the only field(s)
-            # requested - in that case skip the AppleScript step entirely and
-            # rely solely on the URL-scheme update below, since there is
-            # nothing else to write.
+            # deadline, area, project, project_id/area_id, completed,
+            # canceled). This mirrors the pre-existing unconditional
+            # behavior (the AppleScript write is always issued, even as a
+            # no-op "updated" round trip) EXCEPT when heading and/or
+            # when='evening' are the only field(s) requested - in that case
+            # skip the AppleScript step entirely and rely solely on the
+            # URL-scheme update below, since there is nothing else to write.
             skip_applescript = (heading or when_is_evening) and not any([
                 title, notes is not None, tags is not None, deadline is not None,
-                area, project, completed is not None, canceled is not None
+                area, project, project_id, area_id, completed is not None, canceled is not None
             ])
 
             if not skip_applescript:
                 script = self._build_update_script(todo_id, title, notes, tags, deadline,
-                                                  area, project, completed, canceled)
+                                                  area, project, completed, canceled,
+                                                  project_id=project_id, area_id=area_id)
                 result = await self.applescript.execute_applescript(script)
 
                 if result.get("success"):
@@ -1109,55 +1439,41 @@ class TodoOperations:
                     url_params['heading'] = heading
                 if when_is_evening:
                     url_params['when'] = 'evening'
-                if list_id:
-                    url_params['list-id'] = list_id
 
-                # The remaining lookups and warnings in this block are all
+                # list_id/list_title are only meaningful here (as a
+                # URL-scheme 'list-id') when heading is also given - they
+                # move-and-place-under-heading together in this one call.
+                # When heading is NOT given, list_id/list_title were already
+                # consumed above as a plain AppleScript move (project_id/
+                # area_id); including them here too would double-apply the
+                # move (once via AppleScript, once via this URL-scheme
+                # call) for e.g. when='evening' + list_id with no heading.
+                # effective_list_id_for_url and list_id_resolution were
+                # already resolved (and any unknown/ambiguous list_id or
+                # list_title already reported as a structured error) in the
+                # pre-write block above, before the AppleScript write ran -
+                # they are only non-None here when heading was given.
+                if effective_list_id_for_url:
+                    url_params['list-id'] = effective_list_id_for_url
+
+                # The remaining warnings in this block are all
                 # heading-placement concerns - skip them entirely when only
                 # when_is_evening triggered this branch (no heading requested).
+                # effective_project_id and heading_warning were already
+                # resolved (using the same explicit-list_id/list_title-else-
+                # current-project fallback, and the combined
+                # _check_heading_status call) in the pre-write block above,
+                # before the AppleScript write ran, so neither is
+                # recomputed here.
                 if heading:
-                    try:
-                        todo_record = things.get(todo_id)
-                    except Exception as e:
-                        logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
-                        todo_record = None
-
-                    # Resolve which project the heading check/warning should be
-                    # scoped to: the explicitly-requested list_id, or (if none
-                    # given) the to-do's current project. things.py reports
-                    # project=None for a to-do whose parent is a heading (the
-                    # PROJECT join is on TASK.project, which is NULL for heading
-                    # children - the parent project only shows up on the
-                    # heading record itself), so fall back to looking up the
-                    # to-do's heading record's project in that case.
-                    effective_project_id = list_id
-                    list_id_resolution = None
-                    if not effective_project_id and todo_record:
-                        effective_project_id = todo_record.get('project')
-                        if not effective_project_id and todo_record.get('heading'):
-                            try:
-                                heading_record = things.get(todo_record['heading'])
-                            except Exception as e:
-                                logger.debug(
-                                    f"Error looking up heading {todo_record['heading']} "
-                                    f"for project fallback: {e}"
-                                )
-                                heading_record = None
-                            if heading_record:
-                                effective_project_id = heading_record.get('project')
-
-                    if list_id:
-                        list_id_resolution = self._resolve_list_id(list_id)
-
                     if list_id_resolution and list_id_resolution.get("kind") == "area":
                         warnings.append(
-                            f"list_id '{list_id}' resolves to an area, not a project; "
-                            "Things' URL scheme ignores 'heading' for area targets - "
-                            "the to-do will move into the area but not be placed under "
-                            "any heading."
+                            f"list_id '{effective_list_id_for_url}' resolves to an area, "
+                            "not a project; Things' URL scheme ignores 'heading' for area "
+                            "targets - the to-do will move into the area but not be placed "
+                            "under any heading."
                         )
                     elif effective_project_id:
-                        heading_warning = self._check_heading_exists(heading, list_id=effective_project_id)
                         if heading_warning:
                             warnings.append(heading_warning)
                     else:

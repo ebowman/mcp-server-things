@@ -48,6 +48,58 @@ def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
     return tag_list or None
 
 
+class _StrictBoolError(ValueError):
+    """Raised by `_parse_strict_bool` when a value is not 'true'/'false'.
+
+    Carries `field` and `message` so callers can build a structured
+    VALIDATION_ERROR response matching
+    `parameter_validator.create_validation_error_response`'s shape.
+    """
+
+    def __init__(self, field: str, value: Any):
+        self.field = field
+        self.value = value
+        self.message = (
+            f"must be 'true' or 'false' (case-insensitive), got '{value}'"
+        )
+        super().__init__(f"{field}: {self.message}")
+
+
+def _parse_strict_bool(value: Optional[Union[str, bool]], field_name: str) -> Optional[bool]:
+    """Strictly parse a completed/canceled parameter to bool or None.
+
+    Unlike the historical `value.lower() == 'true'` pattern (which silently
+    turns any non-'true' string - including typos like 'yes'/'1' - into
+    False and can unintentionally reopen a completed/canceled item), this
+    only accepts an actual bool, or the strings 'true'/'false'
+    (case-insensitive, surrounding whitespace stripped). Anything else
+    raises `_StrictBoolError` so the caller can return a structured
+    VALIDATION_ERROR instead of guessing.
+
+    Args:
+        value: None (leave unchanged), a bool, or a 'true'/'false' string.
+        field_name: Name of the field, used in the raised error.
+
+    Returns:
+        True, False, or None if `value` is None.
+
+    Raises:
+        _StrictBoolError: If `value` is a non-bool, non-'true'/'false' string,
+            or any other type (e.g. int).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == 'true':
+            return True
+        if lowered == 'false':
+            return False
+    raise _StrictBoolError(field_name, value)
+
+
 def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
     """Parse a comma-separated tag string for update_todo/update_project/update_area/
     bulk_update_todos, preserving the "clear all tags" signal.
@@ -481,10 +533,23 @@ class ThingsMCPServer:
             deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)"),
-            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
-            list_id: Optional[str] = Field(None, description="Project/area ID to move the to-do into when combined with heading (Things URL scheme supports moving + placing under a heading in one call). Only consulted when heading is also given")
+            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's/list_title's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
+            list_id: Optional[str] = Field(None, description="Project or area ID to move the to-do into. Combined with heading, moves + places under that heading in one call via the Things URL scheme. Without heading, moves the to-do directly into that project/area via AppleScript ('project id'/'area id') - cannot target inbox/today/anytime/someday (use move_record for those). Takes precedence over list_title if both are given"),
+            list_title: Optional[str] = Field(None, description="Project or area title to move the to-do into (resolved to an id the same way as add_todo's list_title). Only consulted when list_id is not given. Works the same whether or not heading is also given - resolved and used as the move target either way. Errors if the title matches zero or more than one project/area")
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
+
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled). Whenever
+            canceled is not 'true', completed (if given) decides the result:
+            'true' -> completed, 'false' -> open. canceled='false' alone (with
+            completed omitted) also reopens the todo - this is NOT a no-op.
+            Omitting both leaves status unchanged. completed/canceled only accept
+            the strings 'true'/'false' (case-insensitive) - any other value (e.g.
+            'yes', '1') is rejected with a structured VALIDATION_ERROR rather than
+            being silently coerced to False.
 
             Clear-field semantics for partial updates: a field left at its
             default (None/omitted) leaves the existing value unchanged.
@@ -492,6 +557,19 @@ class ThingsMCPServer:
             tags='' clears all tags. title='' is rejected with a validation
             error (titles cannot be cleared). when='' is also rejected -
             use when='anytime' or when='someday' to unschedule instead.
+
+            list_id/list_title move the to-do into a project or area.
+            Without heading, this happens via AppleScript in the same write
+            as the other AppleScript-only fields (title/notes/tags/etc.) -
+            it can move a to-do INTO a project or area but CANNOT place it
+            in the inbox/today/anytime/someday lists; use move_record() for
+            those destinations. With heading also given, the move instead
+            happens via the Things URL scheme together with the
+            heading placement (see below). list_id takes precedence over
+            list_title if both are given; an unresolvable list_id/list_title
+            (unknown id, or a title matching zero or more than one
+            project/area) is a structured error and no field in the same
+            call is applied.
 
             heading moves the to-do under that heading via the Things URL
             scheme (things:///update) - AppleScript cannot do this. It
@@ -503,8 +581,9 @@ class ThingsMCPServer:
             project or Things silently ignores it (ends up in the project,
             not under the heading) - a warning is returned when the heading
             could not be confirmed to exist. If the to-do has no project and
-            list_id is not also given, a warning is returned (URL-scheme
-            'heading' has no effect without a project).
+            neither list_id nor list_title is also given, a warning is
+            returned (URL-scheme 'heading' has no effect without a
+            project).
 
             when='evening' (alias 'tonight') schedules the to-do for This
             Evening. Like heading, this is only possible via the Things URL
@@ -517,6 +596,11 @@ class ThingsMCPServer:
             then the URL-scheme evening schedule is applied second - if
             that second URL-scheme call itself fails, the already-applied
             fields are NOT rolled back (same ordering/caveat as heading).
+            when='evening' combined with list_id/list_title but NO heading
+            moves the to-do via the AppleScript write only (first field
+            group above) - list_id/list_title is not also sent on the
+            evening URL-scheme call, since that would re-apply the same
+            move a second time.
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -548,14 +632,20 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the todo.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message
+                    }
 
                 result = await self.tools.update_todo(
                     todo_id=id,
@@ -567,7 +657,8 @@ class ThingsMCPServer:
                     completed=completed_bool,
                     canceled=canceled_bool,
                     heading=heading,
-                    list_id=list_id
+                    list_id=list_id,
+                    list_title=list_title
                 )
 
                 # Enhance response with tag validation feedback if available
@@ -600,6 +691,18 @@ class ThingsMCPServer:
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
             """Update multiple todos with the same changes in a single operation.
+
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled for every
+            todo). Whenever canceled is not 'true', completed (if given) decides
+            the result: 'true' -> completed, 'false' -> open. canceled='false'
+            alone (with completed omitted) also reopens every todo - this is NOT
+            a no-op. Omitting both leaves status unchanged. completed/canceled
+            only accept the strings 'true'/'false' (case-insensitive) - any
+            other value (e.g. 'yes', '1') is rejected with a structured
+            VALIDATION_ERROR rather than being silently coerced to False.
 
             Clear-field semantics for partial updates (same contract as
             update_todo): a field left at its default (None/omitted) leaves
@@ -659,14 +762,21 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the todos.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message,
+                        "updated_count": 0
+                    }
 
                 result = await self.tools.bulk_update_todos(
                     todo_ids=id_list,
@@ -776,14 +886,22 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get a specific Things item by its ID.
 
-            Resolves any Things item id, not just to-dos - projects and
-            headings resolve too. The returned item's `type` field
-            ('to-do', 'heading', or 'project') tells you which kind it is.
-            Trashed items also resolve, with `trashed: true` included in
-            the result.
+            Resolves any Things item id, not just to-dos - projects, headings,
+            and areas resolve too. The returned item's `type` field
+            ('to-do', 'heading', 'project', or 'area') tells you which kind
+            it is. Trashed items also resolve, with `trashed: true` included
+            in the result.
+
+            A tag id returns the canonical structured error at the top level
+            (`{"success": false, "error": "invalid_type", "message": ...}`,
+            not nested under `item`) instead of an item - a tag is a label,
+            not a retrievable item; use `get_tags()` or `get_tagged_items()`
+            for tags. An id that does not exist at all raises an error.
             """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)
+                if isinstance(todo, dict) and todo.get('success') is False:
+                    return todo
                 return {"item": todo}
             except Exception as e:
                 logger.error(f"Error getting todo by ID: {e}")
@@ -791,9 +909,19 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def delete_todo(
-            todo_id: str = Field(..., description="ID of the todo to delete")
+            todo_id: str = Field(..., description="ID of the todo or project to delete")
         ) -> Dict[str, Any]:
-            """Delete a todo by ID."""
+            """Trash a to-do or project by ID (moves it to Things' Trash, not a permanent delete).
+
+            Works for both to-do ids and project ids - the type is
+            auto-detected so the right AppleScript delete form is used
+            (Things' AppleScript dictionary does not accept a project id
+            where a to-do id is expected, and vice versa). Headings, areas,
+            and tags cannot be deleted via this tool (Things' AppleScript
+            dictionary has no delete support for them); those ids return a
+            structured `not_deletable` error explaining what to use instead
+            - delete them manually in the Things UI.
+            """
             try:
                 return await self.tools.delete_todo(todo_id)
             except Exception as e:
@@ -956,10 +1084,17 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content.
 
-            Status semantics for completed/canceled: canceled takes precedence when both are
-            given (e.g. completed='false', canceled='true' results in canceled). Passing
-            completed='false' or canceled='false' alone (with the other omitted) reopens the
-            project. Omitting both leaves status unchanged.
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled). Whenever
+            canceled is not 'true', completed (if given) decides the result:
+            'true' -> completed, 'false' -> open. canceled='false' alone (with
+            completed omitted) also reopens the project - this is NOT a no-op.
+            Omitting both leaves status unchanged. completed/canceled only accept
+            the strings 'true'/'false' (case-insensitive) - any other value (e.g.
+            'yes', '1') is rejected with a structured VALIDATION_ERROR rather than
+            being silently coerced to False.
 
             Clear-field semantics for partial updates: a field left at its
             default (None/omitted) leaves the existing value unchanged.
@@ -998,14 +1133,20 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the project.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message
+                    }
 
                 return await self.tools.update_project(
                     project_id=id,
@@ -1280,13 +1421,15 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_logbook(
-            limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
+            limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50 (1-500)", ge=1, le=500),
             period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$"),
-            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0)
+            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0),
+            include_canceled: bool = Field(True, description="Also include canceled to-dos alongside completed ones, matching the Things app's own Logbook view. Defaults to true. Each item's `status` field ('completed' or 'canceled') distinguishes them; set false to return only completed to-dos.")
         ) -> Dict[str, Any]:
-            """Get completed todos from Logbook. Supports limit (max 100), offset, and period filters (e.g., '7d', '1w')."""
+            """Get completed (and, by default, canceled) todos from Logbook. Supports limit (max 500), offset, and period filters (e.g., '7d', '1w')."""
             try:
-                logbook_data = await self.tools.get_logbook(limit=limit, period=period, offset=offset)
+                logbook_data = await self.tools.get_logbook(
+                    limit=limit, period=period, offset=offset, include_canceled=include_canceled)
                 total = getattr(logbook_data, 'total_count', None)
                 result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
                 result['period'] = period
@@ -1393,7 +1536,9 @@ class ThingsMCPServer:
             try:
                 tagged_items = await self.tools.get_tagged_items(tag=tag)
                 if isinstance(tagged_items, dict) and tagged_items.get('error') == 'unknown_tag':
-                    tagged_items['tag'] = tag
+                    # 'tag' is already set on this dict by
+                    # _build_unknown_tag_error (read_operations.py) - no need
+                    # to overwrite it here.
                     return tagged_items
                 result = self._read_result(tagged_items, mode='standard')
                 result['tag'] = tag
@@ -1687,11 +1832,12 @@ class ThingsMCPServer:
                     offset=offset
                 )
 
-                # A structured error (e.g. unknown_tag) comes back as a
-                # single-element list wrapping an error dict, per the
-                # existing convention (see also the invalid `type` filter
-                # error above). Surface it directly rather than feeding it
-                # through optimize_response, which expects a list of todos.
+                # A structured error (e.g. unknown_tag, invalid_parameter)
+                # comes back from ReadOperations.search_advanced as a
+                # single-element list wrapping a `read_error(...)` dict
+                # (`{"success": False, "error": ..., "message": ...}`).
+                # Surface it directly rather than feeding it through
+                # optimize_response, which expects a list of todos.
                 if (
                     len(raw_data) == 1
                     and isinstance(raw_data[0], dict)

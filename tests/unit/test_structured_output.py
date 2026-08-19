@@ -22,6 +22,19 @@ SAMPLE_TODO = {
     "dueDate": None,
 }
 
+SAMPLE_PROJECT = {
+    "uuid": "proj123",
+    "title": "Test project",
+    "type": "project",
+    "status": "open",
+    "notes": "Some notes",
+    "tags": ["work"],
+    "area": "area-uuid",
+    "areaTitle": "Work",
+    "start": "Anytime",
+    "dueDate": None,
+}
+
 
 def _make_server_with_mock_tools(**overrides):
     """Create a ThingsMCPServer with a MagicMock ThingsTools layer.
@@ -130,6 +143,28 @@ class TestStructuredContentShape:
         assert sc["item"]["title"] == "Test todo"
 
     @pytest.mark.asyncio
+    async def test_get_todo_by_id_tag_error_is_top_level_not_nested(self):
+        """A tag id resolves to the canonical structured error
+        ({"success": false, "error": "invalid_type", ...}) at the top level
+        of structured_content, not nested under "item" (hq-f0w.23 review)."""
+        tag_error = {
+            "success": False,
+            "error": "invalid_type",
+            "message": "Item tag123 is a tag, not a retrievable item. Use get_tags() or get_tagged_items() for tags.",
+        }
+        server = _make_server_with_mock_tools(get_todo_by_id=tag_error)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_todo_by_id", {"todo_id": "tag123"})
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc.get("success") is False
+        assert sc.get("error") == "invalid_type"
+        assert "item" not in sc
+
+    @pytest.mark.asyncio
     async def test_get_inbox_bare_list_tool_does_not_crash(self):
         """get_inbox previously returned a bare list when mode was omitted, which
         crashes under FastMCP 3.x (structured_content must be a dict). Verify the
@@ -210,6 +245,35 @@ class TestStructuredContentShape:
         assert sc["count"] == 1
         assert sc["has_more"] is True
         assert sc["total_count"] == 5
+
+
+class TestGetProjectsFieldFiltering:
+    """hq-f0w.32: get_projects(mode='standard'/'minimal') must keep a
+    project's area/areaTitle - the shared todo field sets used to be applied
+    to project rows too, and never carried area/areaTitle."""
+
+    @pytest.mark.asyncio
+    async def test_standard_mode_keeps_area_fields(self):
+        server = _make_server_with_mock_tools(get_projects=[SAMPLE_PROJECT])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "standard"})
+
+        item = result.structured_content["items"][0]
+        assert item["area"] == "area-uuid"
+        assert item["areaTitle"] == "Work"
+
+    @pytest.mark.asyncio
+    async def test_minimal_mode_keeps_area_field(self):
+        server = _make_server_with_mock_tools(get_projects=[SAMPLE_PROJECT])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "minimal"})
+
+        item = result.structured_content["items"][0]
+        assert item["area"] == "area-uuid"
 
 
 class TestAutoModeReportsEffectiveMode:
@@ -328,6 +392,45 @@ class TestAutoModeReportsEffectiveMode:
         sc = result.structured_content
         assert sc is not None
         assert sc["mode"] == "summary"
+        assert sc["requested_mode"] == "auto"
+
+
+class TestEmptyResultsReportConcreteMode:
+    """hq-f0w.26: empty results with mode omitted/'auto' must report a concrete
+    effective mode (not the literal 'auto') per CLAUDE.md's Structured Output docs.
+    context_manager.optimize_response's empty-data path now resolves AUTO to
+    'standard' and records it in meta['mode']."""
+
+    @pytest.mark.asyncio
+    async def test_get_projects_empty_auto_mode_reports_standard_not_auto(self):
+        server = _make_server_with_mock_tools(get_projects=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {})
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc["items"] == []
+        assert sc["mode"] == "standard"
+        assert sc["mode"] != "auto"
+        assert sc["requested_mode"] == "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_project_headings_empty_auto_mode_reports_standard_not_auto(self):
+        server = _make_server_with_mock_tools(get_project_headings={"items": []})
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_project_headings", {"project_id": "proj123"}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert sc["items"] == []
+        assert sc["mode"] == "standard"
+        assert sc["mode"] != "auto"
         assert sc["requested_mode"] == "auto"
 
 

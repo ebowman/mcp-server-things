@@ -228,11 +228,6 @@ class ThingsMCPConfig(BaseSettings):
         description="Enable health check endpoints"
     )
 
-    use_new_applescript_parser: bool = Field(
-        default=True,
-        description="Use new state machine parser for AppleScript output (recommended, fixes date parsing bugs)"
-    )
-    
     # Things 3 specific configuration
     things_app_name: str = Field(
         default="Things3",

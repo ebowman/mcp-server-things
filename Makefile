@@ -1,6 +1,6 @@
 # Makefile for Things 3 MCP Server
 
-.PHONY: help install test test-unit test-integration lint clean coverage docs
+.PHONY: help install test test-unit test-integration test-live lint clean coverage docs
 
 # Default target
 help:
@@ -13,6 +13,7 @@ help:
 	@echo "  test           Run all tests"
 	@echo "  test-unit      Run unit tests only"
 	@echo "  test-integration Run integration tests only"
+	@echo "  test-live      Run the opt-in live Things 3 smoke suite (writes to a real Things 3)"
 	@echo "  coverage       Run tests with coverage report"
 	@echo ""
 	@echo "Code Quality:"
@@ -37,6 +38,13 @@ test-unit:
 
 test-integration:
 	python -m pytest tests/integration -v
+
+# Opt-in live Things 3 smoke suite (hq-f0w.14): requires a real, running
+# Things 3 and writes to (then cleans up after itself in) that live
+# database. Skipped entirely unless THINGS_MCP_LIVE_TESTS=1 is set - see
+# tests/live/conftest.py and docs/TESTING.md.
+test-live:
+	THINGS_MCP_LIVE_TESTS=1 python -m pytest tests/live -v
 
 coverage:
 	python -m pytest --cov=src/things_mcp --cov-report=html --cov-report=term-missing

@@ -520,64 +520,6 @@ class TestURLAndMetadata:
         return ThingsTools(mock_applescript_manager)
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
-               "TodoOperations.add_todo/_build_create_todo_script never reads "
-               "kwargs['url'], so the URL never reaches the AppleScript "
-               "'make new to do' properties or notes. Note: server.py's "
-               "add_todo MCP tool does not expose a url parameter, so this "
-               "is a dead tools-layer kwarg, not a user-facing bug.",
-    )
-    async def test_create_todo_with_url(self, tools_with_mock, mock_applescript_manager):
-        """Test creating todo with URL."""
-        url = "https://example.com/page?param=value&other=123"
-
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-url",
-            "error": None
-        })
-
-        result = await tools_with_mock.add_todo(
-            title="Test with URL",
-            url=url
-        )
-
-        assert result["success"] is True
-        script = mock_applescript_manager.execution_calls[0]["script"]
-        assert url in script
-
-    @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
-               "TodoOperations.add_todo/_build_create_todo_script never reads "
-               "kwargs['url'], so the URL never reaches the AppleScript "
-               "'make new to do' properties or notes. Note: server.py's "
-               "add_todo MCP tool does not expose a url parameter, so this "
-               "is a dead tools-layer kwarg, not a user-facing bug.",
-    )
-    async def test_url_with_special_chars(self, tools_with_mock, mock_applescript_manager):
-        """Test URL with special characters."""
-        url = "https://example.com/search?q=test&tags=work,urgent"
-
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-url-special",
-            "error": None
-        })
-
-        result = await tools_with_mock.add_todo(
-            title="Test",
-            url=url
-        )
-
-        assert result["success"] is True
-        script = mock_applescript_manager.execution_calls[0]["script"]
-        assert url in script
-
-    @pytest.mark.asyncio
     async def test_retrieve_metadata(self, tools_with_mock):
         """Test retrieving todos with metadata fields."""
         with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
@@ -608,62 +550,6 @@ class TestStatusValues:
     @pytest.fixture
     def tools_with_mock(self, mock_applescript_manager):
         return ThingsTools(mock_applescript_manager)
-
-    @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
-               "TodoOperations.add_todo never reads kwargs['status'] "
-               "(tentative/confirmed), so it has no effect on the emitted "
-               "AppleScript at all (Things 3 to-dos have no such status "
-               "concept). Note: server.py's add_todo MCP tool does not "
-               "expose a status parameter, so this is a dead tools-layer "
-               "kwarg, not a user-facing bug.",
-    )
-    async def test_create_with_status_tentative(self, tools_with_mock, mock_applescript_manager):
-        """Test creating todo with tentative status."""
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-tentative",
-            "error": None
-        })
-
-        result = await tools_with_mock.add_todo(
-            title="Tentative task",
-            status="tentative"
-        )
-
-        assert result["success"] is True
-        script = mock_applescript_manager.execution_calls[0]["script"]
-        assert "tentative" in script
-
-    @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="hq-f0w.30: add_todo silently drops url/status kwargs - "
-               "TodoOperations.add_todo never reads kwargs['status'] "
-               "(tentative/confirmed), so it has no effect on the emitted "
-               "AppleScript at all (Things 3 to-dos have no such status "
-               "concept). Note: server.py's add_todo MCP tool does not "
-               "expose a status parameter, so this is a dead tools-layer "
-               "kwarg, not a user-facing bug.",
-    )
-    async def test_create_with_status_confirmed(self, tools_with_mock, mock_applescript_manager):
-        """Test creating todo with confirmed status."""
-        mock_applescript_manager.set_mock_response("default", {
-            "success": True,
-            "output": "todo-confirmed",
-            "error": None
-        })
-
-        result = await tools_with_mock.add_todo(
-            title="Confirmed task",
-            status="confirmed"
-        )
-
-        assert result["success"] is True
-        script = mock_applescript_manager.execution_calls[0]["script"]
-        assert "confirmed" in script
 
     @pytest.mark.asyncio
     async def test_complete_todo(self, tools_with_mock, mock_applescript_manager):

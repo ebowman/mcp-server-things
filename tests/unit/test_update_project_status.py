@@ -100,10 +100,9 @@ class TestUpdateProjectCanceledStatus:
 
         This is required by the bead's done-criteria:
         update_project(canceled='false') -> things.get(uuid)['status'] == 'incomplete'.
-        It intentionally diverges from the todo path's _build_update_script, which
-        treats canceled=False as a no-op when completed is also unset - a project
-        left canceled with no way to reopen it via canceled=False would fail the
-        real-Things verification step.
+        As of hq-f0w.22, the todo path's _build_update_script uses this same
+        semantics (canceled=False alone reopens); update_todo, bulk_update_todos
+        and update_project now share one status-precedence table (see CLAUDE.md).
         """
         result = await todo_operations.update_project("PROJ-1", canceled=False)
 
@@ -138,6 +137,31 @@ class TestUpdateProjectStatusPrecedence:
         assert "set status of targetProject to canceled" in script
         assert script.count("set status of targetProject to open") == 0
         assert script.count("set status of targetProject to completed") == 0
+
+    @pytest.mark.asyncio
+    async def test_completed_true_wins_over_canceled_false(self, todo_operations, mock_applescript_manager):
+        """completed=True, canceled=False -> completed (canceled=False is only
+        the reopen signal when completed is NOT given; here completed decides).
+        This is the same cell hq-f0w.22 review gap 1 found broken in
+        bulk_update_todos - locked in here for update_project too."""
+        result = await todo_operations.update_project("PROJ-1", completed=True, canceled=False)
+
+        assert result["success"] is True
+        script = _rendered_script(mock_applescript_manager)
+
+        assert "set status of targetProject to completed" in script
+        assert script.count("set status of targetProject to open") == 0
+
+    @pytest.mark.asyncio
+    async def test_completed_false_and_canceled_false_sets_status_open(self, todo_operations, mock_applescript_manager):
+        """completed=False, canceled=False -> open (both agree on reopening)."""
+        result = await todo_operations.update_project("PROJ-1", completed=False, canceled=False)
+
+        assert result["success"] is True
+        script = _rendered_script(mock_applescript_manager)
+
+        assert "set status of targetProject to open" in script
+        assert script.count("set status of targetProject to canceled") == 0
 
 
 class TestUpdateProjectForwardsCanceledFromToolsChain(object):

@@ -137,17 +137,21 @@ class BulkOperations:
             script += f'    try\n'
             script += f'        set targetTodo to to do id "{todo_id}"\n'
 
-            # Handle status updates with proper precedence (canceled takes priority)
-            if 'canceled' in kwargs and kwargs['canceled'] is not None:
-                if kwargs['canceled']:
-                    script += f'        set status of targetTodo to canceled\n'
-                else:
-                    script += f'        set status of targetTodo to open\n'
+            # Handle status updates with proper precedence (mirrors
+            # TodoOperations._build_update_script / update_project):
+            # canceled=True always wins regardless of completed; otherwise
+            # completed (True/False) sets completed/open; otherwise
+            # canceled=False alone (with completed omitted/None) reopens the
+            # todo rather than being a no-op.
+            if kwargs.get('canceled'):
+                script += f'        set status of targetTodo to canceled\n'
             elif 'completed' in kwargs and kwargs['completed'] is not None:
                 if kwargs['completed']:
                     script += f'        set status of targetTodo to completed\n'
                 else:
                     script += f'        set status of targetTodo to open\n'
+            elif 'canceled' in kwargs and kwargs['canceled'] is False:
+                script += f'        set status of targetTodo to open\n'
 
             if 'title' in kwargs and kwargs['title'] is not None:
                 escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title'])

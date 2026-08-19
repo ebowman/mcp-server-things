@@ -946,12 +946,15 @@ class ReadOperations:
             logger.error(f"Error in _get_someday_sync: {e}")
             return []
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
-        """Get completed todos from Logbook."""
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
+                           include_canceled: bool = True) -> List[Dict]:
+        """Get completed (and, by default, canceled) todos from Logbook."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period, offset)
+        return await loop.run_in_executor(
+            None, self._get_logbook_sync, limit, period, offset, include_canceled)
 
-    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
+    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0,
+                           include_canceled: bool = True) -> List[Dict]:
         """Synchronous implementation.
 
         Args:
@@ -960,6 +963,13 @@ class ReadOperations:
             period: Time window to look back (e.g. '7d').
             offset: Number of sorted items to skip before applying limit
                 (same semantics as get_trash's offset).
+            include_canceled: When True (default), also include canceled
+                to-dos alongside completed ones - matching what the Things
+                3 app itself shows in its Logbook list (completed and
+                canceled items interleaved, sorted by stop date). When
+                False, only completed to-dos are returned (prior behavior).
+                Each returned item's `status` field ('completed' or
+                'canceled') lets callers tell them apart.
 
         Returns:
             A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
@@ -968,13 +978,16 @@ class ReadOperations:
             populate `total`).
         """
         try:
-            completed_todos = things.todos(status='completed')
+            statuses = ('completed', 'canceled') if include_canceled else ('completed',)
+            logbook_todos = []
+            for status in statuses:
+                logbook_todos.extend(things.todos(status=status) or [])
 
             days = ToolsHelpers.parse_period_to_days(period)
             cutoff_date = datetime.now() - timedelta(days=days)
 
             result = []
-            for todo in completed_todos:
+            for todo in logbook_todos:
                 completed_date = todo.get('stop_date')
                 if completed_date:
                     try:
@@ -988,7 +1001,7 @@ class ReadOperations:
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Skipping todo with invalid completion date '{completed_date}': {e}")
 
-            # Sort by completion date (most recent first)
+            # Sort by completion/cancellation date (most recent first)
             result.sort(key=lambda x: x.get('_sort_date', datetime.min), reverse=True)
 
             # Remove temporary sort key
@@ -1153,9 +1166,14 @@ class ReadOperations:
         """Get a specific Things item by ID.
 
         Resolves any Things item id, not just to-dos - the returned item's
-        `type` field ('to-do', 'heading', or 'project') tells you which kind
-        it is. Trashed items also resolve; when trashed, the result includes
-        `trashed: True`. Raises ValueError if the id does not exist.
+        `type` field ('to-do', 'heading', 'project', or 'area') tells you
+        which kind it is. Trashed items also resolve; when trashed, the
+        result includes `trashed: True`. A tag id resolves to a structured
+        error (`error: 'invalid_type'`) rather than an item, since a tag is
+        a label, not a retrievable item - use `get_tags()`/`get_tagged_items()`
+        for tags instead. Raises ValueError if the id does not exist at all.
+        As it always has, a to-do result always carries a `checklist` key
+        (a list, `[]` when the to-do has no checklist).
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
@@ -1168,6 +1186,24 @@ class ReadOperations:
         linear scan over things.todos() (to-do only, excludes trashed). This
         means projects, headings, and trashed items now resolve instead of
         raising 'Todo not found'.
+
+        things.get() falls through tasks() -> areas() -> tags() in turn, so
+        it also resolves area and tag uuids (things.py 1.0.1). Areas dispatch
+        to convert_area (type 'area'). Tags are not items with content of
+        their own - things.get() returns a bare {'uuid', 'type': 'tag',
+        'title', 'shortcut'} row for them - so a tag id returns a structured
+        invalid_type error instead of a thin/misleading item; use
+        get_tags()/get_tagged_items() for tags.
+
+        things.get(uuid) internally forces include_items=True for any
+        single-uuid lookup (things.py tasks(), 1.0.1), so a to-do's
+        `checklist` key - when the to-do actually has a checklist - is
+        already the full list of checklist item dicts; no separate
+        things.checklist_items() re-fetch is needed. things.py omits the
+        `checklist` key entirely (rather than emitting an empty list) for a
+        to-do with no checklist, but get_todo_by_id has always guaranteed a
+        `checklist` list is present in its result (see docs/UPGRADING.md),
+        so that case is normalized to `checklist: []` here.
         """
         try:
             item = things.get(todo_id)
@@ -1177,7 +1213,18 @@ class ReadOperations:
 
             item_type = item.get('type', 'to-do')
 
-            if item_type == 'project':
+            if item_type == 'tag':
+                return read_error(
+                    'invalid_type',
+                    (
+                        f"Item {todo_id} is a tag, not a retrievable item. "
+                        "Use get_tags() or get_tagged_items() for tags."
+                    ),
+                )
+
+            if item_type == 'area':
+                converted = ToolsHelpers.convert_area(item)
+            elif item_type == 'project':
                 converted = ToolsHelpers.convert_project(item)
             else:
                 # 'to-do' and 'heading' both use convert_todo; convert_todo
@@ -1199,12 +1246,23 @@ class ReadOperations:
                     except Exception as e:
                         logger.debug(f"Error resolving heading project for todo {todo_id}: {e}")
 
+                # things.get() already forces include_items=True, so
+                # item['checklist'] (when present) is already the full list
+                # of checklist item dicts, not the has-checklist bool that
+                # things.tasks() returns without include_items. Normalize to
+                # the same {'title', 'status'} shape used elsewhere (e.g.
+                # get_todos(include_items=True)) rather than passing through
+                # the raw things.py rows (which also carry uuid/type/
+                # created/modified/stop_date). get_todo_by_id has always
+                # fetched checklist items for to-dos (see docs/UPGRADING.md),
+                # so a to-do with no checklist column (things.py omits the
+                # key entirely rather than emitting an empty list) still
+                # gets an explicit checklist: [] here, not a missing key.
                 if item_type == 'to-do':
-                    try:
-                        items = things.checklist_items(todo_id)
-                        converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
-                    except (KeyError, TypeError) as e:
-                        logger.warning(f"Could not fetch checklist items for todo {todo_id}: {e}")
+                    raw_checklist = item.get('checklist')
+                    converted['checklist'] = [
+                        {'title': i.get('title'), 'status': i.get('status')} for i in raw_checklist
+                    ] if isinstance(raw_checklist, list) else []
 
             if item.get('trashed'):
                 converted['trashed'] = True
@@ -1390,13 +1448,18 @@ class ReadOperations:
             exactly like ``List[Dict]`` for all existing callers, but also
             carries the true pre-limit/offset match count on ``.total_count``
             (used by server.py to populate `total`). If ``tag`` is unknown
-            to things.py (things.py raises ValueError, e.g. for a wrong-case
-            variant of a real tag), returns a plain single-element list
-            containing a structured error dict: ``[{'success': False, 'error':
-            'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
-            suggestions are case-insensitive title matches from
-            ``things.tags()``. This mirrors the existing structured-error
-            convention used above for an invalid ``type`` filter.
+            to things.py (things.py raises ``ValueError("Unrecognized tag
+            type: ...")``, e.g. for a wrong-case variant of a real tag),
+            returns a plain single-element list containing a structured
+            error dict: ``[{'success': False, 'error': 'unknown_tag', 'tag':
+            tag, 'suggestions': [...]}]`` where suggestions are
+            case-insensitive title matches from ``things.tags()``. This
+            mirrors the existing structured-error convention used above for
+            an invalid ``type`` filter. Any other ``ValueError`` from
+            things.py (e.g. an invalid ``start_date``/``deadline`` value or
+            operator) is NOT reinterpreted as an unknown tag even when
+            ``tag`` was also supplied - it instead returns a single-element
+            list containing ``read_error('invalid_parameter', str(e))``.
         """
         try:
             # Extract filters
@@ -1458,7 +1521,7 @@ class ReadOperations:
                 else:
                     todos = things.todos(**query_params)
             except ValueError as e:
-                if tag:
+                if tag and 'Unrecognized tag type' in str(e):
                     logger.info(f"Unknown tag '{tag}' in _search_advanced_sync: {e}")
                     return [_build_unknown_tag_error(tag)]
                 raise
@@ -1487,6 +1550,15 @@ class ReadOperations:
 
             logger.debug(f"search_advanced found {total_count} matching todos using things.py")
             return ListWithTotal(results, total_count=total_count)
+
+        except ValueError as e:
+            # A ValueError from things.py that wasn't the tag-specific
+            # 'Unrecognized tag type' case handled above (e.g. an invalid
+            # start_date/deadline value/operator) - surface it as a
+            # structured error instead of silently returning an empty list,
+            # so callers can distinguish "bad input" from "no matches".
+            logger.error(f"Error in _search_advanced_sync: {e}")
+            return [read_error('invalid_parameter', str(e))]
 
         except Exception as e:
             logger.error(f"Error in _search_advanced_sync: {e}")

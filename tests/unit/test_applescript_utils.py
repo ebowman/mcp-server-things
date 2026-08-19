@@ -10,6 +10,7 @@ import pytest
 
 from things_mcp.utils.applescript_utils import AppleScriptTemplates
 from things_mcp.tools import ThingsTools
+from things_mcp.services.validation_service import ValidationService
 
 
 def count_unescaped_quotes(script: str) -> int:
@@ -238,3 +239,41 @@ class TestScriptBuildersPreserveNewlinesAndBalance:
 
         script = mock_applescript_manager.execution_calls[-1]["script"]
         assert_balanced_quotes(script)
+
+
+class TestValidationServiceEscapeIdUsesSharedEscaper:
+    """hq-f0w.21: ValidationService._escape_id() used to build its own
+    backslash/quote escaping inline. It now delegates to
+    AppleScriptTemplates.escape_string_inner.
+    """
+
+    @pytest.fixture
+    def service(self, mock_applescript_manager):
+        return ValidationService(mock_applescript_manager)
+
+    def test_escape_id_matches_shared_escaper(self, service):
+        raw = 'a"b\\c\nd'
+        assert service._escape_id(raw) == AppleScriptTemplates.escape_string_inner(raw)
+        # Old inline escaper (`.replace('\\\\', ...).replace('"', ...)`) never
+        # touched newlines - a newline is what actually distinguishes the
+        # shared escaper's output from the old code's.
+        assert '\\n' in service._escape_id(raw)
+
+    def test_escape_id_empty_string(self, service):
+        assert service._escape_id("") == ""
+
+    @pytest.mark.asyncio
+    async def test_validate_todo_id_script_balanced_quotes(self, service, mock_applescript_manager):
+        mock_applescript_manager.set_mock_response("default", {
+            "success": True, "output": "EXISTS", "error": None
+        })
+        result = await service.validate_todo_id('weird"id\\here\nx')
+        assert result["valid"] is True
+
+        script = mock_applescript_manager.execution_calls[-1]["script"]
+        assert_balanced_quotes(script)
+        assert 'weird\\"id\\\\here\\nx' in script
+        # The newline must survive as the escape sequence \\n, not a raw
+        # newline, inside the `to do id "..."` literal.
+        literal = script.split('to do id "')[1].split('"')[0]
+        assert '\n' not in literal

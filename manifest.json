@@ -107,7 +107,7 @@
     },
     {
       "name": "delete_todo",
-      "description": "Delete a todo by ID."
+      "description": "Trash a to-do or project by ID (moves it to Things' Trash, not a permanent delete)."
     },
     {
       "name": "get_activating_in_days",
@@ -131,7 +131,7 @@
     },
     {
       "name": "get_logbook",
-      "description": "Get completed todos from Logbook."
+      "description": "Get completed (and, by default, canceled) todos from Logbook."
     },
     {
       "name": "get_project_headings",

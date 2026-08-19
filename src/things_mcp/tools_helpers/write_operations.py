@@ -10,9 +10,22 @@ from ..services.tag_service import TagValidationService
 from ..move_operations import MoveOperationsTools
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
 from ..utils.applescript_utils import AppleScriptTemplates
+from ..things_import import LazyThingsProxy
 from .helpers import ToolsHelpers
 
+# Lazily-importing proxy for things.py - avoids the module-level, unbounded
+# glob.iglob() scan that a plain `import things` would perform at server
+# boot time. See things_import.LazyThingsProxy docstring.
+things = LazyThingsProxy()
+
 logger = logging.getLogger(__name__)
+
+# Sentinel distinguishing "things.py is unavailable / lookup itself failed
+# for a reason unrelated to the id's existence" from "things.get()
+# genuinely resolved and found nothing" (the latter is a real None return).
+# delete_todo()'s type resolution only falls back to blind to-do/project
+# delete attempts in the former case; the latter is a structured not_found.
+_RESOLVE_UNAVAILABLE = object()
 
 
 class WriteOperations:
@@ -182,21 +195,93 @@ class WriteOperations:
             }
 
     async def delete_todo(self, todo_id: str) -> Dict[str, Any]:
-        """Delete a todo using AppleScript."""
+        """Delete (trash) a to-do or project using AppleScript.
+
+        Things' AppleScript dictionary does not treat a project as a to-do
+        subtype for `delete`: `delete (to do id "<project-uuid>")` reliably
+        errors with "Can't get to do id ..." even though reads on that same
+        id resolve fine. Only `delete (project id "<project-uuid>")` works
+        for projects (see hq-f0w.14/hq-f0w.40). This method resolves the
+        item's type via things.get() first so it can pick the right script;
+        when things.py is unavailable (import failure) or the lookup itself
+        cannot be completed for a reason unrelated to the id's existence,
+        it falls back to trying `to do id` then `project id` blind, and
+        finally a `move ... to list "Trash"` as a last resort for cases
+        where `delete` itself errors (e.g. a to-do whose parent project was
+        already trashed in the same pass, per hq-f0w.14).
+
+        Headings, areas, and tags cannot be deleted via AppleScript at all
+        (Things' dictionary has no `delete` support for them) - those ids
+        return a structured error explaining what to use instead, without
+        attempting any AppleScript call. A genuinely nonexistent id (one
+        things.get() resolves cleanly but finds nothing for) likewise
+        returns a structured error without attempting any AppleScript call.
+        """
         try:
             todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
 
-            script = f'''
-            tell application "Things3"
-                set targetTodo to to do id "{todo_id}"
-                delete targetTodo
-                return "deleted"
-            end tell
-            '''
-            result = await self.applescript.execute_applescript(script)
+            item_type = self._resolve_delete_item_type(todo_id)
+
+            if item_type in ('heading', 'area', 'tag'):
+                kind_label = {
+                    'heading': 'a heading',
+                    'area': 'an area',
+                    'tag': 'a tag',
+                }[item_type]
+                hint = {
+                    'heading': "Headings cannot be deleted via the Things AppleScript API - delete it manually in the Things UI.",
+                    'area': "Areas cannot be deleted via the Things AppleScript API (and deleting an area also deletes its projects) - delete it manually in the Things UI.",
+                    'tag': "Tags cannot be deleted via delete_todo() - manage tags manually in the Things UI.",
+                }[item_type]
+                return {
+                    "success": False,
+                    "error": "not_deletable",
+                    "message": f"Item {todo_id} is {kind_label}. {hint}"
+                }
+
+            if item_type is None:
+                # things.get() resolved cleanly and found nothing - a
+                # genuinely nonexistent id, not a things.py availability
+                # problem. Fail fast with a structured error rather than
+                # spending 2-3 AppleScript round-trips on an id that will
+                # never resolve.
+                return {
+                    "success": False,
+                    "error": "not_found",
+                    "message": f"No to-do or project found with id {todo_id}"
+                }
+
+            if item_type == 'project':
+                result = await self._try_delete_scripts(todo_id, ['project id'])
+            elif item_type is not _RESOLVE_UNAVAILABLE:
+                # 'to-do' (and any other resolvable non-project type)
+                result = await self._try_delete_scripts(todo_id, ['to do id'])
+            else:
+                # things.get() unavailable - try both blind.
+                result = await self._try_delete_scripts(todo_id, ['to do id', 'project id'])
+
+            if result.get('success'):
+                deleted_as_project = result.get('id_kind') == 'project id'
+                return {
+                    "success": True,
+                    "message": "Project deleted successfully" if deleted_as_project else "Todo deleted successfully"
+                }
+
+            # Everything above failed to run `delete` successfully - last
+            # resort is `move ... to list "Trash"`, which succeeds in cases
+            # where `delete` itself errors (e.g. parent project already
+            # trashed).
+            move_result = await self._try_move_to_trash(todo_id)
+            if move_result.get('success'):
+                return {
+                    "success": True,
+                    "message": "Todo moved to Trash successfully"
+                }
+
             return {
-                "success": result.get('success', False),
-                "message": "Todo deleted successfully" if result.get('success') else result.get('error', 'Failed to delete todo')
+                "success": False,
+                "error": result.get('error', 'Failed to delete todo'),
+                "message": result.get('error', 'Failed to delete todo')
             }
         except Exception as e:
             logger.error(f"Error deleting todo: {e}")
@@ -205,6 +290,99 @@ class WriteOperations:
                 "error": str(e),
                 "message": "Failed to delete todo"
             }
+
+    def _resolve_delete_item_type(self, todo_id: str) -> Any:
+        """Resolve an id's type via things.get() for delete_todo's script selection.
+
+        Returns the item's `type` string ('to-do', 'heading', 'project',
+        'area', 'tag') if things.get() resolves the id, or `None` if
+        things.get() resolves cleanly but finds nothing (a genuinely
+        nonexistent id - the caller returns a structured not_found error
+        for this case, not a blind fallback). Returns the module-level
+        `_RESOLVE_UNAVAILABLE` sentinel only when the lookup itself could
+        not be completed for a reason unrelated to the id's existence
+        (things.py import failure, database unreadable, etc.) - callers
+        fall back to trying both AppleScript delete forms blind only in
+        that case.
+
+        things.get(uuid, **kwargs) (things.py 1.0.1) forwards **kwargs to
+        each lookup it tries in turn: tasks(uuid=..., **kwargs) first, and
+        - only if that raises ValueError (id not a task) - areas(uuid=...,
+        **kwargs) next. `trashed` is a kwarg tasks() accepts but
+        Database.get_areas() does not, so `things.get(id, trashed=None)`
+        raises TypeError (not caught by things.get()'s own `except
+        ValueError`) for EVERY id that isn't a task - every area id, every
+        tag id, and every nonexistent id - not just when things.py is
+        genuinely unavailable. Passing `trashed=None` is necessary to see
+        trashed to-dos/projects (matching tests/live/conftest.py's usage),
+        so on that specific TypeError this retries once with a bare
+        things.get(todo_id) (no kwargs) - tasks() has already ruled itself
+        out by this point, so the retry only exercises areas()/tags(),
+        which the plain call form supports, and returns None for a
+        genuinely nonexistent id instead of raising again.
+        """
+        try:
+            item = things.get(todo_id, trashed=None)
+        except TypeError:
+            try:
+                item = things.get(todo_id)
+            except Exception as e:
+                logger.debug(f"delete_todo: things.get() unavailable for {todo_id}: {e}")
+                return _RESOLVE_UNAVAILABLE
+        except Exception as e:
+            logger.debug(f"delete_todo: things.get() unavailable for {todo_id}: {e}")
+            return _RESOLVE_UNAVAILABLE
+
+        if item is None:
+            return None
+
+        return item.get('type', 'to-do')
+
+    async def _try_delete_scripts(self, todo_id: str, id_kinds: List[str]) -> Dict[str, Any]:
+        """Try `delete (<id_kind> id "...")` for each id_kind in order.
+
+        Returns the first successful AppleScript result (with the winning
+        `id_kind` recorded under `'id_kind'` so callers can report an
+        accurate success message), or the last (failing) result if none
+        succeed.
+        """
+        escaped_id = AppleScriptTemplates.escape_string_inner(todo_id)
+        result: Dict[str, Any] = {"success": False, "error": "No delete attempts made"}
+
+        for id_kind in id_kinds:
+            var_name = "targetTodo" if id_kind == "to do id" else "targetProject"
+            script = f'''
+            tell application "Things3"
+                set {var_name} to {id_kind} "{escaped_id}"
+                delete {var_name}
+                return "deleted"
+            end tell
+            '''
+            result = await self.applescript.execute_applescript(script)
+            if result.get('success'):
+                result = dict(result)
+                result['id_kind'] = id_kind
+                return result
+
+        return result
+
+    async def _try_move_to_trash(self, todo_id: str) -> Dict[str, Any]:
+        """Last-resort fallback: `move ... to list "Trash"`.
+
+        Succeeds in cases where `delete` itself errors, e.g. a to-do whose
+        parent project has already been trashed - `move` still resolves the
+        id and trashes it even though `delete` errors with "Can't get to do
+        id ...".
+        """
+        escaped_id = AppleScriptTemplates.escape_string_inner(todo_id)
+        script = f'''
+        tell application "Things3"
+            set targetItem to to do id "{escaped_id}"
+            move targetItem to list "Trash"
+            return "trashed"
+        end tell
+        '''
+        return await self.applescript.execute_applescript(script)
 
     async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a new project using AppleScript."""

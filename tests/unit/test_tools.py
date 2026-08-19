@@ -199,21 +199,28 @@ class TestDeleteTodo:
     async def test_delete_todo(self, tools_with_mock):
         """Test deleting a todo."""
         todo_id = "todo-123"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value={
-                "success": True,
-                "message": "Todo deleted successfully"
-            })
-            mock_get_queue.return_value = mock_queue
-            
-            result = await tools_with_mock.delete_todo(todo_id)
-            
-            assert isinstance(result, dict)
-            assert result["success"] is True
+
+        # delete_todo() (hq-f0w.40) resolves the id's type via
+        # things.get() before picking a script - patch it hermetically so
+        # this test doesn't depend on the real Things 3 database (where
+        # "todo-123" doesn't exist and would resolve as not_found).
+        with patch('things_mcp.tools_helpers.write_operations.things.get',
+                   return_value={"type": "to-do"}):
+            # Mock operation queue (delete_todo doesn't actually go through
+            # it, but this mirrors the other tests in this class)
+            with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
+                mock_queue = AsyncMock()
+                mock_queue.enqueue = AsyncMock(return_value="op-id")
+                mock_queue.wait_for_operation = AsyncMock(return_value={
+                    "success": True,
+                    "message": "Todo deleted successfully"
+                })
+                mock_get_queue.return_value = mock_queue
+
+                result = await tools_with_mock.delete_todo(todo_id)
+
+                assert isinstance(result, dict)
+                assert result["success"] is True
 
 
 class TestGetProjects:

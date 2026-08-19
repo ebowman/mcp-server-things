@@ -133,9 +133,11 @@ class ThingsTools:
             limit=limit, include_project_tasks=include_project_tasks,
             include_projects=include_projects)
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
-        """Get completed items directly from database."""
-        return await self.read_ops.get_logbook(limit=limit, period=period, offset=offset)
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
+                           include_canceled: bool = True) -> List[Dict]:
+        """Get completed (and, by default, canceled) items directly from database."""
+        return await self.read_ops.get_logbook(
+            limit=limit, period=period, offset=offset, include_canceled=include_canceled)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:

@@ -431,8 +431,17 @@ class ContextAwareResponseManager:
             Optimized response with metadata
         """
         if not data:
-            return self.progressive_engine.create_summary_response([], method_name)
-        
+            empty_response = self.progressive_engine.create_summary_response([], method_name)
+            # AUTO never has data to inspect, so there's nothing to "select" - resolve
+            # it to a concrete default ('standard') rather than leaving the literal
+            # ResponseMode.AUTO value to propagate into structured_content. Record it in
+            # meta['mode'], the same place _read_result (server.py) looks for the
+            # effective mode when the caller requested 'auto' (or omitted mode), so empty
+            # results never report mode == 'auto' per CLAUDE.md's Structured Output docs.
+            resolved_mode = mode.value if mode != ResponseMode.AUTO else ResponseMode.STANDARD.value
+            empty_response.setdefault("meta", {})["mode"] = resolved_mode
+            return empty_response
+
         # AUTO mode - dynamically select optimal mode based on data characteristics
         if mode == ResponseMode.AUTO:
             mode = self._select_optimal_mode(data, method_name)
@@ -518,6 +527,33 @@ class ContextAwareResponseManager:
         ResponseMode.DETAILED: None  # Include all fields
     }
 
+    # Field sets by mode for project rows (ToolsHelpers.convert_project's
+    # camelCase output). get_projects() items are projects, not todos - the
+    # shared TODO_FIELD_SETS above never carried area/areaTitle (to-do rows
+    # never have those keys), so filtering project rows against it silently
+    # dropped a project's area under MINIMAL/STANDARD (hq-f0w.32). Used only
+    # when method_name == 'get_projects' (see _apply_field_filtering); the
+    # top-level rows returned by get_areas are area rows (see convert_area)
+    # and continue to use TODO_FIELD_SETS, which - unlike for to-dos - is
+    # sufficient for the small area schema (uuid/title/type/tags) under every
+    # mode except MINIMAL, which lacks 'tags' (tracked separately; areas are
+    # out of scope for this fix per hq-f0w.32).
+    PROJECT_FIELD_SETS = {
+        ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},
+        ResponseMode.MINIMAL: {
+            # Minimum needed to still locate a project: identity, status,
+            # kind, and where it lives (area + start state).
+            'uuid', 'title', 'status', 'type', 'area', 'start',
+            'dueDate', 'modificationDate', 'creationDate'
+        },
+        ResponseMode.STANDARD: {
+            'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
+            'creationDate', 'tags', 'area', 'areaTitle', 'start', 'startDate',
+            'reminderTime'
+        },
+        ResponseMode.DETAILED: None  # Include all fields
+    }
+
     def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode,
                                method_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Apply field-level filtering based on response mode.
@@ -526,10 +562,11 @@ class ContextAwareResponseManager:
             data: Items to filter.
             mode: Response mode controlling which field set to apply.
             method_name: Name of the calling tool method. Most tools share
-                the todo/project/area field sets below; a small number of
-                tools (currently only get_project_headings) return a
-                different item schema and are filtered against a
-                method-specific field set instead.
+                the todo/area field sets below; get_projects uses the
+                project-shaped PROJECT_FIELD_SETS instead (see hq-f0w.32),
+                and get_project_headings returns a different item schema
+                entirely and is filtered against a method-specific field
+                set.
         """
         if mode == ResponseMode.RAW:
             return data  # No filtering
@@ -540,7 +577,10 @@ class ContextAwareResponseManager:
                 return data
             return [{k: v for k, v in item.items() if k in allowed_fields} for item in data]
 
-        allowed_fields = self.TODO_FIELD_SETS.get(mode)
+        if method_name == 'get_projects':
+            allowed_fields = self.PROJECT_FIELD_SETS.get(mode)
+        else:
+            allowed_fields = self.TODO_FIELD_SETS.get(mode)
         if allowed_fields is None:
             return data  # No filtering for detailed mode
         
@@ -673,6 +713,12 @@ class ContextAwareResponseManager:
                         "summary": sorted(self.TODO_FIELD_SETS[ResponseMode.SUMMARY]),
                         "minimal": sorted(self.TODO_FIELD_SETS[ResponseMode.MINIMAL]),
                         "standard": sorted(self.TODO_FIELD_SETS[ResponseMode.STANDARD]),
+                        "detailed": "All available fields"
+                    },
+                    "project_field_sets": {
+                        "summary": sorted(self.PROJECT_FIELD_SETS[ResponseMode.SUMMARY]),
+                        "minimal": sorted(self.PROJECT_FIELD_SETS[ResponseMode.MINIMAL]),
+                        "standard": sorted(self.PROJECT_FIELD_SETS[ResponseMode.STANDARD]),
                         "detailed": "All available fields"
                     }
                 },

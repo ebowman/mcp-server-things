@@ -592,6 +592,18 @@ Contributions are welcome! Please follow these guidelines:
 - Add tests for new features
 - Submit pull requests with clear descriptions
 
+**Testing:** `pytest tests/unit` runs entirely against mocked AppleScript/`things.py`
+calls and needs no Things 3 install. `pytest tests/integration` is mostly mock-based
+too; its `real_things_tools`/`cleanup_test_todos` fixtures, plus the local fixtures in
+`test_bulk_operations_comprehensive.py`, `test_search_comprehensive.py`, and
+`test_search_performance.py` (like the opt-in `tests/live` smoke suite) all require a
+real, running Things 3 and are gated behind `THINGS_MCP_LIVE_TESTS=1` - without it they
+skip with a clear reason rather than writing to your live database. Run the live smoke
+suite with `make test-live` (or
+`THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q`); it creates and cleans up its own
+throwaway project and never touches pre-existing data. See
+[docs/TESTING.md](docs/TESTING.md) for the full testing policy.
+
 ## Documentation
 
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions

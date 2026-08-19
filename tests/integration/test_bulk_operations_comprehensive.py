@@ -18,6 +18,7 @@ Focus areas:
 7. Error handling and partial failures
 """
 
+import os
 import pytest
 import asyncio
 from datetime import datetime, timedelta
@@ -28,6 +29,31 @@ from things_mcp.tools import ThingsTools
 from things_mcp.move_operations import MoveOperationsTools
 from things_mcp.services.validation_service import ValidationService
 
+# This whole module performs real writes/deletes against a live Things 3
+# database via its own local fixtures below (not the gated
+# real_things_tools/cleanup_test_todos fixtures in conftest.py). A plain
+# `from conftest import ...` can't be used here: tests/integration/conftest.py
+# and tests/live/conftest.py are both bare modules named "conftest" (no
+# __init__.py anywhere under tests/), so importing by that name is
+# ambiguous and can resolve to the wrong one when both directories are
+# collected in the same session (e.g. `pytest tests/integration tests/live`)
+# - so this module defines its own local guard instead of importing
+# conftest.py's. Mark the whole module live and skip it outright at
+# collection time unless opted in; the same guard is also called inside
+# each local fixture below as a second line of defence.
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("THINGS_MCP_LIVE_TESTS") != "1",
+        reason="live Things 3 tests are opt-in (THINGS_MCP_LIVE_TESTS=1)",
+    ),
+]
+
+
+def _require_live_tests_env():
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1":
+        pytest.skip("requires a real Things 3 AppleScriptManager - set THINGS_MCP_LIVE_TESTS=1 to opt in (this fixture performs real writes/deletes against a live Things 3 database)")
+
 
 # ============================================================================
 # Fixtures
@@ -36,6 +62,7 @@ from things_mcp.services.validation_service import ValidationService
 @pytest.fixture
 def applescript_manager():
     """Create AppleScript manager instance."""
+    _require_live_tests_env()
     return AppleScriptManager()
 
 
@@ -78,7 +105,7 @@ async def test_todos(things_tools) -> List[str]:
 
 
 @pytest.fixture
-async def test_project(things_tools) -> str:
+async def test_project(things_tools, applescript_manager) -> str:
     """Create a test project for move operations."""
     result = await things_tools.add_project(
         title=f"BulkMoveTest_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
@@ -89,11 +116,26 @@ async def test_project(things_tools) -> str:
     project_id = result.get('project_id')
     yield project_id
 
-    # Cleanup
+    # Cleanup: cancel then trash the project so it doesn't linger in
+    # Things (canceling alone leaves a canceled-but-not-trashed project
+    # behind - see hq-f0w.42 NOTES: a prior ungated run left
+    # 'BulkMoveTest_*' projects around). `delete_todo`'s `to do id`
+    # AppleScript target does not resolve project ids (Things' dictionary
+    # does not treat a project as a to-do subtype for delete), so trash it
+    # directly via `project id`.
     if project_id:
         try:
             # FIX: update_project expects 'project_id' parameter, not 'id'
             await things_tools.update_project(project_id=project_id, canceled="true")
+        except:
+            pass
+        try:
+            escaped = project_id.replace('"', '\\"')
+            await applescript_manager.execute_applescript(f'''
+            tell application "Things3"
+                delete project id "{escaped}"
+            end tell
+            ''')
         except:
             pass
 
