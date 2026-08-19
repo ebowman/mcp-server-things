@@ -36,19 +36,42 @@ class ServerManager:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
-    def start(self, debug: bool = False, timeout: int = 30, retry_count: int = 3, env_file: Optional[str] = None):
+    def start(
+        self,
+        debug: bool = False,
+        timeout: int = 30,
+        retry_count: int = 3,
+        env_file: Optional[str] = None,
+        transport: Optional[str] = None,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+    ):
         """Start the MCP server.
-        
+
         Args:
             debug: Enable debug logging
             timeout: AppleScript timeout in seconds
             retry_count: Number of retries for failed operations
             env_file: Optional path to .env file
+            transport: Optional transport override ('stdio' or 'http'); CLI flag
+                takes precedence over THINGS_MCP_TRANSPORT when provided
+            host: Optional host override for http transport; CLI flag takes
+                precedence over THINGS_MCP_HOST when provided
+            port: Optional port override for http transport; CLI flag takes
+                precedence over THINGS_MCP_PORT when provided
         """
         try:
             # Create server first (it will configure logging)
             self.server = ThingsMCPServer(env_file=env_file)
-            
+
+            # CLI flags override env/config for transport settings
+            if transport is not None:
+                self.server.config.transport = transport
+            if host is not None:
+                self.server.config.host = host
+            if port is not None:
+                self.server.config.port = port
+
             # Override with debug if specified
             if debug:
                 logging.getLogger().setLevel(logging.DEBUG)
@@ -181,7 +204,28 @@ Environment:
         type=str,
         help="Path to .env configuration file"
     )
-    
+
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default=None,
+        help="MCP transport to use: 'stdio' (default) or 'http'. Overrides THINGS_MCP_TRANSPORT."
+    )
+
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Host to bind to when --transport=http (default: 127.0.0.1). Overrides THINGS_MCP_HOST."
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind to when --transport=http (default: 8000). Overrides THINGS_MCP_PORT."
+    )
+
     # Utility commands
     parser.add_argument(
         "--health-check",
@@ -423,7 +467,10 @@ def main():
             debug=args.debug,
             timeout=args.timeout,
             retry_count=args.retry_count,
-            env_file=args.env_file
+            env_file=args.env_file,
+            transport=args.transport,
+            host=args.host,
+            port=args.port
         )
         return 0
     

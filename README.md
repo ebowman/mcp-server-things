@@ -252,6 +252,33 @@ THINGS_MCP_MAX_TAGS_PER_ITEM=20
 THINGS_MCP_SEARCH_RESULTS_LIMIT=100
 ```
 
+### HTTP Transport
+
+By default the server speaks MCP over stdio. It can optionally run an HTTP
+transport instead, which is the reliable fix when a client's stdio subprocess
+lacks Automation (TCC) access to Things 3: run the server from a Terminal that
+has been granted access, then point the client at the HTTP URL instead of
+launching it as a subprocess (see Troubleshooting for details).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THINGS_MCP_TRANSPORT` | `stdio` | Transport to use: `stdio` or `http` |
+| `THINGS_MCP_HOST` | `127.0.0.1` | Host to bind to when `THINGS_MCP_TRANSPORT=http` |
+| `THINGS_MCP_PORT` | `8000` | Port to bind to when `THINGS_MCP_TRANSPORT=http` |
+
+```bash
+THINGS_MCP_TRANSPORT=http THINGS_MCP_PORT=8000 uvx mcp-server-things
+```
+
+Then add it to Claude Code as an HTTP server:
+
+```bash
+claude mcp add --transport http things http://127.0.0.1:8000/mcp
+```
+
+`--transport`, `--host`, and `--port` CLI flags are also available and take
+precedence over the environment variables above.
+
 ### Command Line Options
 
 The server supports several command-line options:
@@ -274,6 +301,9 @@ python -m things_mcp --version
 
 # Customize timeout and retry settings
 python -m things_mcp --timeout 60 --retry-count 5
+
+# Run with HTTP transport instead of stdio
+python -m things_mcp --transport http --host 127.0.0.1 --port 8000
 ```
 
 ### Claude Desktop Environment Variables

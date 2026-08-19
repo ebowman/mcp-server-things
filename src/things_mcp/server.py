@@ -1972,11 +1972,30 @@ class ThingsMCPServer:
         return policy_descriptions.get(policy_str, 'Custom policy')
     
     def run(self) -> None:
-        """Run the MCP server."""
+        """Run the MCP server.
+
+        Uses stdio transport by default. If ``THINGS_MCP_TRANSPORT`` (or
+        ``--transport``) is set to ``http``, runs an HTTP transport instead,
+        bound to ``self.config.host``/``self.config.port``. This is the
+        recommended workaround when a client's stdio subprocess lacks TCC
+        (Automation) access: run this process from a Terminal that has been
+        granted access, then point the client at the HTTP URL.
+        """
         try:
             logger.info("Starting Things MCP Server...")
-            boot_marker("calling-mcp.run")
-            self.mcp.run()
+            if self.config.transport == "http":
+                boot_marker("calling-mcp.run-http")
+                logger.info(
+                    f"Starting HTTP transport on http://{self.config.host}:{self.config.port}/mcp"
+                )
+                self.mcp.run(
+                    transport="http",
+                    host=self.config.host,
+                    port=self.config.port,
+                )
+            else:
+                boot_marker("calling-mcp.run")
+                self.mcp.run()
         except KeyboardInterrupt:
             logger.info("Server stopped by user")
         except Exception as e:
