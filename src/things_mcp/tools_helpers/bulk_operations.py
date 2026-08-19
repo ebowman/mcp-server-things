@@ -336,13 +336,12 @@ class BulkOperations:
             if when_value and when_value.lower() == 'evening':
                 if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
-                    return {
-                        "success": False,
-                        "error": "Things URL-scheme auth token not configured",
-                        "hint": AUTH_TOKEN_HINT,
-                        "message": "Failed to bulk update todos",
-                        "updated_count": 0
-                    }
+                    return write_error(
+                        "AUTH_TOKEN_NOT_CONFIGURED",
+                        "Things URL-scheme auth token not configured",
+                        hint=AUTH_TOKEN_HINT,
+                        updated_count=0,
+                    )
 
             # Build and execute update script
             script = self._build_bulk_update_script(todo_ids, kwargs)

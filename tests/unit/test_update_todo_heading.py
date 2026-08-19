@@ -47,7 +47,8 @@ def mock_applescript_manager_no_token():
         if action in {"update", "update-project"}:
             return {
                 "success": False,
-                "error": "Things URL-scheme auth token not configured",
+                "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                "message": "Things URL-scheme auth token not configured",
                 "hint": AUTH_TOKEN_HINT,
             }
         return {"success": True, "url": f"things:///{action}"}
@@ -161,7 +162,8 @@ class TestHeadingEmptyStringRejected:
         result = await ops.update_todo("abc123", heading="")
 
         assert result["success"] is False
-        assert "heading cannot be empty" in result["error"]
+        assert result["error"] == "INVALID_HEADING"
+        assert "heading cannot be empty" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
@@ -170,7 +172,8 @@ class TestHeadingEmptyStringRejected:
         result = await ops.update_todo("abc123", heading="   ")
 
         assert result["success"] is False
-        assert "heading cannot be empty" in result["error"]
+        assert result["error"] == "INVALID_HEADING"
+        assert "heading cannot be empty" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
@@ -253,7 +256,8 @@ class TestHeadingNoAuthToken:
         result = await ops_no_token.update_todo("abc123", heading="Research")
 
         assert result["success"] is False
-        assert result["error"] == "Things URL-scheme auth token not configured"
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert result["message"] == "Things URL-scheme auth token not configured"
         assert "hint" in result and result["hint"]
         mock_applescript_manager_no_token.execute_applescript.assert_not_awaited()
         mock_applescript_manager_no_token.execute_url_scheme.assert_not_awaited()
@@ -278,7 +282,8 @@ class TestHeadingUrlSchemeFailurePropagatesHint:
     async def test_url_scheme_failure_propagates_hint_when_present(self, ops, mock_applescript_manager):
         mock_applescript_manager.execute_url_scheme.return_value = {
             "success": False,
-            "error": "Things URL-scheme auth token not configured",
+            "error": "AUTH_TOKEN_NOT_CONFIGURED",
+            "message": "Things URL-scheme auth token not configured",
             "hint": AUTH_TOKEN_HINT,
         }
         with patch("things_mcp.scheduling.todo_operations.things.get",
@@ -288,6 +293,7 @@ class TestHeadingUrlSchemeFailurePropagatesHint:
             result = await ops.update_todo("abc123", heading="Research")
 
         assert result["success"] is False
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
         assert result["hint"] == AUTH_TOKEN_HINT
 
 

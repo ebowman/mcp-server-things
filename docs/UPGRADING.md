@@ -137,16 +137,37 @@ behavioural changes below.
   UPPER_SNAKE codes) are unchanged. `delete_todo`'s `not_deletable`/
   `not_found` codes are deliberately left lower_snake_case (they predate
   this bead, share the `not_found` convention with the read-tool contract,
-  and have extensive existing test coverage); `scheduling/
-  todo_operations.py`'s ~26 remaining human-string/`str(e)`-leak sites are
-  tracked as a follow-up (hq-f0w.46), not migrated here - see CLAUDE.md's
-  "Structured error contract (write tools)" section for the full list of
-  intentional exceptions. What to do: if any caller pattern-matched on the
-  literal text previously in a write tool's `error` field, switch to
-  checking the new UPPER_SNAKE_CASE code and/or `success is False`; if any
-  caller checked `"error" in result` to detect an `add_tags`/`remove_tags`
-  AppleScript failure, note that path always has an `error` key now (it
-  didn't before); reading `message` for display text is unaffected.
+  and have extensive existing test coverage) - see CLAUDE.md's "Structured
+  error contract (write tools)" section for the full list of intentional
+  exceptions. What to do: if any caller pattern-matched on the literal text
+  previously in a write tool's `error` field, switch to checking the new
+  UPPER_SNAKE_CASE code and/or `success is False`; if any caller checked
+  `"error" in result` to detect an `add_tags`/`remove_tags` AppleScript
+  failure, note that path always has an `error` key now (it didn't
+  before); reading `message` for display text is unaffected.
+- **`scheduling/todo_operations.py` (`add_todo`/`update_todo`/
+  `add_project`/`update_project`/checklist scheduling) now uses the same
+  UPPER_SNAKE_CASE write-tool contract** (hq-f0w.46, closing out the
+  follow-up from hq-f0w.35 above). New codes: `NOT_FOUND` (an unknown
+  `list_id`/`list_title`), `AMBIGUOUS_TARGET` (a `list_title` matching more
+  than one project/area - the matching `kind:id` strings are in the `ids`
+  field), `CREATE_UNCONFIRMED` (a URL-scheme create that could not be
+  confirmed within the polling deadline), `UNSUPPORTED_FOR_PROJECTS`
+  (`when='evening'` on `add_project`/`update_project`), `INVALID_HEADING`
+  (an empty/whitespace-only `heading` on `update_todo`), and
+  `AUTH_TOKEN_NOT_CONFIGURED` (the Things URL-scheme auth-gate, moved from
+  `services/applescript_manager.py`'s `execute_url_scheme` - the previous
+  literal error text `"Things URL-scheme auth token not configured"` is
+  unchanged but now lives in `message`, not `error`; this also affects
+  `add_checklist_items`/`prepend_checklist_items`/`replace_checklist_items`/
+  `bulk_update_todos`, which forward the same code/message/hint). What to
+  do: if any caller pattern-matched on `error == "Things URL-scheme auth
+  token not configured"` or on any of the human-string `error` values this
+  file used to return (e.g. `"... does not match any known project or
+  area"`, `"... is ambiguous - matches multiple projects/areas: ..."`,
+  `"heading cannot be empty; ..."`, `"when='evening' is not supported for
+  projects; ..."`), switch to checking the new UPPER_SNAKE_CASE code and
+  read the descriptive text from `message` instead.
 - **`add_project`/`update_project`/`add_todo`/`update_todo` no longer
   collapse newlines in notes.** The AppleScript string escaper previously
   mapped `\n`/`\r` to a single space, so multi-line project/todo notes lost

@@ -79,7 +79,8 @@ class TestHeadingUrlSchemeBranch:
         result = await scheduler.add_todo(title="orphan heading todo", heading="Somewhere")
 
         assert result["success"] is False
-        assert "heading requires a target project" in result["error"]
+        assert result["error"] == "VALIDATION_ERROR"
+        assert "heading requires a target project" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
@@ -218,9 +219,12 @@ class TestListTitleResolutionAppleScriptPath:
             result = await scheduler.add_todo(title="X", list_title="Ops")
 
         assert result["success"] is False
-        assert "ambiguous" in result["error"]
-        assert "PROJ-1" in result["error"]
-        assert "AREA-1" in result["error"]
+        assert result["error"] == "AMBIGUOUS_TARGET"
+        assert "ambiguous" in result["message"]
+        assert "PROJ-1" in result["message"]
+        assert "AREA-1" in result["message"]
+        assert "project:PROJ-1" in result["ids"]
+        assert "area:AREA-1" in result["ids"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -230,7 +234,8 @@ class TestListTitleResolutionAppleScriptPath:
             result = await scheduler.add_todo(title="X", list_title="Does Not Exist")
 
         assert result["success"] is False
-        assert "does not match any project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
 
@@ -273,7 +278,8 @@ class TestListIdResolutionAndEscaping:
             result = await scheduler.add_todo(title="X", list_id="bogus-id")
 
         assert result["success"] is False
-        assert "does not match any known project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any known project or area" in result["message"]
         mock_applescript_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -328,7 +334,8 @@ class TestListTitleResolutionUrlSchemePath:
             result = await scheduler.add_todo(title="X", list_title="Does Not Exist", heading="Phase 1")
 
         assert result["success"] is False
-        assert "does not match any project or area" in result["error"]
+        assert result["error"] == "NOT_FOUND"
+        assert "does not match any project or area" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -340,7 +347,8 @@ class TestListTitleResolutionUrlSchemePath:
             result = await scheduler.add_todo(title="X", list_title="Ops", heading="Phase 1")
 
         assert result["success"] is False
-        assert "ambiguous" in result["error"]
+        assert result["error"] == "AMBIGUOUS_TARGET"
+        assert "ambiguous" in result["message"]
         mock_applescript_manager.execute_url_scheme.assert_not_awaited()
 
     @pytest.mark.asyncio

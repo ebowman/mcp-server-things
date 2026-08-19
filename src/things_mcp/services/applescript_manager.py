@@ -134,7 +134,8 @@ class AppleScriptManager:
                 )
                 return {
                     "success": False,
-                    "error": "Things URL-scheme auth token not configured",
+                    "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                    "message": "Things URL-scheme auth token not configured",
                     "hint": AUTH_TOKEN_HINT,
                 }
 

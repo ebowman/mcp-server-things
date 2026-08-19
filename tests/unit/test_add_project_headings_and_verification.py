@@ -250,8 +250,8 @@ class TestHeadingLinesRouteToUrlScheme:
         result = await ops.add_project("My Project", todos="##\nSome todo")
 
         assert result["success"] is False
-        assert "error" in result
-        assert "heading" in result["error"].lower()
+        assert result["error"] == "VALIDATION_ERROR"
+        assert "heading" in result["message"].lower()
         manager.execute_url_scheme.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -313,7 +313,8 @@ class TestHeadingLinesRouteToUrlScheme:
         result = await ops.add_project("My Project", todos="##Heading 1\nTodo")
 
         assert result["success"] is False
-        assert result["error"] == "boom"
+        assert result["error"] == "APPLESCRIPT_ERROR"
+        assert result["details"] == "boom"
 
     @pytest.mark.asyncio
     async def test_lookup_timeout_returns_structured_error_not_success(self):
@@ -332,7 +333,8 @@ class TestHeadingLinesRouteToUrlScheme:
         result = await ops.add_project("My Project", todos="##Heading 1\nTodo")
 
         assert result["success"] is False
-        assert "could not be confirmed" in result["error"]
+        assert result["error"] == "CREATE_UNCONFIRMED"
+        assert "could not be confirmed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_when_scheduled_after_url_scheme_create(self):

@@ -203,7 +203,8 @@ class TestAddProjectTonightRejected:
 
         sc = result.structured_content
         assert sc["success"] is False
-        assert "not supported for projects" in sc["error"]
+        assert sc["error"] == "UNSUPPORTED_FOR_PROJECTS"
+        assert "not supported for projects" in sc["message"]
         real_manager.execute_applescript.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -226,5 +227,6 @@ class TestAddProjectTonightRejected:
 
         sc = result.structured_content
         assert sc["success"] is False
-        assert "not supported for projects" in sc["error"]
+        assert sc["error"] == "UNSUPPORTED_FOR_PROJECTS"
+        assert "not supported for projects" in sc["message"]
         real_manager.execute_applescript.assert_not_awaited()

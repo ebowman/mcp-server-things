@@ -129,7 +129,8 @@ def _make_mock_applescript_manager(auth_token=None):
         if action in {"update", "update-project"} and not manager.auth_token:
             return {
                 "success": False,
-                "error": "Things URL-scheme auth token not configured",
+                "error": "AUTH_TOKEN_NOT_CONFIGURED",
+                "message": "Things URL-scheme auth token not configured",
                 "hint": AUTH_TOKEN_HINT,
             }
         return {"success": True, "url": f"things:///{action}"}
@@ -334,11 +335,9 @@ class TestWriteToolErrorCodesAreUpperSnake:
         """replace_checklist_items has no items-required guard - it goes
         straight to the tools layer, which uses the Things URL scheme
         'update' action. No auth token configured -> the shared auth-gate
-        error (not yet migrated to the write_error contract - documented
-        exception, see CLAUDE.md/CHANGELOG) is NOT UPPER_SNAKE-checked here;
-        this test instead confirms it reaches self.tools for real and
-        returns a structured (success=false) error at all, still covering
-        the tool's presence in MUTATING_TOOLS."""
+        error (hq-f0w.46: migrated to the write_error contract, code
+        AUTH_TOKEN_NOT_CONFIGURED, with the auth literal preserved verbatim
+        in `message`) is asserted directly here."""
         manager = _make_mock_applescript_manager(auth_token=None)
         server = _make_server_with_real_tools(manager)
         client = Client(server.mcp)
@@ -347,9 +346,9 @@ class TestWriteToolErrorCodesAreUpperSnake:
                 "replace_checklist_items", {"todo_id": "TODO-1", "items": ["a"]}
             )
         sc = result.structured_content
-        assert sc is not None
-        assert sc["success"] is False
-        assert "error" in sc
+        _assert_upper_snake_error(sc)
+        assert sc["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert sc["message"] == "Things URL-scheme auth token not configured"
 
     @_covers("delete_todo")
     @pytest.mark.asyncio
