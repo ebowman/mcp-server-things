@@ -31,9 +31,17 @@
 # Run tests before committing
 pytest                          # Run all tests
 pytest tests/unit/              # Unit tests only
-pytest tests/integration/       # Integration tests
+pytest tests/integration/       # Integration tests (mostly mock-based;
+                                 # real_things_tools/cleanup_test_todos require THINGS_MCP_LIVE_TESTS=1 -
+                                 # test_bulk_operations_comprehensive.py/test_search_comprehensive.py/
+                                 # test_search_performance.py are NOT yet gated, see hq-f0w.42)
 pytest --cov=src/things_mcp     # With coverage
+THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # Opt-in live Things 3 smoke suite (make test-live)
 ```
+
+See `docs/TESTING.md` for the full testing policy (write-path assertion
+requirements, parser/fixture contracts, parameter-reach coverage, and the
+live smoke suite).
 
 ### File Organization
 ```
@@ -1239,6 +1247,7 @@ Then add the matching section to `CHANGELOG.md` (top of file):
 
 ```bash
 pytest tests/unit                       # gate also runs in CI
+THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # must pass on a machine with Things 3 running - see docs/TESTING.md
 git add src/things_mcp/__init__.py CHANGELOG.md
 git commit -m "Release vX.Y.Z - Brief description"
 git push origin main
@@ -1289,6 +1298,7 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] Version bumped in `src/things_mcp/__init__.py` (only here)
 - [ ] CHANGELOG.md updated with date and changes
 - [ ] `pytest tests/unit` passes
+- [ ] `THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` passes on a machine with Things 3 running
 - [ ] Committed, pushed to `main`, tag pushed
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)

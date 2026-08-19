@@ -112,6 +112,7 @@ markers = [
     "error: Error handling tests",
     "slow: Slow tests that may take longer to execute",
     "skip_ci: Tests to skip in CI environment",
+    "live: Opt-in live Things 3 smoke tests (require THINGS_MCP_LIVE_TESTS=1 and Things 3 running; see tests/live/)",
 ]
 asyncio_mode = "auto"
 minversion = "7.0"
