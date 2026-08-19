@@ -18,6 +18,8 @@ from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
 from unittest.mock import MagicMock
 
+from fixtures.things_realistic import REALISTIC_MIXED_LIST
+
 
 TODO = {'uuid': 'todo-1', 'title': 'A todo', 'type': 'to-do', 'status': 'incomplete'}
 PROJECT = {'uuid': 'proj-1', 'title': 'A project', 'type': 'project', 'status': 'incomplete'}
@@ -243,3 +245,60 @@ async def test_missing_type_key_treated_as_todo(tools):
                return_value=[untyped_todo]):
         result = await tools.get_anytime()
         assert _uuids(result) == {'untyped-1'}
+
+
+# ============================================================================
+# Realistic fixtures (hq-f0w.10): the minimal MIXED list above deliberately
+# has exactly one row per type to keep the type-filtering assertions above
+# crisp. These supplementary tests re-run the same default-exclusion checks
+# against tests/fixtures/things_realistic.py's REALISTIC_MIXED_LIST, which
+# carries a fuller realistic shape (headings under a Someday project,
+# punctuation/notes variety, tags, checklist flags) so a project/heading
+# leak can't hide behind an artificially narrow mock.
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_get_today_realistic_mixed_list_excludes_project_and_heading(tools):
+    with patch('things_mcp.tools_helpers.read_operations.things.today', return_value=REALISTIC_MIXED_LIST):
+        result = await tools.get_today()
+        types = {item.get('type') for item in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+        assert types == {'to-do'}
+
+
+@pytest.mark.asyncio
+async def test_get_anytime_realistic_mixed_list_excludes_project_and_heading(tools):
+    with patch('things_mcp.tools_helpers.read_operations.things.anytime', return_value=REALISTIC_MIXED_LIST):
+        result = await tools.get_anytime()
+        types = {item.get('type') for item in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+
+@pytest.mark.asyncio
+async def test_get_upcoming_realistic_mixed_list_excludes_project_and_heading(tools):
+    with patch('things_mcp.tools_helpers.read_operations.things.upcoming', return_value=REALISTIC_MIXED_LIST):
+        result = await tools.get_upcoming()
+        types = {item.get('type') for item in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+
+@pytest.mark.asyncio
+async def test_get_inbox_realistic_mixed_list_excludes_project_and_heading(tools):
+    with patch('things_mcp.tools_helpers.read_operations.things.inbox', return_value=REALISTIC_MIXED_LIST):
+        result = await tools.get_inbox()
+        types = {item.get('type') for item in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+
+@pytest.mark.asyncio
+async def test_get_someday_realistic_mixed_list_excludes_project_and_heading(tools):
+    with patch('things_mcp.tools_helpers.read_operations.things.someday', return_value=REALISTIC_MIXED_LIST), \
+         patch('things_mcp.tools_helpers.read_operations.things.projects', return_value=[]):
+        result = await tools.get_someday()
+        types = {item.get('type') for item in result}
+        assert 'project' not in types
+        assert 'heading' not in types

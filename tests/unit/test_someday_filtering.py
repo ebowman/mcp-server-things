@@ -18,6 +18,16 @@ from things_mcp.tools_helpers.read_operations import (
     _get_someday_project_ids,
 )
 
+from fixtures.things_realistic import (
+    REALISTIC_MIXED_LIST,
+    ANYTIME_PROJECT as REALISTIC_ANYTIME_PROJECT,
+    SOMEDAY_PROJECT as REALISTIC_SOMEDAY_PROJECT,
+    HEADING_IN_ANYTIME_PROJECT as REALISTIC_HEADING,
+    TODO_DIRECT_IN_SOMEDAY_PROJECT,
+    TODO_UNDER_HEADING_IN_SOMEDAY_PROJECT,
+    HEADING_IN_SOMEDAY_PROJECT as REALISTIC_HEADING_IN_SOMEDAY,
+)
+
 
 # ============================================================================
 # FIXTURES
@@ -303,6 +313,95 @@ class TestReadToolsApplySomedayFilter:
         uuids = {t['uuid'] for t in result}
         assert 'task-direct' not in uuids
         assert 'task-anytime' in uuids
+
+    # -- Realistic fixtures: things.* returns a mix of to-do/project/heading
+    # rows (as the live API actually does); verify no project/heading leaks
+    # through by default on any of the five list functions (hq-f0w.10). --
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.today')
+    async def test_get_today_realistic_mock_no_project_or_heading_leak(self, mock_today, mock_projects, tools):
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_today.return_value = REALISTIC_MIXED_LIST
+
+        result = await tools.get_today()
+
+        types = {t.get('type') for t in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.anytime')
+    async def test_get_anytime_realistic_mock_no_project_or_heading_leak(self, mock_anytime, mock_projects, tools):
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_anytime.return_value = REALISTIC_MIXED_LIST
+
+        result = await tools.get_anytime()
+
+        types = {t.get('type') for t in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.upcoming')
+    async def test_get_upcoming_realistic_mock_no_project_or_heading_leak(self, mock_upcoming, mock_projects, tools):
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_upcoming.return_value = REALISTIC_MIXED_LIST
+
+        result = await tools.get_upcoming()
+
+        types = {t.get('type') for t in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.inbox')
+    async def test_get_inbox_realistic_mock_no_project_or_heading_leak(self, mock_inbox, mock_projects, tools):
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_inbox.return_value = REALISTIC_MIXED_LIST
+
+        result = await tools.get_inbox()
+
+        types = {t.get('type') for t in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.someday')
+    async def test_get_someday_realistic_mock_no_project_or_heading_leak(self, mock_someday, mock_projects, tools):
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_someday.return_value = REALISTIC_MIXED_LIST
+
+        result = await tools.get_someday()
+
+        types = {t.get('type') for t in result}
+        assert 'project' not in types
+        assert 'heading' not in types
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.today')
+    async def test_get_today_realistic_mock_filters_someday_project_descendants(
+        self, mock_today, mock_projects, tools
+    ):
+        """Realistic direct-child and heading-child tasks of a Someday project
+        (with matching uuid/title punctuation) are excluded from Today."""
+        mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
+        mock_today.return_value = [
+            TODO_DIRECT_IN_SOMEDAY_PROJECT,
+            TODO_UNDER_HEADING_IN_SOMEDAY_PROJECT,
+        ]
+
+        with patch('things_mcp.tools_helpers.read_operations.things.get',
+                   return_value=REALISTIC_HEADING_IN_SOMEDAY):
+            result = await tools.get_today()
+
+        assert result == []
 
 
 # ============================================================================
