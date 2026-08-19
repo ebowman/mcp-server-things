@@ -1065,8 +1065,8 @@ class TodoOperations:
         # Update deadline: None leaves unchanged, '' clears, anything else sets.
         if deadline is not None:
             if deadline == '':
-                # Things 3's AppleScript dictionary rejects
-                # `set due date of X to missing value` ("Can't make missing
+                # Things 3's AppleScript dictionary rejects assigning
+                # missing value to the due date ("Can't make missing
                 # value into type date"); `delete` is the documented way to
                 # clear a date property.
                 script += 'delete due date of targetTodo\n                    '
@@ -1779,8 +1779,8 @@ class TodoOperations:
             # Update deadline: None leaves unchanged, '' clears, anything else sets.
             if deadline is not None:
                 if deadline == '':
-                    # Things 3's AppleScript dictionary rejects
-                    # `set due date of X to missing value` ("Can't make
+                    # Things 3's AppleScript dictionary rejects assigning
+                    # missing value to the due date ("Can't make
                     # missing value into type date"); `delete` is the
                     # documented way to clear a date property.
                     script += 'delete due date of targetProject\n                    '

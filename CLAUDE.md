@@ -223,7 +223,7 @@ bulk_update_todos(todo_ids="id1,id2,id3", notes="")
 # WRONG - title cannot be cleared; this returns a VALIDATION_ERROR
 update_todo(id="abc123", title="")
 
-# WRONG - when='' is rejected; unschedule with 'anytime' or 'someday' instead
+# CORRECT - when='' is rejected; unschedule with 'anytime' or 'someday' instead
 update_todo(id="abc123", when="anytime")
 ```
 
@@ -232,6 +232,12 @@ configured `tag_creation_policy` filters out every requested tag (e.g. all of
 them are unknown under `filter_silent`/`filter_warn`), the result is a no-op -
 existing tags are left unchanged, not cleared. Only an explicit `tags=''`
 clears tags.
+
+**Note on whitespace-only input:** whitespace-only strings are also treated
+as an explicit clear request, the same as `''`. `notes="   "` clears notes
+exactly like `notes=""`, and a `tags` string containing only commas/whitespace
+(e.g. `tags=" , "`) clears all tags exactly like `tags=""` - it does not parse
+as a single blank tag.
 
 ### Testing Notes
 
