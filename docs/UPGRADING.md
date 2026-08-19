@@ -59,6 +59,69 @@ have automation or prompts that depend on exact output shape, check these:
   like `"a,,b"` or `"a, "` previously could send an empty-string tag name
   through to Things 3; they're now stripped before validation. What to do:
   nothing — this only removes previously-invalid empty tag entries.
+- **`get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and
+  `get_trash` no longer include projects or headings by default.**
+  Previously these list tools returned a mix of to-dos, projects, and
+  headings straight from things.py; headings were never meant to be
+  user-facing items in these lists and projects crowded out to-dos in
+  response-mode truncation. What to do: pass the new `include_projects=true`
+  parameter on any of these five tools to restore projects in the results
+  (headings are never returned, even with this flag) — `get_inbox` is
+  unaffected since the Inbox can never contain projects.
+- **`search_todos` gained a `status` parameter and `search_advanced`/
+  `get_recent` changed their default status scope.** `search_todos` now
+  accepts `status` (`'incomplete'` (default, unchanged) / `'completed'` /
+  `'canceled'` / `None` for all) - previously it always searched only
+  incomplete todos with no way to search completed/canceled ones. What to
+  do: pass `status='completed'`, `status='canceled'`, or `status=None` if
+  you need to find a completed/canceled todo by search. `search_advanced`
+  with no `status` filter now searches items of **all** statuses (it
+  previously silently defaulted to incomplete-only, same bug as above);
+  pass `status='incomplete'` explicitly to restrict to open items as
+  before. `get_recent` now defaults to **all** statuses, and to both
+  to-dos and projects (previously incomplete to-dos only), so
+  recently-created completed/canceled to-dos and recently-created
+  projects now appear in the results; headings are still NEVER included
+  by default (list tools never return headings by default), pass
+  `type='heading'` explicitly if you need recently created headings.
+  Pass the new `status`/`type` parameters to narrow the results.
+  `search_todos` also now rejects an empty or whitespace-only `query` with
+  a structured error instead of silently matching every todo.
+- **Todo/project dicts gained new fields and one field changed shape**
+  (hq-f0w.4). New: `type` (`'to-do'`/`'project'`/etc.), `start` (Inbox /
+  Anytime / Someday — distinct from the existing `startDate`, a specific
+  date), `projectTitle`, `heading`, `headingTitle`, `hasChecklist` (bool),
+  `index`, `todayIndex`; projects also gained `areaTitle`. `area` was
+  removed from todo dicts — it was always `null`/absent in practice, since
+  things.py to-do rows never actually carry an `area` key (only projects
+  do). `checklist` is now only present as a list of items when
+  `include_items=true` (or `get_todo_by_id`) actually fetched them; it no
+  longer appears as a stray, usually-empty-looking bool/list mix — check
+  `hasChecklist` instead if you just need to know whether a todo has a
+  checklist. `completionDate`/`cancellationDate` are unaffected in shape
+  but are now correctly populated (previously always absent — see the
+  `[Unreleased]` CHANGELOG entry). What to do: nothing required for
+  existing integrations reading `dueDate`/`startDate`/`tags`/etc.; if you
+  read `area` off a todo dict, switch to reading it off the todo's parent
+  project instead (fetch the project by `project` uuid), and if you check
+  for a `checklist` key's *presence* to mean "has a checklist", switch to
+  the new `hasChecklist` boolean.
+- **`update_todo`/`update_project`/`update_area`/`bulk_update_todos` can now
+  clear `notes`, `deadline`, and `tags` by passing `''` (an empty string).**
+  Previously an empty string for any of these fields was silently treated
+  the same as "not provided" (a no-op) — there was no way to clear a
+  todo/project's notes or deadline, or remove all its tags, through any
+  tool. `notes=''`/`deadline=''` now clear those fields; `tags=''` now
+  clears all tags. Two related tightenings ship alongside this:
+  `title=''` (or whitespace-only) is now rejected with a structured
+  `VALIDATION_ERROR` (titles cannot be cleared — previously this was
+  silently ignored), and `when=''` is now rejected the same way, with a
+  hint to use `when='anytime'` or `when='someday'` to unschedule instead.
+  What to do: if any caller relied on passing `''` as a no-op sentinel for
+  `notes`/`deadline`/`tags`, switch to omitting the parameter (or passing
+  `None`) to preserve the old "leave unchanged" behavior; if any caller
+  passed `title=''` or `when=''` expecting it to be silently ignored,
+  expect a `VALIDATION_ERROR` response instead.
 
 ## Recommended: switch to uvx
 

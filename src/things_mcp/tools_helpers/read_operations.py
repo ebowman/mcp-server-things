@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy
@@ -41,6 +41,44 @@ def _get_someday_project_ids() -> set:
     except Exception as e:
         logger.debug(f"Error loading Someday project ids: {e}")
         return set()
+
+
+def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
+    """Build a structured error for a tag that things.py did not recognize.
+
+    Things 3 tag matching is exact-case (e.g. 'llm-wiki' and 'LLM-WIKI' are
+    different tags to things.py), and things.py raises ValueError when asked
+    for a tag it doesn't recognize rather than returning an empty list. This
+    distinguishes that "unknown/wrong-case tag" case from a genuinely empty
+    (zero-item) tag by returning a structured error with case-insensitive
+    suggestions pulled from the live tag list, instead of silently returning [].
+
+    Args:
+        tag: The tag string that was requested and rejected by things.py.
+
+    Returns:
+        Dict with success=False, error='unknown_tag', the offending tag, and
+        a (possibly empty) list of case-insensitive title matches from
+        things.tags() to help the caller find the correctly-cased tag.
+    """
+    suggestions: List[str] = []
+    try:
+        all_tags = things.tags() or []
+        tag_lower = tag.lower()
+        suggestions = [
+            t.get('title', t.get('name', ''))
+            for t in all_tags
+            if t.get('title', t.get('name', '')).lower() == tag_lower
+        ]
+    except Exception as e:
+        logger.debug(f"Error building tag suggestions for '{tag}': {e}")
+
+    return {
+        'success': False,
+        'error': 'unknown_tag',
+        'tag': tag,
+        'suggestions': suggestions,
+    }
 
 
 def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]]) -> Optional[str]:
@@ -130,6 +168,39 @@ def filter_someday_project_tasks(todos: List[Dict[str, Any]]) -> List[Dict[str, 
     ]
 
 
+def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
+    """Call a things.py list function (inbox/today/upcoming/anytime/someday/trash),
+    filtering out headings always and projects unless include_projects is True.
+
+    By default, queries with type='to-do' so filtering happens at the things.py
+    query level (not only post-hoc). When include_projects is True, queries
+    with no type filter (to get both to-dos and projects) and then drops any
+    item whose type == 'heading' post-hoc, since things.py list wrappers don't
+    support fetching multiple explicit types in one call.
+
+    Items lacking a 'type' key (e.g. in unit test mocks) are treated as to-do
+    and always kept.
+    """
+    def _normalize(data) -> List[Dict[str, Any]]:
+        if data is None:
+            return []
+        if isinstance(data, dict):
+            return [data]
+        if hasattr(data, '__iter__') and not isinstance(data, list):
+            return list(data)
+        return data
+
+    if not include_projects:
+        result = _normalize(things_fn(type='to-do'))
+        # Defensive post-hoc filter in case a mocked/older things.py ignores
+        # the type= kwarg and returns an unfiltered mix.
+        return [t for t in result if t.get('type', 'to-do') != 'project'
+                and t.get('type', 'to-do') != 'heading']
+
+    result = _normalize(things_fn())
+    return [t for t in result if t.get('type', 'to-do') != 'heading']
+
+
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
@@ -170,6 +241,28 @@ class ReadOperations:
                         result.append(converted)
 
                 logger.debug(f"Retrieved {len(result)} todos for project {project_uuid} via AppleScript")
+
+                # Best-effort enrichment: the AppleScript read path has no
+                # heading concept, so headingTitle/heading/projectTitle/start
+                # are missing from convert_applescript_todo's output. Fill
+                # them in from things.py's own project-scoped query, keyed by
+                # uuid. Never let this fail the call - AppleScript data is
+                # still returned as-is if things.py is unavailable/errors.
+                try:
+                    things_rows = things.todos(project=project_uuid)
+                    by_uuid = {row['uuid']: row for row in things_rows if row.get('uuid')}
+                    for todo in result:
+                        row = by_uuid.get(todo.get('uuid'))
+                        if row:
+                            todo['heading'] = row.get('heading')
+                            todo['headingTitle'] = row.get('heading_title')
+                            todo['projectTitle'] = row.get('project_title')
+                            todo['start'] = row.get('start')
+                except Exception as e:
+                    logger.debug(
+                        f"Best-effort heading/start enrichment failed for project {project_uuid}: {e}"
+                    )
+
                 return result
             except Exception as e:
                 logger.error(f"AppleScript query failed for project {project_uuid}, falling back to things.py: {e}")
@@ -460,15 +553,34 @@ class ReadOperations:
             'tags': rows,
         }
 
-    async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
-        """Search todos using things.py."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_sync, query, limit)
+    async def search_todos(
+        self, query: str, limit: Optional[int] = None,
+        status: Optional[str] = 'incomplete'
+    ) -> List[Dict]:
+        """Search todos using things.py.
 
-    def _search_sync(self, query: str, limit: Optional[int] = None) -> List[Dict]:
-        """Synchronous search implementation."""
+        Note: filter_someday_project_tasks is NOT applied here - todos that
+        live inside a Someday project (and are hidden from Today/Anytime/
+        Upcoming in the Things UI) can still match a search.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._search_sync, query, limit, status)
+
+    def _search_sync(
+        self, query: str, limit: Optional[int] = None,
+        status: Optional[str] = 'incomplete'
+    ) -> List[Dict]:
+        """Synchronous search implementation.
+
+        Args:
+            query: Text to search for in title/notes (case-insensitive substring match).
+            limit: Maximum number of results to return.
+            status: 'incomplete' (default, matches things.py's own default and
+                preserves backward compatibility), 'completed', 'canceled', or
+                None to search all statuses.
+        """
         try:
-            all_todos = things.todos()
+            all_todos = things.todos(status=status)
             query_lower = query.lower()
 
             results = []
@@ -496,7 +608,9 @@ class ReadOperations:
     def _get_inbox_sync(self, limit: Optional[int] = None) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            inbox_todos = things.inbox()
+            # Inbox cannot contain projects, so always type='to-do'; headings
+            # are never returned (matches Things UI - Inbox is a task-only list).
+            inbox_todos = _fetch_list(things.inbox, include_projects=False)
 
             result = []
             for todo in inbox_todos:
@@ -511,15 +625,25 @@ class ReadOperations:
             logger.error(f"Error in _get_inbox_sync: {e}")
             return []
 
-    async def get_today(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get todos due today."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_today_sync, limit)
+    async def get_today(self, limit: Optional[int] = None,
+                         include_projects: bool = False) -> List[Dict]:
+        """Get todos due today.
 
-    def _get_today_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include projects that are due
+                today. Defaults to False - by default, and always, headings
+                are never returned; projects are excluded unless this flag
+                is set, matching the Things app's Today list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_today_sync, limit, include_projects)
+
+    def _get_today_sync(self, limit: Optional[int] = None,
+                         include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            today_todos = things.today()
+            today_todos = _fetch_list(things.today, include_projects)
             today_todos = filter_someday_project_tasks(today_todos or [])
 
             result = []
@@ -535,15 +659,25 @@ class ReadOperations:
             logger.error(f"Error in _get_today_sync: {e}")
             return []
 
-    async def get_upcoming(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get upcoming todos."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_upcoming_sync, limit)
+    async def get_upcoming(self, limit: Optional[int] = None,
+                            include_projects: bool = False) -> List[Dict]:
+        """Get upcoming todos.
 
-    def _get_upcoming_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include upcoming projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Upcoming list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_upcoming_sync, limit, include_projects)
+
+    def _get_upcoming_sync(self, limit: Optional[int] = None,
+                            include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            upcoming_todos = things.upcoming()
+            upcoming_todos = _fetch_list(things.upcoming, include_projects)
             upcoming_todos = filter_someday_project_tasks(upcoming_todos or [])
 
             result = []
@@ -559,15 +693,25 @@ class ReadOperations:
             logger.error(f"Error in _get_upcoming_sync: {e}")
             return []
 
-    async def get_anytime(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get todos from Anytime list."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_anytime_sync, limit)
+    async def get_anytime(self, limit: Optional[int] = None,
+                           include_projects: bool = False) -> List[Dict]:
+        """Get todos from Anytime list.
 
-    def _get_anytime_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include Anytime projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Anytime list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_anytime_sync, limit, include_projects)
+
+    def _get_anytime_sync(self, limit: Optional[int] = None,
+                           include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            anytime_todos = things.anytime()
+            anytime_todos = _fetch_list(things.anytime, include_projects)
             anytime_todos = filter_someday_project_tasks(anytime_todos or [])
 
             result = []
@@ -584,7 +728,8 @@ class ReadOperations:
             return []
 
     async def get_someday(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False) -> List[Dict]:
+                           include_project_tasks: bool = False,
+                           include_projects: bool = False) -> List[Dict]:
         """Get todos from Someday list.
 
         Args:
@@ -596,15 +741,21 @@ class ReadOperations:
                 items are returned, since inherited items on databases with
                 many Someday projects can be very large and crowd out the
                 native items when responses are paginated/truncated.
+            include_projects: If True, also include Someday projects
+                themselves. Defaults to False - headings are never returned;
+                projects are excluded unless this flag is set, matching the
+                Things app's Someday list view.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_someday_sync, limit, include_project_tasks)
+        return await loop.run_in_executor(
+            None, self._get_someday_sync, limit, include_project_tasks, include_projects)
 
     def _get_someday_sync(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False) -> List[Dict]:
+                           include_project_tasks: bool = False,
+                           include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            someday_todos = list(things.someday() or [])
+            someday_todos = list(_fetch_list(things.someday, include_projects))
 
             # things.py doesn't mark a todo as Someday just because its
             # parent project is Someday - it reports the todo's own
@@ -693,21 +844,26 @@ class ReadOperations:
             logger.error(f"Error in _get_logbook_sync: {e}")
             return []
 
-    async def get_trash(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Get trashed todos with pagination."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_trash_sync, limit, offset)
+    async def get_trash(self, limit: int = 50, offset: int = 0,
+                         include_projects: bool = False) -> Dict[str, Any]:
+        """Get trashed todos with pagination.
 
-    def _get_trash_sync(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        Args:
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+            include_projects: If True, also include trashed projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Trash list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_trash_sync, limit, offset, include_projects)
+
+    def _get_trash_sync(self, limit: int = 50, offset: int = 0,
+                         include_projects: bool = False) -> Dict[str, Any]:
         """Synchronous implementation."""
         try:
-            trash_data = things.trash()
-
-            # Handle different return types from things.trash()
-            if hasattr(trash_data, '__iter__') and not isinstance(trash_data, (list, dict)):
-                trash_data = list(trash_data)
-            if isinstance(trash_data, dict):
-                trash_data = [trash_data]
+            trash_data = _fetch_list(things.trash, include_projects)
 
             total_count = len(trash_data)
 
@@ -734,85 +890,144 @@ class ReadOperations:
                 'has_more': False
             }
 
-    async def get_tagged_items(self, tag: str) -> List[Dict]:
-        """Get todos with a specific tag."""
+    async def get_tagged_items(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
+        """Get todos with a specific tag.
+
+        Note: tag matching is case-sensitive (things.py exact-match semantics).
+        If ``tag`` doesn't match any existing tag (including wrong-case
+        variants of a real tag), a structured error dict is returned instead
+        of a list - see ``_get_tagged_items_sync``.
+        """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_tagged_items_sync, tag)
 
-    def _get_tagged_items_sync(self, tag: str) -> List[Dict]:
-        """Synchronous implementation."""
+    def _get_tagged_items_sync(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
+        """Synchronous implementation.
+
+        Returns:
+            A list of converted todo dicts on success. If ``tag`` is unknown
+            to things.py (things.py raises ValueError, e.g. for a wrong-case
+            variant of a real tag - tag matching is case-sensitive), returns
+            a structured error dict instead:
+            ``{'success': False, 'error': 'unknown_tag', 'tag': tag,
+            'suggestions': [...]}`` where suggestions are case-insensitive
+            title matches from ``things.tags()``.
+        """
         try:
             tagged_todos = things.todos(tag=tag)
             return [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+
+        except ValueError as e:
+            logger.info(f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}")
+            return _build_unknown_tag_error(tag)
 
         except Exception as e:
             logger.error(f"Error in _get_tagged_items_sync: {e}")
             return []
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
-        """Get a specific todo by ID."""
+        """Get a specific Things item by ID.
+
+        Resolves any Things item id, not just to-dos - the returned item's
+        `type` field ('to-do', 'heading', or 'project') tells you which kind
+        it is. Trashed items also resolve; when trashed, the result includes
+        `trashed: True`. Raises ValueError if the id does not exist.
+        """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
 
     def _get_todo_by_id_sync(self, todo_id: str) -> Dict[str, Any]:
-        """Synchronous implementation."""
+        """Synchronous implementation.
+
+        Uses things.get(uuid), which does a direct-by-id lookup against the
+        whole database (any type, including trashed items) instead of a
+        linear scan over things.todos() (to-do only, excludes trashed). This
+        means projects, headings, and trashed items now resolve instead of
+        raising 'Todo not found'.
+        """
         try:
-            # Search all todos regardless of status (incomplete, completed, canceled)
-            all_todos = []
-            all_todos.extend(things.todos(status='incomplete'))
-            all_todos.extend(things.todos(status='completed'))
-            all_todos.extend(things.todos(status='canceled'))
+            item = things.get(todo_id)
 
-            for todo in all_todos:
-                if todo.get('uuid') == todo_id:
-                    converted = ToolsHelpers.convert_todo(todo)
+            if item is None:
+                raise ValueError(f"Todo not found: {todo_id}")
 
+            item_type = item.get('type', 'to-do')
+
+            if item_type == 'project':
+                converted = ToolsHelpers.convert_project(item)
+            else:
+                # 'to-do' and 'heading' both use convert_todo; convert_todo
+                # emits item.get('type', 'to-do') as-is, so a heading row
+                # (type == 'heading') is preserved correctly.
+                converted = ToolsHelpers.convert_todo(item)
+
+                if item_type == 'to-do':
                     try:
                         items = things.checklist_items(todo_id)
                         converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
                     except (KeyError, TypeError) as e:
                         logger.warning(f"Could not fetch checklist items for todo {todo_id}: {e}")
 
-                    return converted
+            if item.get('trashed'):
+                converted['trashed'] = True
 
-            raise ValueError(f"Todo not found: {todo_id}")
+            return converted
 
         except Exception as e:
             logger.error(f"Error in _get_todo_by_id_sync: {e}")
             raise
 
-    async def get_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Get todos due within specified number of days.
 
         Optimized to use things.py for 10-100x faster performance.
         Searches entire database, not just specific lists.
+
+        Args:
+            days: Number of days ahead to check for due todos.
+            include_overdue: If True (default), also include todos whose
+                deadline is already in the past, matching the historical
+                behavior of this tool. If False, only todos with
+                today <= deadline <= target date are returned.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_due_in_days_sync, days)
+        return await loop.run_in_executor(None, self._get_due_in_days_sync, days, include_overdue)
 
-    def _get_due_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
+    def _get_due_in_days_sync(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Synchronous implementation using things.py with deadline filter."""
         try:
+            today = datetime.now().strftime('%Y-%m-%d')
             target_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
 
-            # Use things.py with deadline operator for fast database query
+            # things.py only supports a single comparison operator per date
+            # field, so fetch the upper bound from the database and, when
+            # overdue items should be excluded, post-filter the lower bound
+            # in Python (raw deadline/start_date values are 'YYYY-MM-DD'
+            # strings and are lexically comparable).
             due_todos = things.todos(deadline=f'<={target_date}', status='incomplete')
             due_todos = filter_someday_project_tasks(due_todos or [])
+
+            if not include_overdue:
+                due_todos = [t for t in due_todos if (t.get('deadline') or '') >= today]
 
             return [ToolsHelpers.convert_todo(t) for t in due_todos]
         except Exception as e:
             logger.error(f"Error in _get_due_in_days_sync: {e}")
             return []
 
-    async def get_todos_due_in_days(self, days: int) -> List[Dict[str, Any]]:
+    async def get_todos_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Alias for get_due_in_days."""
-        return await self.get_due_in_days(days)
+        return await self.get_due_in_days(days, include_overdue=include_overdue)
 
     async def get_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Get todos activating within specified number of days.
 
         Optimized to use things.py for 10-100x faster performance.
         Searches entire database, not just specific lists.
+
+        Only todos whose start date falls within the forward window
+        (today <= start_date <= target date) are returned; todos that are
+        already active (start_date in the past) are excluded.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_activating_in_days_sync, days)
@@ -820,11 +1035,16 @@ class ReadOperations:
     def _get_activating_in_days_sync(self, days: int) -> List[Dict[str, Any]]:
         """Synchronous implementation using things.py with start_date filter."""
         try:
+            today = datetime.now().strftime('%Y-%m-%d')
             target_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
 
-            # Use things.py with start_date operator for fast database query
+            # things.py only supports a single comparison operator per date
+            # field, so fetch the upper bound from the database and
+            # post-filter the lower bound in Python (raw start_date values
+            # are 'YYYY-MM-DD' strings and are lexically comparable).
             activating_todos = things.todos(start_date=f'<={target_date}', status='incomplete')
             activating_todos = filter_someday_project_tasks(activating_todos or [])
+            activating_todos = [t for t in activating_todos if (t.get('start_date') or '') >= today]
 
             return [ToolsHelpers.convert_todo(t) for t in activating_todos]
         except Exception as e:
@@ -894,6 +1114,10 @@ class ReadOperations:
         Optimized to use things.py for 10-100x faster performance.
         NOW SEARCHES ENTIRE DATABASE including todos inside projects!
         (Previously limited to Today, Upcoming, Anytime, Someday, Inbox lists only)
+
+        Note: the ``tag`` filter is case-sensitive (things.py exact-match
+        semantics). An unknown/wrong-case tag returns a single-element list
+        containing a structured error dict - see ``_search_advanced_sync``.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._search_advanced_sync, filters)
@@ -904,17 +1128,32 @@ class ReadOperations:
         Args:
             filters: Dictionary containing search filters:
                 - query: Text to search in title/notes
-                - status: 'incomplete', 'completed', 'canceled', or None for all
+                - status: 'incomplete', 'completed', or 'canceled'. If omitted (or
+                  None), ALL statuses are searched - this differs from things.py's
+                  own default of 'incomplete', and from search_todos()'s default.
                 - type: 'to-do', 'project', 'heading'
-                - tag: Tag name to filter by
+                - tag: Tag name to filter by (case-sensitive - things.py does
+                  exact-match tag lookups, so e.g. 'Work' and 'work' are
+                  different tags)
                 - area: Area UUID to filter by
                 - start_date: Start date or operator (e.g., '<=2025-12-31', 'future')
                 - deadline: Deadline date or operator (e.g., '<=2025-12-31', 'past')
                 - project: Project UUID to filter by
                 - limit: Maximum number of results
 
+        Note: filter_someday_project_tasks is NOT applied here - todos that live
+        inside a Someday project (hidden from Today/Anytime/Upcoming in the Things
+        UI) can still match search_advanced.
+
         Returns:
-            List of matching todos with full details
+            List of matching todos with full details. If ``tag`` is unknown
+            to things.py (things.py raises ValueError, e.g. for a wrong-case
+            variant of a real tag), returns a single-element list containing
+            a structured error dict: ``[{'success': False, 'error':
+            'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
+            suggestions are case-insensitive title matches from
+            ``things.tags()``. This mirrors the existing structured-error
+            convention used above for an invalid ``type`` filter.
         """
         try:
             # Extract filters
@@ -944,10 +1183,15 @@ class ReadOperations:
                     )
                 }]
 
-            # Build things.py query parameters
+            # Build things.py query parameters. Unlike things.py itself (which
+            # defaults status to 'incomplete'), search_advanced with no status
+            # filter searches ALL statuses - explicitly pass status=None so
+            # things.todos()/things.tasks() don't fall back to their own default.
             query_params = {}
             if status:
                 query_params['status'] = status
+            else:
+                query_params['status'] = None
             if todo_type:
                 query_params['type'] = todo_type
             if tag:
@@ -965,10 +1209,16 @@ class ReadOperations:
             # things.todos() is a thin wrapper around things.tasks(type="to-do", **kwargs),
             # so when the caller supplies their own `type` we must call things.tasks()
             # directly to avoid a "multiple values for keyword argument 'type'" TypeError.
-            if 'type' in query_params:
-                todos = things.tasks(**query_params)
-            else:
-                todos = things.todos(**query_params)
+            try:
+                if 'type' in query_params:
+                    todos = things.tasks(**query_params)
+                else:
+                    todos = things.todos(**query_params)
+            except ValueError as e:
+                if tag:
+                    logger.info(f"Unknown tag '{tag}' in _search_advanced_sync: {e}")
+                    return [_build_unknown_tag_error(tag)]
+                raise
 
             # Filter by query text if provided (things.py doesn't support text search natively)
             results = []
@@ -994,19 +1244,52 @@ class ReadOperations:
             logger.error(f"Error in _search_advanced_sync: {e}")
             return []
 
-    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
-        """Get recently created items."""
+    async def get_recent(
+        self, period: str,
+        status: Optional[str] = None,
+        type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get recently created items.
+
+        Args:
+            period: Time period string (e.g. '3d', '1w', '2m', '1y').
+            status: Optional status filter - 'incomplete', 'completed', 'canceled',
+                or None (default) to include items of ALL statuses. Unlike
+                search_todos()/get_todos(), get_recent defaults to including
+                completed and canceled items so "recently created items" isn't
+                silently restricted to open to-dos.
+            type: Optional type filter - 'to-do', 'project', 'heading', or None
+                (default) to include to-dos and projects but NOT headings.
+                Headings are never user-facing items in list tools by default
+                (epic-wide ruling, hq-f0w.3) - pass type='heading' explicitly
+                to fetch recently created headings.
+
+        Note: filter_someday_project_tasks is NOT applied here - items inside a
+        Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+        still appear in get_recent results.
+        """
         loop = asyncio.get_event_loop()
 
         def _get_recent_sync():
             try:
-                all_todos = things.todos()
+                # Query all statuses/types by default (things.tasks() itself
+                # defaults status to 'incomplete', which would silently hide
+                # recently completed/canceled items and projects).
+                all_items = things.tasks(status=status, type=type)
                 days = ToolsHelpers.parse_period_to_days(period)
                 cutoff_date = datetime.now() - timedelta(days=days)
 
+                # When the caller didn't explicitly ask for headings, drop
+                # them - list tools never return headings by default
+                # (epic-wide ruling, hq-f0w.3); they're not user-facing items.
+                include_headings = (type == 'heading')
+
                 results = []
-                for todo in all_todos:
-                    created_date = todo.get('created')
+                for item in all_items:
+                    if not include_headings and item.get('type') == 'heading':
+                        continue
+
+                    created_date = item.get('created')
                     if created_date:
                         try:
                             if isinstance(created_date, str):
@@ -1015,9 +1298,9 @@ class ReadOperations:
                                 created_dt = created_date
 
                             if created_dt >= cutoff_date:
-                                results.append(ToolsHelpers.convert_todo(todo))
+                                results.append(ToolsHelpers.convert_todo(item))
                         except (ValueError, TypeError) as e:
-                            logger.warning(f"Skipping todo with invalid created date '{created_date}': {e}")
+                            logger.warning(f"Skipping item with invalid created date '{created_date}': {e}")
 
                 return results
 

@@ -186,6 +186,42 @@ bulk_update_todos(
 - Each todo gets all specified fields updated
 - Use for 2-50 todos (for larger batches, consider chunking)
 
+### Clearing Fields on update_todo / update_project / update_area / bulk_update_todos
+
+Partial updates distinguish "field not provided" (leave unchanged) from "field
+explicitly cleared" by using the empty string (or an empty tag list for `tags`):
+
+| Field | Omit (leave unchanged) | `''` (empty string) |
+|---|---|---|
+| `title` | unchanged | **rejected** - `"title cannot be empty"` (titles cannot be cleared) |
+| `notes` | unchanged | clears notes (todo, project) |
+| `deadline` | unchanged | clears the deadline (todo, project) |
+| `tags` | unchanged | clears all tags (todo, project, area) |
+| `when` | unchanged | **rejected** - use `when='anytime'` or `when='someday'` to unschedule instead |
+
+```python
+# Clear notes and deadline, leave everything else (including tags) unchanged
+update_todo(id="abc123", notes="", deadline="")
+
+# Clear all tags on a project without touching its title/notes/deadline
+update_project(id="proj123", tags="")
+
+# Clear notes on every todo in a bulk update
+bulk_update_todos(todo_ids="id1,id2,id3", notes="")
+
+# WRONG - title cannot be cleared; this returns a VALIDATION_ERROR
+update_todo(id="abc123", title="")
+
+# WRONG - when='' is rejected; unschedule with 'anytime' or 'someday' instead
+update_todo(id="abc123", when="anytime")
+```
+
+**Note on tag policy interaction:** if `tags` is a non-empty request and the
+configured `tag_creation_policy` filters out every requested tag (e.g. all of
+them are unknown under `filter_silent`/`filter_warn`), the result is a no-op -
+existing tags are left unchanged, not cleared. Only an explicit `tags=''`
+clears tags.
+
 ### Testing Notes
 
 Both bugs were discovered through comprehensive edge case testing:
@@ -325,11 +361,44 @@ The structured shape is consistent across list-returning tools:
 
 Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
+`get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.
+
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
 
 ### Someday: opt-in project-task inheritance
 
 `get_someday(include_project_tasks?)` defaults to `include_project_tasks=false` and returns only items whose own start state is Someday (`things.someday()`). Things 3 also lets tasks inherit "Someday" from a parent project even when things.py reports their own start state as Anytime/other; on databases with many Someday projects this inherited set can be very large (in practice, many times larger than the native set) and, under response-mode truncation, would crowd out the native items. Pass `include_project_tasks=true` to also include those inherited tasks - each is marked `inheritedSomeday: true` in the response so callers can distinguish them. This only affects `get_someday`; `get_today`, `get_anytime`, and `get_upcoming` always exclude tasks that belong to a Someday project (matching Things UI behavior) regardless of this flag.
+
+### Due/activating date-window tools
+
+`get_due_in_days(days, include_overdue?)` and `get_activating_in_days(days)` both query a
+forward window of `today <= date <= today + days`, and both apply the Someday-project
+filter described above.
+
+- `get_activating_in_days` always excludes todos that are already active (`start_date` in
+  the past) - it only returns todos whose start date falls within the forward window,
+  matching the tool's name and docstring ("activating within specified days").
+- `get_due_in_days` defaults to `include_overdue=true`, preserving the historical
+  behavior of also returning todos whose deadline has already passed. Pass
+  `include_overdue=false` to restrict results to the forward window only
+  (`today <= deadline <= today + days`).
+- Boundary dates are inclusive on both ends: a deadline/start_date of exactly today or
+  exactly the target date is included.
+
+```python
+# Historical behavior: due soon + already overdue
+get_due_in_days(days=7)
+
+# Only todos due within the next 7 days, excluding anything already overdue
+get_due_in_days(days=7, include_overdue=false)
+
+# Todos that will become active in the next 7 days (excludes already-active todos)
+get_activating_in_days(days=7)
+```
+
+### List tools: headings never returned, projects opt-in
+
+`get_inbox`, `get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` never return headings. Projects are also excluded by default and are opt-in via `include_projects: bool = false` on `get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` (matching the Things app's list views); `get_inbox` has no such flag since the Inbox can never contain projects. Pass `include_projects=true` to also include projects that belong to that list (e.g. a project due today, or a trashed project). `include_projects` is independent of `get_someday`'s `include_project_tasks` flag described above - one controls whether Someday projects themselves are returned, the other controls whether tasks that inherit Someday status from their parent project are returned.
 
 ### Response Mode Selection
 
@@ -372,6 +441,34 @@ When working with retrieval tools (`get_todos`, `search_todos`, list tools), use
 - **Minimal mode**: ~50 bytes per item
 - **Summary mode**: Fixed ~200 bytes total
 - For 100+ items, always start with `mode='summary'` or `mode='minimal'`
+
+### Todo field lists per mode (hq-f0w.4)
+
+Field names are the camelCase keys `ToolsHelpers.convert_todo` emits (things.py's
+snake_case fields renamed). `start` is the Inbox/Anytime/Someday state (distinct
+from `startDate`, which is a specific date). `heading`/`headingTitle` and
+`project`/`projectTitle` are always present in the dict (as `null` when the todo
+isn't under a heading/project respectively); other fields are omitted when `null`.
+
+- **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
+- **`minimal`**: `uuid`, `title`, `status`, `type`, `start`, `project`, `dueDate`,
+  `modificationDate`, `creationDate` - enough to locate a todo (identity, kind,
+  and where it lives) without pulling notes or checklist detail
+- **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
+  `modificationDate`, `creationDate`, `tags`, `project`, `projectTitle`,
+  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`
+- **`detailed`** / **`raw`**: all fields, including `hasChecklist` (bool - only a
+  real `checklist` list of items when `include_items=true` was requested),
+  `completionDate`/`cancellationDate` (derived from things.py's single
+  `stop_date` field by `status`), `index`, `todayIndex`
+
+Note: `area` was removed from the todo field sets (a to-do row from things.py
+never actually carries an `area` key - only projects do; the field was always
+absent in practice). Heading info (`heading`/`headingTitle`) comes directly from
+the Things database via things.py; when a read is served by the AppleScript path
+(`get_todos(project_uuid=...)`), these fields are filled in best-effort by a
+secondary things.py lookup after the AppleScript fetch and are omitted/`null` if
+that lookup fails.
 
 ### Performance Tips
 
@@ -462,6 +559,11 @@ add_todo(title="Research competitors", list_id=project_id, heading="Research")
 add_todo(title="Create wireframes", list_id=project_id, heading="Design")
 add_todo(title="Implement homepage", list_id=project_id, heading="Development")
 
+# Add a todo by project/area title instead of id - resolved via exact-title
+# match against both projects and areas; an ambiguous title (matches more
+# than one) or an unknown title returns a structured error.
+add_todo(title="Draft outline", list_title="Website Redesign")
+
 # Update project
 update_project(
     id=project_id,
@@ -469,11 +571,61 @@ update_project(
     tags="urgent,design,review-needed"
 )
 
+# Mark a project completed (moves it to the Logbook)
+update_project(id=project_id, completed="true")
+
+# Mark a project canceled
+update_project(id=project_id, canceled="true")
+
+# Reopen a completed/canceled project
+update_project(id=project_id, completed="false")
+
 # Get projects
 get_projects(mode='summary')  # Count and preview
 get_projects(mode='minimal')  # IDs and names only
 get_projects(mode='standard')  # Full details
 ```
+
+**Headings**: `heading` places a new to-do under an existing heading within
+the target project. It requires a target project via `list_id` or
+`list_title` - calling `add_todo(heading=...)` without one returns
+`{"success": false, "error": "heading requires a target project (list_id or
+list_title)"}` and never contacts Things. **The heading must already exist**
+in that project - Things 3's AppleScript dictionary has no heading class,
+so headings cannot be created via AppleScript; create one first via the
+Things 3 UI. Because a to-do with a `heading` is created via the Things URL
+scheme (`things:///add`), if the named heading does not exist in the target
+project **Things silently ignores it** - the to-do still lands in the
+project, just not under that heading, with no error from Things. `add_todo`
+pre-checks the heading against the project's known headings and adds a
+`warnings` entry to the response when it can't confirm the heading exists,
+but cannot force Things to honour a heading that isn't there.
+
+**No auth token required for `add`**: the Things URL scheme's `add` action
+does not require an auth token (only `update`/`json`-style actions do), so
+`add_todo` with `heading` or `checklist_items` works via URL scheme without
+any Things 3 auth-token configuration.
+
+**`list_title` resolution**: on every path - AppleScript (no heading, no
+checklist) and Things-URL-scheme (heading and/or checklist) - `list_title`
+is resolved to a concrete project/area id via an exact-title match before
+the write; an unknown or ambiguous title (matches more than one
+project/area) returns a structured error rather than silently landing the
+to-do in the Inbox.
+
+**`list_id` fallback when the Things database is unreadable**: `add_todo`
+normally resolves `list_id` to project-vs-area via a `things.py` lookup
+(`things.get()`). If that lookup itself raises (e.g. the Things SQLite
+database is unreadable or Full Disk Access hasn't been granted), `add_todo`
+falls back to treating `list_id` as a project id and proceeds via
+AppleScript alone (matching pre-1.7.0 behavior) rather than refusing the
+write - only a *successful* lookup that reports the id as unknown, or not a
+project/area, returns a structured error.
+
+**Status semantics (`completed`/`canceled`):**
+- `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
+- Passing `completed="false"` or `canceled="false"` alone reopens the project.
+- Omitting both parameters leaves the project's status unchanged.
 
 ### Moving Todos Between Projects
 
@@ -564,6 +716,18 @@ add_todo(
 
 #### Managing Checklist Items
 
+**Auth token required**: `add_checklist_items`, `prepend_checklist_items`, and
+`replace_checklist_items` go through `things:///update`, which Things 3
+rejects without an auth token. Without one configured, these three tools
+return `{"success": false, "error": "Things URL-scheme auth token not
+configured", "hint": ...}` instead of silently doing nothing - `add_todo`
+with `checklist_items` uses `things:///add`, which does **not** need a
+token, so todo creation with a checklist is unaffected. Configure a token via
+Things: Settings > General > Enable Things URLs > Manage, then save it to
+`.things-auth`, `things-auth.txt`, or `~/.things-auth` (checked in that
+order) and restart the server - the token is loaded once at startup. Run
+`mcp-server-things doctor` to check whether a token is configured.
+
 ```python
 # Add items to existing todo (appends to end)
 add_checklist_items(
@@ -600,6 +764,9 @@ replace_checklist_items(
 - URL scheme is automatically used when `checklist_items` parameter is provided
 - Todo ID is retrieved after creation by searching for the newly created todo
 - Non-checklist todos still use faster AppleScript approach
+- The auth token is loaded once at server startup; a token file added or
+  edited afterwards requires a server restart to take effect. An
+  empty/whitespace-only token file is treated as missing.
 
 ### Known Limitations
 

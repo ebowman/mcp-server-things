@@ -22,16 +22,20 @@ def things_tools(mock_applescript_manager):
 @pytest.mark.asyncio
 async def test_get_trash_default_pagination(things_tools):
     """Test get_trash with default pagination parameters."""
-    # Mock the things.trash() call to return a list of mock todos
+    # Mock the things.trash() call to return a list of mock todos plus a project,
+    # which must be excluded by default (include_projects=False).
     mock_todos = [
-        {'uuid': f'todo-{i}', 'title': f'Todo {i}', 'status': 'completed'}
+        {'uuid': f'todo-{i}', 'title': f'Todo {i}', 'status': 'completed', 'type': 'to-do'}
         for i in range(75)  # Create 75 mock todos
     ]
+    mock_project = {'uuid': 'proj-trashed', 'title': 'Trashed Project', 'status': 'completed', 'type': 'project'}
+    mock_trash_data = mock_todos + [mock_project]
 
-    with patch('things_mcp.tools_helpers.read_operations.things.trash', return_value=mock_todos):
+    with patch('things_mcp.tools_helpers.read_operations.things.trash', return_value=mock_trash_data):
         result = await things_tools.get_trash()
 
-        # Verify pagination metadata
+        # Verify pagination metadata - project is excluded, so total_count is
+        # still 75, not 76.
         assert result['total_count'] == 75
         assert result['limit'] == 50
         assert result['offset'] == 0
@@ -40,6 +44,28 @@ async def test_get_trash_default_pagination(things_tools):
 
         # Verify first item (converted todos use 'uuid' field)
         assert result['items'][0]['uuid'] == 'todo-0'
+        assert all(item['uuid'] != 'proj-trashed' for item in result['items'])
+
+
+@pytest.mark.asyncio
+async def test_get_trash_include_projects(things_tools):
+    """Test get_trash(include_projects=True) includes trashed projects."""
+    mock_todos = [
+        {'uuid': f'todo-{i}', 'title': f'Todo {i}', 'status': 'completed', 'type': 'to-do'}
+        for i in range(5)
+    ]
+    mock_project = {'uuid': 'proj-trashed', 'title': 'Trashed Project', 'status': 'completed', 'type': 'project'}
+    mock_heading = {'uuid': 'heading-trashed', 'title': 'Trashed Heading', 'type': 'heading'}
+    mock_trash_data = mock_todos + [mock_project, mock_heading]
+
+    with patch('things_mcp.tools_helpers.read_operations.things.trash', return_value=mock_trash_data):
+        result = await things_tools.get_trash(include_projects=True)
+
+        # Heading is always excluded; project is included when include_projects=True.
+        assert result['total_count'] == 6
+        uuids = {item['uuid'] for item in result['items']}
+        assert 'proj-trashed' in uuids
+        assert 'heading-trashed' not in uuids
 
 
 @pytest.mark.asyncio

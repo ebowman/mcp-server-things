@@ -370,19 +370,37 @@ def _auth_token_paths() -> List[Path]:
 
 
 def check_auth_token() -> CheckResult:
-    """Check for a Things URL-scheme auth token file. INFO only - never FAIL/WARN."""
+    """Check for a Things URL-scheme auth token file.
+
+    PASS when a non-empty token file is found. WARN (not FAIL - most tools
+    don't need it) when missing, naming the specific tools that will fail
+    with an actionable error until the token is configured:
+    ``add_checklist_items``, ``prepend_checklist_items``,
+    ``replace_checklist_items``, and any other ``things:///update``-based
+    tool.
+    """
     name = "Auth token file"
     for auth_file in _auth_token_paths():
         if auth_file.exists():
-            return CheckResult(name, STATUS_INFO, detail=f"token configured ({auth_file})")
+            try:
+                token = auth_file.read_text().strip()
+                if '=' in token:
+                    token = token.split('=', 1)[1].strip()
+            except OSError:
+                token = ""
+            if token:
+                return CheckResult(name, STATUS_PASS, detail=f"token configured ({auth_file})")
 
     return CheckResult(
         name,
-        STATUS_INFO,
+        STATUS_WARN,
         detail="no auth token file found",
         hint=(
-            "Only needed for URL-scheme features. Things -> Settings -> General -> "
-            "Enable Things URLs -> Manage."
+            "Required by add_checklist_items, prepend_checklist_items, and "
+            "replace_checklist_items (and any other things:///update-based tool) - "
+            "these return an error instead of silently no-op'ing until a token is "
+            "configured. Things -> Settings -> General -> Enable Things URLs -> "
+            "Manage, then save it to .things-auth, things-auth.txt, or ~/.things-auth."
         ),
     )
 

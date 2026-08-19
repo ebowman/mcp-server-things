@@ -254,6 +254,32 @@ The server uses environment variables for configuration, settable via system env
 
 See [`.env.example`](.env.example) for the full list of options, including validation limits, retry counts, the auth-token file, and `THINGS_MCP_HOST`.
 
+### Things URL-scheme auth token
+
+`add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items`
+(and any other tool built on `things:///update`, e.g. moving a to-do under a
+heading) require a Things URL-scheme auth token. Without one configured,
+these tools return `success: false` with an actionable error instead of
+silently doing nothing - Things itself rejects un-authenticated `update`
+requests, but `open -g` still exits 0, so the failure has to be caught before
+the URL is ever opened. `things:///add`-based tools (`add_todo`,
+`add_project`, including todo creation with a checklist) do **not** need a
+token.
+
+To configure one:
+
+1. In Things 3: Settings > General > Enable Things URLs > Manage.
+2. Save the token to one of (checked in this order, first match wins):
+   - `.things-auth` in the project root
+   - `things-auth.txt` in the project root
+   - `~/.things-auth` in your home directory
+3. Restart the server - the token is loaded once at startup, so a token
+   file added or edited after the server starts is not picked up until the
+   next restart.
+
+An empty or whitespace-only token file is treated the same as a missing one
+(the loader falls through to the next candidate path).
+
 ### HTTP Transport
 
 By default the server speaks MCP over stdio. It can optionally run an HTTP
@@ -347,13 +373,16 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `update_area(id, title?, tags?)` - Update existing area
 
 ### List Access
+
+`get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` never return headings, and exclude projects by default - pass `include_projects=true` to also include projects that belong to that list (e.g. a project due today), matching the Things app's list views. `get_inbox` has no `include_projects` flag since the Inbox can never contain projects.
+
 - `get_inbox()` - Get Inbox todos
-- `get_today()` - Get Today's todos
-- `get_upcoming(days?)` - Get upcoming todos (with optional days filter)
-- `get_anytime()` - Get Anytime todos
-- `get_someday(include_project_tasks?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
+- `get_today(include_projects?)` - Get Today's todos
+- `get_upcoming(days?, include_projects?)` - Get upcoming todos (with optional days filter)
+- `get_anytime(include_projects?)` - Get Anytime todos
+- `get_someday(include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?)` - Get completed todos
-- `get_trash()` - Get trashed todos
+- `get_trash(include_projects?)` - Get trashed todos
 
 ### Date-Range Queries
 - `get_due_in_days(days)` - Get todos due within specified days
@@ -445,6 +474,14 @@ This is the same failure mode reported upstream in
 [hald/things-mcp#62](https://github.com/hald/things-mcp/issues/62); we've
 verified it applies here too since we read the Things database via the same
 `things.py` library and code path.
+
+### Checklist tools return "Things URL-scheme auth token not configured"
+
+`add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items`
+need a Things URL-scheme auth token (see "Things URL-scheme auth token" under
+Configuration above). `mcp-server-things doctor` reports this as a WARN on
+the "Auth token file" row, naming the affected tools, until a token file is
+in place.
 
 ### Common Issues
 

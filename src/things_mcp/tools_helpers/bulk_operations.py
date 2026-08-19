@@ -54,6 +54,13 @@ class BulkOperations:
     async def _validate_bulk_params(self, todo_ids: List[str], kwargs: dict) -> tuple:
         """Validate parameters for bulk update operation.
 
+        Clear-field contract (same as update_todo, via
+        ParameterValidator.validate_update_params): notes='' and
+        deadline='' clear those fields on every todo; tags='' clears all
+        tags on every todo (bypassing tag policy validation entirely,
+        since there is nothing to validate when clearing); title='' and
+        when='' are rejected with a ValidationError.
+
         Args:
             todo_ids: List of todo IDs
             kwargs: Update parameters
@@ -72,8 +79,11 @@ class BulkOperations:
         # Replace kwargs with only validated params (filters out None values)
         kwargs = validated_params
 
-        # Handle tag validation
+        # Handle tag validation. An explicit clear request (tags=[] from
+        # validate_update_params, as opposed to tags not being provided at
+        # all) skips tag policy validation entirely and is preserved as [].
         tags = kwargs.get('tags', [])
+        is_explicit_clear = 'tags' in kwargs and tags == []
         tag_validation = None
         if tags and self.tag_validation_service:
             tag_validation = await self._validate_tags_with_policy(tags)
@@ -82,11 +92,20 @@ class BulkOperations:
             if tag_validation.get('errors'):
                 raise ValidationError("; ".join(tag_validation['errors']))
 
-            # Update kwargs with only valid tags
+            # Update kwargs with only valid tags. If every requested tag was
+            # filtered out by policy, drop 'tags' entirely rather than
+            # setting it to [] - that must not be confused with an explicit
+            # clear request, so the existing tags are left untouched
+            # (matches update_area's "all filtered -> no-op" behaviour).
             valid_tags = tag_validation.get('existing', []) + tag_validation.get('created', [])
             if valid_tags != tags:
                 kwargs = dict(kwargs)
-                kwargs['tags'] = valid_tags
+                if valid_tags:
+                    kwargs['tags'] = valid_tags
+                else:
+                    kwargs.pop('tags', None)
+        elif is_explicit_clear:
+            kwargs['tags'] = []
 
         # Extract 'when' for separate scheduling
         when_value = kwargs.pop('when', None)
@@ -95,6 +114,13 @@ class BulkOperations:
 
     def _build_bulk_update_script(self, todo_ids: List[str], kwargs: dict) -> str:
         """Build AppleScript for bulk update operation.
+
+        Clear-field contract (mirrors TodoOperations._build_update_script):
+        a field absent from kwargs leaves it unchanged; kwargs['notes'] == ''
+        and kwargs['deadline'] == '' clear those fields; kwargs['tags'] == []
+        (an explicit empty list, set by _validate_bulk_params for a tags=''
+        request) clears all tags. title cannot be '' here - callers reject
+        it upstream in ParameterValidator.validate_update_params.
 
         Args:
             todo_ids: List of todo IDs to update
@@ -124,16 +150,22 @@ class BulkOperations:
                     script += f'        set status of targetTodo to open\n'
 
             if 'title' in kwargs and kwargs['title'] is not None:
-                escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title']).strip('"')
-                script += f'        set name of targetTodo to "{escaped_title}"\n'
+                escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title'])
+                script += f'        set name of targetTodo to {escaped_title}\n'
 
             if 'notes' in kwargs and kwargs['notes'] is not None:
-                escaped_notes = ToolsHelpers.escape_applescript_string(kwargs['notes']).strip('"')
-                script += f'        set notes of targetTodo to "{escaped_notes}"\n'
+                escaped_notes = ToolsHelpers.escape_applescript_string(kwargs['notes'])
+                script += f'        set notes of targetTodo to {escaped_notes}\n'
 
             if 'deadline' in kwargs:
                 deadline = kwargs['deadline']
-                if deadline:
+                if deadline == '':
+                    # Things 3's AppleScript dictionary rejects
+                    # `set due date of X to missing value` ("Can't make
+                    # missing value into type date"); `delete` is the
+                    # documented way to clear a date property.
+                    script += '        delete due date of targetTodo\n'
+                elif deadline:
                     date_components = locale_handler.normalize_date_input(deadline)
                     if date_components:
                         year, month, day = date_components
@@ -146,16 +178,20 @@ class BulkOperations:
         set due date of targetTodo to deadlineDate
 '''
 
-            if 'tags' in kwargs and kwargs['tags']:
+            if 'tags' in kwargs and kwargs['tags'] is not None:
                 tags_value = kwargs['tags']
                 if isinstance(tags_value, str):
                     tags_value = [t.strip() for t in tags_value.split(",")] if tags_value else []
                 # Filter out None and empty strings
                 tags_value = [t for t in tags_value if t]
                 if tags_value:
-                    escaped_tags = [ToolsHelpers.escape_applescript_string(t).strip('"') for t in tags_value]
-                    tag_string = ', '.join(escaped_tags)
-                    script += f'        set tag names of targetTodo to "{tag_string}"\n'
+                    escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(tags_value))
+                    script += f'        set tag names of targetTodo to {escaped_tags_string}\n'
+                else:
+                    # Explicit clear request (kwargs['tags'] == [] before
+                    # filtering) - clear all tags rather than leaving them
+                    # unchanged.
+                    script += '        set tag names of targetTodo to ""\n'
 
             script += '        set successCount to successCount + 1\n'
             script += '    on error errMsg\n'

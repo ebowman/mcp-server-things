@@ -69,7 +69,7 @@ class SearchOperations:
 
         # Add query filter
         if query:
-            escaped_query = AppleScriptTemplates.escape_string(query.lower()).strip('"')
+            escaped_query = AppleScriptTemplates.escape_string_inner(query.lower())
             script += f'''
                         -- Check if query matches title or notes
                         set titleMatch to false
@@ -92,7 +92,7 @@ class SearchOperations:
         # Add tag filter
         if tags:
             for tag in tags:
-                escaped_tag = AppleScriptTemplates.escape_string(tag).strip('"')
+                escaped_tag = AppleScriptTemplates.escape_string_inner(tag)
                 script += f'''
                         -- Check if todo has the specified tag
                         try
@@ -108,7 +108,7 @@ class SearchOperations:
 
         # Add area filter
         if area:
-            escaped_area = AppleScriptTemplates.escape_string(area).strip('"')
+            escaped_area = AppleScriptTemplates.escape_string_inner(area)
             script += f'''
                         try
                             if (area of aTodo as string) is not equal to "{escaped_area}" then
@@ -121,7 +121,7 @@ class SearchOperations:
 
         # Add project filter
         if project:
-            escaped_project = AppleScriptTemplates.escape_string(project).strip('"')
+            escaped_project = AppleScriptTemplates.escape_string_inner(project)
             script += f'''
                         try
                             if (project of aTodo as string) is not equal to "{escaped_project}" then

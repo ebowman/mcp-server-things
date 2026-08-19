@@ -160,7 +160,7 @@ class TestSpecialCharacters:
 
     @pytest.mark.asyncio
     async def test_newlines_in_notes(self, tools_with_mock, mock_applescript_manager):
-        """Test notes with newlines."""
+        """Test notes with newlines are preserved (escaped), not collapsed to spaces."""
         notes_with_newlines = "Line 1\nLine 2\nLine 3"
 
         mock_applescript_manager.set_mock_response("default", {
@@ -172,6 +172,31 @@ class TestSpecialCharacters:
         result = await tools_with_mock.add_todo(title="Test", notes=notes_with_newlines)
 
         assert result["success"] is True
+
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        # Newlines must survive as the AppleScript escape sequence \n, not
+        # be collapsed to a space and not appear as a raw newline inside
+        # the string literal (which would be a syntax error).
+        assert "Line 1\\nLine 2\\nLine 3" in script
+        assert "Line 1 Line 2 Line 3" not in script
+        assert '"Line 1\nLine 2' not in script
+
+    @pytest.mark.asyncio
+    async def test_double_newline_in_notes_preserved(self, tools_with_mock, mock_applescript_manager):
+        """Test that blank-line paragraph breaks (\\n\\n) survive escaping."""
+        notes = "Line one.\n\nLine two.\n\nLine three."
+
+        mock_applescript_manager.set_mock_response("default", {
+            "success": True,
+            "output": "todo-paragraphs",
+            "error": None
+        })
+
+        result = await tools_with_mock.add_todo(title="Test", notes=notes)
+
+        assert result["success"] is True
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        assert "Line one.\\n\\nLine two.\\n\\nLine three." in script
 
     @pytest.mark.asyncio
     async def test_markdown_in_notes(self, tools_with_mock, mock_applescript_manager):
@@ -240,10 +265,10 @@ class TestInvalidInputs:
     @pytest.mark.asyncio
     async def test_invalid_todo_id(self, tools_with_mock):
         """Test getting todo with non-existent ID."""
-        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
-            mock_todos.return_value = []  # No todos
+        with patch('things_mcp.tools_helpers.read_operations.things.get') as mock_get:
+            mock_get.return_value = None  # No item with this id
 
-            # Implementation raises ValueError for not found todos
+            # Implementation raises ValueError for not found ids
             with pytest.raises(ValueError, match="Todo not found"):
                 await tools_with_mock.get_todo_by_id("nonexistent-id")
 

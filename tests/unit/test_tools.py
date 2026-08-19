@@ -37,14 +37,29 @@ class TestThingsToolsInit:
     def test_escape_applescript_string(self, mock_applescript_manager):
         """Test AppleScript string escaping - now in operation modules."""
         from things_mcp.tools_helpers import ToolsHelpers
+        from things_mcp.utils.applescript_utils import AppleScriptTemplates
 
         # Test quote escaping
         result = ToolsHelpers.escape_applescript_string('Hello "World"')
         assert '\\"' in result
+        assert result == '"Hello \\"World\\""'
 
         # Test backslash escaping
         result = ToolsHelpers.escape_applescript_string('Path\\file')
         assert '\\\\' in result
+        assert result == '"Path\\\\file"'
+
+        # Delegation: ToolsHelpers.escape_applescript_string must produce the
+        # exact same output as AppleScriptTemplates.escape_string (single
+        # source of truth for escaping).
+        for text in ['plain', 'a"b\\c', 'multi\nline\ntext', 'tab\there']:
+            assert ToolsHelpers.escape_applescript_string(text) == AppleScriptTemplates.escape_string(text)
+
+        # Newlines must be preserved as an escape sequence, not collapsed to
+        # a space or dropped (GH #10 bug 3).
+        result = ToolsHelpers.escape_applescript_string('Line 1\nLine 2')
+        assert result == '"Line 1\\nLine 2"'
+        assert 'Line 1 Line 2' not in result
 
 
 class TestGetTodos:

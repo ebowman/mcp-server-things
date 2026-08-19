@@ -47,6 +47,28 @@ def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
     return tag_list or None
 
 
+def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated tag string for update_todo/update_project/update_area/
+    bulk_update_todos, preserving the "clear all tags" signal.
+
+    Unlike `_parse_tag_list`, an explicit empty string (or a string that is
+    only commas/whitespace, e.g. " , ") is treated as a request to clear all
+    tags and returns `[]` rather than `None`. `None` (the field omitted
+    entirely) still means "leave tags unchanged".
+
+    Args:
+        tags: Comma-separated tag names, "" to clear, or None to leave unchanged.
+
+    Returns:
+        A list of non-empty, stripped tag names; `[]` if `tags` was an
+        explicit (post-strip) empty string; or `None` if `tags` was `None`.
+    """
+    if tags is None:
+        return None
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    return tag_list
+
+
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
@@ -447,17 +469,27 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_todo(
             id: str = Field(..., description="ID of the todo to update"),
-            title: Optional[str] = Field(None, description="New title"),
-            notes: Optional[str] = Field(None, description="New notes"),
-            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="New deadline"),
+            title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content."""
+            """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
+
+            Clear-field semantics for partial updates: a field left at its
+            default (None/omitted) leaves the existing value unchanged.
+            Passing notes='' or deadline='' clears that field. Passing
+            tags='' clears all tags. title='' is rejected with a validation
+            error (titles cannot be cleared). when='' is also rejected -
+            use when='anytime' or when='someday' to unschedule instead.
+            """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.update_todo), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -480,8 +512,9 @@ class ThingsMCPServer:
                             "message": str(e)
                         }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -524,17 +557,28 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def bulk_update_todos(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to update"),
-            title: Optional[str] = Field(None, description="New title for all todos"),
-            notes: Optional[str] = Field(None, description="New notes for all todos"),
-            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos"),
-            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25')"),
-            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD)"),
+            title: Optional[str] = Field(None, description="New title for all todos. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes for all todos. Omit to leave unchanged; pass '' to clear notes on all todos"),
+            tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags on all todos"),
+            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD). Omit to leave unchanged; pass '' to clear the deadline on all todos"),
             completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update multiple todos with the same changes in a single operation."""
+            """Update multiple todos with the same changes in a single operation.
+
+            Clear-field semantics for partial updates (same contract as
+            update_todo): a field left at its default (None/omitted) leaves
+            the existing value unchanged for every todo. Passing notes=''
+            or deadline='' clears that field. Passing tags='' clears all
+            tags. title='' is rejected with a validation error (titles
+            cannot be cleared). when='' is also rejected - use
+            when='anytime' or when='someday' to unschedule instead.
+            """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.bulk_update_todos), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -567,8 +611,9 @@ class ThingsMCPServer:
                         "updated_count": 0
                     }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -615,7 +660,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to add checklist items to"),
             items: List[str] = Field(..., description="List of checklist items to add")
         ) -> Dict[str, Any]:
-            """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist."""
+            """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 if not items:
                     return {
@@ -635,7 +686,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to prepend checklist items to"),
             items: List[str] = Field(..., description="List of checklist items to prepend")
         ) -> Dict[str, Any]:
-            """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist."""
+            """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 if not items:
                     return {
@@ -655,7 +712,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to replace checklist items in"),
             items: List[str] = Field(..., description="List of checklist items to replace with (empty list to clear all)")
         ) -> Dict[str, Any]:
-            """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items."""
+            """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 result = await self.tools.replace_checklist_items(todo_id=todo_id, items=items)
                 return result
@@ -667,7 +730,14 @@ class ThingsMCPServer:
         async def get_todo_by_id(
             todo_id: str = Field(..., description="ID of the todo to retrieve")
         ) -> Dict[str, Any]:
-            """Get a specific todo by its ID."""
+            """Get a specific Things item by its ID.
+
+            Resolves any Things item id, not just to-dos - projects and
+            headings resolve too. The returned item's `type` field
+            ('to-do', 'heading', or 'project') tells you which kind it is.
+            Trashed items also resolve, with `trashed: true` included in
+            the result.
+            """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)
                 return {"item": todo}
@@ -831,19 +901,34 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_project(
             id: str = Field(..., description="ID of the project to update"),
-            title: Optional[str] = Field(None, description="New title"),
-            notes: Optional[str] = Field(None, description="New notes"),
-            tags: Optional[str] = Field(None, description="Comma-separated new tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="New deadline"),
+            title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
+            tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
+            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
             area_id: Optional[str] = Field(None, description="ID of area to move to"),
             area_title: Optional[str] = Field(None, description="Title of area to move to"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content."""
+            """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content.
+
+            Status semantics for completed/canceled: canceled takes precedence when both are
+            given (e.g. completed='false', canceled='true' results in canceled). Passing
+            completed='false' or canceled='false' alone (with the other omitted) reopens the
+            project. Omitting both leaves status unchanged.
+
+            Clear-field semantics for partial updates: a field left at its
+            default (None/omitted) leaves the existing value unchanged.
+            Passing notes='' or deadline='' clears that field. Passing
+            tags='' clears all tags. title='' is rejected with a validation
+            error (titles cannot be cleared). when='' is also rejected -
+            use when='anytime' or when='someday' to unschedule instead.
+            """
             try:
-                # Validate date parameters
+                # Validate date parameters. Empty strings ('') are clear/reject
+                # requests handled by ParameterValidator.validate_update_params
+                # downstream (in self.tools.update_project), not here.
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
@@ -866,8 +951,9 @@ class ThingsMCPServer:
                             "message": str(e)
                         }
 
-                # Convert comma-separated tags to list
-                tag_list = _parse_tag_list(tags)
+                # Convert comma-separated tags to list. '' clears all tags,
+                # None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
 
                 # Convert string booleans to actual booleans
                 completed_bool = None
@@ -956,12 +1042,20 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def update_area(
             id: str = Field(..., description="ID of the area to update"),
-            title: Optional[str] = Field(None, description="New title for the area"),
-            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Tags that don't already exist in Things 3 are silently filtered out.")
+            title: Optional[str] = Field(None, description="New title for the area. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
+            tags: Optional[str] = Field(None, description="Comma-separated existing tags to apply to the area (replaces current tags). Omit to leave unchanged; pass '' to clear all tags. Tags that don't already exist in Things 3 are silently filtered out.")
         ) -> Dict[str, Any]:
-            """Update an existing area's title and/or tags. Only provided fields are changed. Note: there is no delete_area tool, since deleting an area also deletes its projects."""
+            """Update an existing area's title and/or tags. Only provided fields are changed.
+            Note: there is no delete_area tool, since deleting an area also deletes its projects.
+
+            Clear-field semantics: title left at its default (None/omitted) leaves the
+            existing title unchanged; title='' is rejected with a validation error
+            (titles cannot be cleared). tags left at its default (None/omitted) leaves
+            existing tags unchanged; tags='' clears all tags.
+            """
             try:
-                tag_list = _parse_tag_list(tags)
+                # '' clears all tags, None (tags not provided) leaves tags unchanged.
+                tag_list = _parse_tag_list_for_update(tags)
                 return await self.tools.update_area(area_id=id, title=title, tags=tag_list)
             except Exception as e:
                 logger.error(f"Error updating area: {e}")
@@ -973,7 +1067,11 @@ class ThingsMCPServer:
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Dict[str, Any]:
-            """Get todos from Inbox. Supports response optimization via mode parameter and limit."""
+            """Get todos from Inbox. Supports response optimization via mode parameter and limit.
+
+            Note: filter_someday_project_tasks is NOT applied here - it is a no-op for
+            Inbox in any case, since Inbox items cannot belong to a project.
+            """
             try:
                 # Get raw data with optional limit
                 raw_data = await self.tools.get_inbox(limit=limit)
@@ -994,12 +1092,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_projects: bool = Field(False, description="Also include projects due today. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Today list view.")
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_today(limit=limit)
+                raw_data = await self.tools.get_today(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1018,7 +1117,8 @@ class ThingsMCPServer:
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
-            days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365)
+            days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365),
+            include_projects: bool = Field(False, description="Only applies when 'days' is not provided. Also include upcoming projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Upcoming list view.")
         ) -> Dict[str, Any]:
             """Get upcoming todos. Supports response optimization via mode parameter and limit.
 
@@ -1050,7 +1150,7 @@ class ThingsMCPServer:
                         return result
 
                 # Original behavior: get items from Things 3's Upcoming list
-                raw_data = await self.tools.get_upcoming(limit=limit)
+                raw_data = await self.tools.get_upcoming(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1068,12 +1168,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_projects: bool = Field(False, description="Also include Anytime projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Anytime list view.")
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_anytime(limit=limit)
+                raw_data = await self.tools.get_anytime(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1092,12 +1193,15 @@ class ThingsMCPServer:
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
-            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects.")
+            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects."),
+            include_projects: bool = Field(False, description="Also include Someday projects themselves. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Someday list view.")
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(limit=limit, include_project_tasks=include_project_tasks)
+                raw_data = await self.tools.get_someday(
+                    limit=limit, include_project_tasks=include_project_tasks,
+                    include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1130,7 +1234,8 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_trash(
             limit: int = Field(50, description="Maximum number of items to return (default: 50, max: 100)", ge=1, le=100),
-            offset: int = Field(0, description="Number of items to skip (default: 0)", ge=0)
+            offset: int = Field(0, description="Number of items to skip (default: 0)", ge=0),
+            include_projects: bool = Field(False, description="Also include trashed projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Trash list view.")
         ) -> Dict[str, Any]:
             """Get trashed todos with pagination support.
 
@@ -1148,7 +1253,7 @@ class ThingsMCPServer:
             - get_trash(limit=100, offset=200) - Get items 201-300
             """
             try:
-                trash_data = await self.tools.get_trash(limit=limit, offset=offset)
+                trash_data = await self.tools.get_trash(limit=limit, offset=offset, include_projects=include_projects)
                 return self._read_result(
                     trash_data,
                     mode='standard',
@@ -1163,23 +1268,25 @@ class ThingsMCPServer:
         # Efficient date-range query tools using AppleScript 'whose' clause
         @self.mcp.tool()
         async def get_due_in_days(
-            days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365)
+            days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365),
+            include_overdue: bool = Field(True, description="Include todos whose deadline is already in the past. Default true preserves historical behavior; set false to restrict results to today <= deadline <= target date.")
         ) -> Dict[str, Any]:
-            """Get todos due within specified days (1-365). Uses efficient AppleScript filtering."""
+            """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only."""
             try:
-                due_todos = await self.tools.get_todos_due_in_days(days)
+                due_todos = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
                 result = self._read_result(due_todos, mode='standard')
                 result['days'] = days
+                result['include_overdue'] = include_overdue
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
                 return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
-        
+
         @self.mcp.tool()
         async def get_activating_in_days(
             days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
         ) -> Dict[str, Any]:
-            """Get todos activating within specified days (1-365)."""
+            """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded."""
             try:
                 activating_todos = await self.tools.get_todos_activating_in_days(days)
                 result = self._read_result(activating_todos, mode='standard')
@@ -1206,9 +1313,18 @@ class ThingsMCPServer:
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
         ) -> Dict[str, Any]:
-            """Get todos with a specific tag."""
+            """Get todos with a specific tag.
+
+            Note: tag matching is case-sensitive. An unknown tag (including a
+            wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
+            structured error ({"success": false, "error": "unknown_tag", ...})
+            with case-insensitive suggestions instead of an empty result.
+            """
             try:
                 tagged_items = await self.tools.get_tagged_items(tag=tag)
+                if isinstance(tagged_items, dict) and tagged_items.get('error') == 'unknown_tag':
+                    tagged_items['tag'] = tag
+                    return tagged_items
                 result = self._read_result(tagged_items, mode='standard')
                 result['tag'] = tag
                 return result
@@ -1260,9 +1376,25 @@ class ThingsMCPServer:
         async def search_todos(
             query: str = Field(..., description="Search term to look for in todo titles and notes"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
-            mode: Optional[str] = None
+            mode: Optional[str] = None,
+            status: Optional[str] = 'incomplete'
         ) -> Dict[str, Any]:
-            """Search todos by query term. Supports limit (1-500) and response modes for context optimization."""
+            """Search todos by query term. Supports limit (1-500) and response modes for context optimization.
+
+            Args:
+                query: Search term to look for in todo titles and notes (case-insensitive
+                    substring match). Cannot be empty or whitespace-only.
+                limit: Maximum number of results to return (1-500).
+                mode: Response mode (auto/summary/minimal/standard/detailed/raw).
+                status: Filter by status - 'incomplete' (default, for backward compatibility),
+                    'completed', 'canceled', or None to search all statuses. Note the default
+                    means a completed or canceled todo will NOT match unless you pass
+                    status='completed'/'canceled'/None explicitly.
+
+            Note: filter_someday_project_tasks is NOT applied to search - todos inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can still
+            match a search.
+            """
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
@@ -1271,23 +1403,45 @@ class ThingsMCPServer:
                         "error": "Invalid mode",
                         "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
                     }
-                
+
+                # Normalize status parameter (MCP may pass string "None")
+                if status == "None" or status == "null":
+                    status = None
+
+                # Validate status parameter
+                if status is not None and status not in ["incomplete", "completed", "canceled"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid status",
+                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
+                    }
+
+                # Reject empty/whitespace-only query - an empty substring matches
+                # every todo's title/notes, which is never a useful search result.
+                if not query or not query.strip():
+                    return {
+                        "success": False,
+                        "error": "Invalid query",
+                        "message": "query must not be empty or whitespace-only"
+                    }
+
                 # Prepare request parameters
                 request_params = {
                     'query': query,
                     'limit': limit,
-                    'mode': mode
+                    'mode': mode,
+                    'status': status
                 }
-                
+
                 # Apply smart defaults and optimization
                 optimized_params, was_modified = self.context_manager.optimize_request('search_todos', request_params)
-                
+
                 # Extract optimized parameters
                 final_limit = optimized_params.get('limit', 50)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                
+
                 # Get raw data from tools layer
-                raw_data = await self.tools.search_todos(query=query, limit=final_limit)
+                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status)
 
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
@@ -1311,16 +1465,31 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def search_advanced(
-            status: Optional[str] = Field(None, description="Filter by todo status", pattern="^(incomplete|completed|canceled)$"),
+            status: Optional[str] = Field(None, description="Filter by todo status. If omitted, ALL statuses (incomplete, completed, canceled) are searched", pattern="^(incomplete|completed|canceled)$"),
             type: Optional[str] = Field(None, description="Filter by item type", pattern="^(to-do|project|heading)$"),
-            tag: Optional[str] = Field(None, description="Filter by tag"),
+            tag: Optional[str] = Field(None, description="Filter by tag (case-sensitive)"),
             area: Optional[str] = Field(None, description="Filter by area UUID"),
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None
         ) -> Dict[str, Any]:
-            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval."""
+            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval.
+
+            Note: the tag filter is case-sensitive. An unknown tag (including a
+            wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
+            structured error ({"success": false, "error": "unknown_tag", ...})
+            with case-insensitive suggestions instead of an empty result.
+
+            Unlike search_todos() and get_todos() (which default to 'incomplete' only),
+            search_advanced with no `status` filter searches items of ALL statuses
+            (incomplete, completed, and canceled). Pass status='incomplete' explicitly
+            to restrict to open items.
+
+            Note: filter_someday_project_tasks is NOT applied here - todos inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+            still match search_advanced.
+            """
             try:
                 # Import datetime for validation
                 from datetime import datetime
@@ -1387,6 +1556,18 @@ class ThingsMCPServer:
                     limit=final_limit
                 )
 
+                # A structured error (e.g. unknown_tag) comes back as a
+                # single-element list wrapping an error dict, per the
+                # existing convention (see also the invalid `type` filter
+                # error above). Surface it directly rather than feeding it
+                # through optimize_response, which expects a list of todos.
+                if (
+                    len(raw_data) == 1
+                    and isinstance(raw_data[0], dict)
+                    and raw_data[0].get('success') is False
+                ):
+                    return raw_data[0]
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_advanced', response_mode, optimized_params
@@ -1409,11 +1590,25 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_recent(
-            period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
+            period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$"),
+            status: Optional[str] = Field(None, description="Filter by status - 'incomplete', 'completed', 'canceled', or None (default) for all statuses", pattern="^(incomplete|completed|canceled)$"),
+            type: Optional[str] = Field(None, description="Filter by item type - 'to-do', 'project', 'heading', or None (default) for to-dos and projects (headings are never included by default; pass type='heading' explicitly to fetch them)", pattern="^(to-do|project|heading)$")
         ) -> Dict[str, Any]:
-            """Get recently created items within a time period (e.g., '3d', '1w')."""
+            """Get recently created items within a time period (e.g., '3d', '1w').
+
+            By default returns items of ALL statuses and both to-dos and projects -
+            completed/canceled to-dos and recently created projects are included, not
+            just open to-dos. Headings are NEVER included by default (list tools never
+            return headings by default - they aren't user-facing items); pass
+            type='heading' explicitly if you need recently created headings. Pass
+            status and/or type to narrow the results.
+
+            Note: filter_someday_project_tasks is NOT applied here - items inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+            still appear in get_recent results.
+            """
             try:
-                recent_items = await self.tools.get_recent(period=period)
+                recent_items = await self.tools.get_recent(period=period, status=status, type=type)
                 result = self._read_result(recent_items, mode='standard')
                 result['period'] = period
                 return result

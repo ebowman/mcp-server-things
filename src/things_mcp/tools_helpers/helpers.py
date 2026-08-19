@@ -4,6 +4,8 @@ import logging
 from typing import Any, Dict, Optional
 from datetime import datetime, timedelta
 
+from ..utils.applescript_utils import AppleScriptTemplates
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,18 +16,24 @@ class ToolsHelpers:
     def escape_applescript_string(text: str) -> str:
         """Escape special characters in AppleScript strings.
 
+        Delegates to `AppleScriptTemplates.escape_string()` (the single
+        source of truth for AppleScript string escaping) so this and the
+        AppleScriptTemplates escaper stay in sync. Newlines/carriage
+        returns/tabs are escaped to their AppleScript literal escape
+        sequences (\\n, \\r, \\t), not collapsed to spaces or dropped.
+
         Args:
             text: String to escape
 
         Returns:
-            Escaped string safe for AppleScript
+            Escaped string safe for AppleScript, wrapped in double quotes
+            (a complete AppleScript string literal). Callers that need to
+            embed the escaped text inside a larger literal instead of
+            using it as a standalone literal should call
+            `AppleScriptTemplates.escape_string_inner()` directly rather
+            than stripping the quotes from this return value.
         """
-        # Escape backslashes first
-        text = text.replace('\\', '\\\\')
-        # Escape quotes
-        text = text.replace('"', '\\"')
-        # Return wrapped in quotes
-        return f'"{text}"'
+        return AppleScriptTemplates.escape_string(text)
 
     @staticmethod
     def convert_to_boolean(value: Any) -> Optional[bool]:
@@ -114,29 +122,67 @@ class ToolsHelpers:
     def convert_todo(todo: Dict) -> Dict:
         """Convert things.py todo format to MCP API format.
 
+        things.py's real to-do key set (captured live, 2026-08-19) is:
+        uuid, type, title, status, notes, start, start_date, deadline,
+        stop_date, created, modified, index, today_index, tags, project,
+        project_title, heading, heading_title, checklist. Notably there is
+        NO 'completion_date'/'cancellation_date'/'area' key on to-do rows -
+        `stop_date` carries both, disambiguated by `status`. `checklist` (when
+        present) is a bool "has a checklist" flag, not a list of items.
+
         Args:
-            todo: Todo dict from things.py (uses snake_case field names)
+            todo: Todo dict from things.py (uses snake_case field names). Also
+                accepts pre-converted/mocked rows that already use MCP
+                camelCase keys (e.g. some unit test fixtures) as a fallback.
 
         Returns:
-            Converted todo dict in MCP format (uses camelCase field names)
+            Converted todo dict in MCP format (uses camelCase field names).
+            `heading`/`headingTitle` are always present (None when the todo
+            isn't under a heading). `checklist` is only present as a list
+            when real checklist items were fetched and merged in by the
+            caller (e.g. read_operations include_items path) - convert_todo
+            itself never emits a `checklist` list, only `hasChecklist` (bool).
         """
+        status = todo.get('status')
+
+        stop_date = todo.get('stop_date')
+        completion_date = todo.get('completion_date', stop_date if status == 'completed' else None)
+        cancellation_date = todo.get('cancellation_date', stop_date if status == 'canceled' else None)
+
+        # 'checklist' from things.py is a bool "has checklist" flag. Some
+        # callers (read_operations include_items path, and a few older test
+        # mocks) pass a pre-fetched list of checklist item dicts instead -
+        # preserve that as the `checklist` key rather than misreading it as
+        # a bool via hasChecklist.
+        raw_checklist = todo.get('checklist')
+        checklist_items = raw_checklist if isinstance(raw_checklist, list) else None
+        has_checklist = bool(raw_checklist)
+
         # things.py returns snake_case fields, we convert to camelCase
         converted = {
             'uuid': todo.get('uuid'),
             'title': todo.get('title'),
+            'type': todo.get('type', 'to-do'),
             'notes': todo.get('notes'),
-            'status': todo.get('status'),
+            'status': status,
             'tags': todo.get('tags', []),
+            'start': todo.get('start'),  # Inbox | Anytime | Someday
             'creationDate': todo.get('created'),  # things.py: 'created'
             'modificationDate': todo.get('modified'),  # things.py: 'modified'
-            'completionDate': todo.get('completion_date'),  # things.py: 'completion_date'
-            'cancellationDate': todo.get('cancellation_date'),  # things.py: 'cancellation_date'
+            'completionDate': completion_date,
+            'cancellationDate': cancellation_date,
             'dueDate': todo.get('deadline'),  # things.py: 'deadline'
             'startDate': todo.get('start_date'),  # things.py: 'start_date'
             'project': todo.get('project'),
-            'area': todo.get('area'),
-            'checklist': todo.get('checklist', []) if 'checklist' in todo else None
+            'projectTitle': todo.get('project_title'),
+            'heading': todo.get('heading'),
+            'headingTitle': todo.get('heading_title'),
+            'hasChecklist': has_checklist,
+            'index': todo.get('index'),
+            'todayIndex': todo.get('today_index'),
         }
+        if checklist_items is not None:
+            converted['checklist'] = checklist_items
 
         # Marker added by Someday-project filtering: a task that things.py
         # reports as Anytime/other but that actually belongs to a Someday
@@ -144,12 +190,23 @@ class ToolsHelpers:
         if todo.get('inherited_someday'):
             converted['inheritedSomeday'] = True
 
-        # Remove None values to keep response clean
-        return {k: v for k, v in converted.items() if v is not None}
+        # Remove None values, but keep heading/headingTitle/project/
+        # projectTitle/start explicit (as None) so callers can rely on the
+        # keys being present even for todos without a heading/project.
+        always_present = {'heading', 'headingTitle', 'project', 'projectTitle', 'start'}
+        return {
+            k: v for k, v in converted.items()
+            if v is not None or k in always_present
+        }
 
     @staticmethod
     def convert_project(project: Dict) -> Dict:
         """Convert things.py project format to MCP API format.
+
+        things.py project rows carry `stop_date` (not separate
+        completion_date/cancellation_date keys), same as to-do rows -
+        disambiguated by `status`. `area`/`area_title` are only present when
+        the project actually belongs to an area.
 
         Args:
             project: Project dict from things.py (uses snake_case field names)
@@ -157,18 +214,25 @@ class ToolsHelpers:
         Returns:
             Converted project dict in MCP format (uses camelCase field names)
         """
+        status = project.get('status')
+        stop_date = project.get('stop_date')
+        completion_date = project.get('completion_date', stop_date if status == 'completed' else None)
+        cancellation_date = project.get('cancellation_date', stop_date if status == 'canceled' else None)
+
         # things.py returns snake_case fields, we convert to camelCase
         converted = {
             'uuid': project.get('uuid'),
             'title': project.get('title'),
+            'type': project.get('type', 'project'),
             'notes': project.get('notes'),
-            'status': project.get('status'),
+            'status': status,
             'tags': project.get('tags', []),
             'area': project.get('area'),
+            'areaTitle': project.get('area_title'),
             'creationDate': project.get('created'),  # things.py: 'created'
             'modificationDate': project.get('modified'),  # things.py: 'modified'
-            'completionDate': project.get('completion_date'),  # things.py: 'completion_date'
-            'cancellationDate': project.get('cancellation_date'),  # things.py: 'cancellation_date'
+            'completionDate': completion_date,
+            'cancellationDate': cancellation_date,
             'dueDate': project.get('deadline')  # things.py: 'deadline'
         }
 
@@ -179,6 +243,16 @@ class ToolsHelpers:
     def convert_area(area: Dict) -> Dict:
         """Convert things.py area format to MCP API format.
 
+        Live things.py area rows never carry a `tags` key - verified against
+        4/4 real areas, including with `things.areas(include_items=True)`
+        (which adds an unrelated `items` key, not `tags`). So this lookup is
+        currently always a no-op default (`[]`) on the read side, even though
+        areas *can* be tagged via `add_area(tags=...)`/`update_area(tags=...)`
+        (write side, via AppleScript) - things.py just doesn't expose area
+        tags back out. Kept (rather than dropped) so the `tags` key stays
+        present and callers get `[]` instead of a missing key; revisit if
+        things.py ever starts returning area tags.
+
         Args:
             area: Area dict from things.py
 
@@ -188,6 +262,7 @@ class ToolsHelpers:
         return {
             'uuid': area.get('uuid'),
             'title': area.get('title'),
+            'type': area.get('type', 'area'),
             'tags': area.get('tags', [])
         }
 

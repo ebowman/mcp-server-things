@@ -66,12 +66,14 @@ class AppleScriptQueries:
                         set modificationDateStr to "missing value"
                     end try
 
-                    -- Handle notes which might contain commas
+                    -- Handle notes which might contain commas, quotes, or colons
                     set noteStr to ""
                     try
                         set noteStr to (notes of theTodo)
-                        -- Replace commas in notes to avoid parsing issues
+                        -- Protect special characters in notes to avoid parsing issues
                         set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                        set noteStr to my replaceText(noteStr, "\\"", "§QUOTE§")
+                        set noteStr to my replaceText(noteStr, ":", "§COLON§")
                     on error
                         set noteStr to "missing value"
                     end try
@@ -98,7 +100,13 @@ class AppleScriptQueries:
                         set dueDateStr to "missing value"
                     end try
 
-                    set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
+                    -- Protect special characters in the name to avoid parsing issues
+                    set nameStr to (name of theTodo)
+                    set nameStr to my replaceText(nameStr, ",", "§COMMA§")
+                    set nameStr to my replaceText(nameStr, "\\"", "§QUOTE§")
+                    set nameStr to my replaceText(nameStr, ":", "§COLON§")
+
+                    set outputText to outputText & "id:" & (id of theTodo) & ", name:" & nameStr & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
                 end repeat
 
                 return outputText
@@ -151,12 +159,14 @@ class AppleScriptQueries:
                         set modificationDateStr to "missing value"
                     end try
 
-                    -- Handle notes which might contain commas
+                    -- Handle notes which might contain commas, quotes, or colons
                     set noteStr to ""
                     try
                         set noteStr to (notes of theTodo)
-                        -- Replace commas in notes to avoid parsing issues
+                        -- Protect special characters in notes to avoid parsing issues
                         set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                        set noteStr to my replaceText(noteStr, "\\"", "§QUOTE§")
+                        set noteStr to my replaceText(noteStr, ":", "§COLON§")
                     on error
                         set noteStr to "missing value"
                     end try
@@ -183,7 +193,13 @@ class AppleScriptQueries:
                         set dueDateStr to "missing value"
                     end try
 
-                    set outputText to outputText & "id:" & (id of theTodo) & ", name:" & (name of theTodo) & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
+                    -- Protect special characters in the name to avoid parsing issues
+                    set nameStr to (name of theTodo)
+                    set nameStr to my replaceText(nameStr, ",", "§COMMA§")
+                    set nameStr to my replaceText(nameStr, "\\"", "§QUOTE§")
+                    set nameStr to my replaceText(nameStr, ":", "§COLON§")
+
+                    set outputText to outputText & "id:" & (id of theTodo) & ", name:" & nameStr & ", notes:" & noteStr & ", status:" & (status of theTodo) & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", activation_date:" & activationDateStr & ", due_date:" & dueDateStr
                 end repeat
 
                 return outputText
@@ -303,18 +319,26 @@ class AppleScriptQueries:
                     set projectStr to "missing value"
                 end try
 
-                -- Handle notes which might contain commas
+                -- Handle notes which might contain commas, quotes, or colons
                 set noteStr to ""
                 try
                     set noteStr to (notes of theProject)
-                    -- Replace commas in notes to avoid parsing issues
+                    -- Protect special characters in notes to avoid parsing issues
                     set noteStr to my replaceText(noteStr, ",", "§COMMA§")
+                    set noteStr to my replaceText(noteStr, "\\"", "§QUOTE§")
+                    set noteStr to my replaceText(noteStr, ":", "§COLON§")
                 on error
                     set noteStr to "missing value"
                 end try
 
+                -- Protect special characters in the name to avoid parsing issues
+                set nameStr to (name of theProject)
+                set nameStr to my replaceText(nameStr, ",", "§COMMA§")
+                set nameStr to my replaceText(nameStr, "\\"", "§QUOTE§")
+                set nameStr to my replaceText(nameStr, ":", "§COLON§")
+
                 -- Build complete project record with all inherited todo fields
-                set outputText to outputText & "id:" & (id of theProject) & ", name:" & (name of theProject) & ", notes:" & noteStr & ", status:" & (status of theProject) & ", tag_names:" & tagNamesStr & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", due_date:" & dueDateStr & ", start_date:" & startDateStr & ", completion_date:" & completionDateStr & ", cancellation_date:" & cancellationDateStr & ", contact:" & contactStr & ", area:" & areaStr & ", project:" & projectStr
+                set outputText to outputText & "id:" & (id of theProject) & ", name:" & nameStr & ", notes:" & noteStr & ", status:" & (status of theProject) & ", tag_names:" & tagNamesStr & ", creation_date:" & creationDateStr & ", modification_date:" & modificationDateStr & ", due_date:" & dueDateStr & ", start_date:" & startDateStr & ", completion_date:" & completionDateStr & ", cancellation_date:" & cancellationDateStr & ", contact:" & contactStr & ", area:" & areaStr & ", project:" & projectStr
             end repeat
 
             return outputText
@@ -353,7 +377,13 @@ class AppleScriptQueries:
                     set outputText to outputText & ", "
                 end if
 
-                set outputText to outputText & "id:" & (id of theArea) & ", name:" & (name of theArea)
+                -- Protect special characters in the name to avoid parsing issues
+                set nameStr to (name of theArea)
+                set nameStr to my replaceText(nameStr, ",", "§COMMA§")
+                set nameStr to my replaceText(nameStr, "\\"", "§QUOTE§")
+                set nameStr to my replaceText(nameStr, ":", "§COLON§")
+
+                set outputText to outputText & "id:" & (id of theArea) & ", name:" & nameStr
             end repeat
 
             return outputText

@@ -463,6 +463,44 @@ class TestGetTaggedItems:
             assert len(result_work_lower) == 1
             assert result_work_lower[0]['title'] == 'Task 2'  # Converted todos use 'title'
 
+    @pytest.mark.asyncio
+    async def test_get_tagged_items_unknown_tag_returns_structured_error(self, things_tools):
+        """An unknown tag (things.py raises ValueError) returns a structured error dict."""
+        with patch('things.todos') as mock_todos, \
+             patch('things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError('Unrecognized tag type')
+            mock_tags.return_value = [
+                {'uuid': 'tag1', 'title': 'Work'},
+                {'uuid': 'tag2', 'title': 'Personal'},
+            ]
+
+            result = await things_tools.get_tagged_items(tag='nonexistent-tag')
+
+            assert result == {
+                'success': False,
+                'error': 'unknown_tag',
+                'tag': 'nonexistent-tag',
+                'suggestions': [],
+            }
+
+    @pytest.mark.asyncio
+    async def test_get_tagged_items_wrong_case_tag_suggests_correct_case(self, things_tools):
+        """A wrong-case variant of a real tag returns the correctly-cased suggestion."""
+        with patch('things.todos') as mock_todos, \
+             patch('things.tags') as mock_tags:
+            mock_todos.side_effect = ValueError('Unrecognized tag type')
+            mock_tags.return_value = [
+                {'uuid': 'tag1', 'title': 'Work'},
+                {'uuid': 'tag2', 'title': 'Personal'},
+            ]
+
+            result = await things_tools.get_tagged_items(tag='WORK')
+
+            assert result['success'] is False
+            assert result['error'] == 'unknown_tag'
+            assert result['tag'] == 'WORK'
+            assert result['suggestions'] == ['Work']
+
 
 class TestTagEdgeCases:
     """Test edge cases and special scenarios."""
