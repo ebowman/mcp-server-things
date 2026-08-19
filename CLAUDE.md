@@ -1326,18 +1326,22 @@ A comprehensive 10-week, 8-phase refactoring plan has been created to improve co
 - 19 functions >100 lines (largest: 214 lines)
 - 4 files >1,300 lines (largest: 1,657 lines)
 - 31 duplicate AppleScript invocations
-- Complex 193-line string parser
+- ~~Complex 193-line string parser~~ *(obsolete as of hq-f0w.38 - no state-machine
+  `parser.py` exists; parsing lives in `services/applescript/formatters.py`, and
+  its dead helpers were removed)*
 
 **Target Improvements:**
 - Zero bare except blocks (specific exception types + logging)
 - All functions <100 lines (target: 80)
 - All files <1,000 lines (target: 500)
 - Consolidated AppleScript patterns via templates
-- State machine-based parser
+- ~~State machine-based parser~~ *(obsolete as of hq-f0w.38 - see note above;
+  superseded, see `docs/PHASE_2_COMPLETION_REPORT.md` and
+  `docs/REFACTORING_PLAN.md` Phase 2)*
 
 **Phased Approach:**
 1. **Phase 1 (Week 1):** Fix bare except blocks - LOW RISK
-2. **Phase 2 (Weeks 2-3):** Parser refactoring - HIGH RISK, feature-flagged
+2. **Phase 2 (Weeks 2-3):** ~~Parser refactoring~~ - obsolete/moot, see note above
 3. **Phase 3 (Weeks 4-5):** Function decomposition - MEDIUM RISK
 4. **Phase 4 (Week 6):** File organization - MEDIUM RISK
 5. **Phase 5 (Week 7):** Consolidate AppleScript patterns - LOW RISK
