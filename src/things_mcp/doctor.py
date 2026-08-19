@@ -4,8 +4,10 @@ This module implements a set of read-only diagnostic checks that verify the
 local environment is correctly set up to run the Things 3 MCP server:
 Things 3 installation, the app being running, macOS Automation (TCC)
 permission, SQLite database readability (a separate TCC permission - Full
-Disk Access), presence of ``uv``/``uvx`` on ``PATH``, the optional Things
-URL-scheme auth token, and basic environment/version information.
+Disk Access), presence of ``uv``/``uvx`` on ``PATH``, whether the running
+Python interpreter's architecture matches the host CPU (Rosetta detection),
+the optional Things URL-scheme auth token, and basic environment/version
+information.
 
 Every check function here is pure with respect to the running process: none
 of them start the FastMCP server, write to Things, or mutate any files.
@@ -18,6 +20,7 @@ checks, rendering the table, and choosing the process exit code.
 
 from __future__ import annotations
 
+import platform
 import shutil
 import subprocess
 import sys
@@ -292,6 +295,69 @@ def check_uv_installed() -> CheckResult:
     )
 
 
+def _hardware_is_apple_silicon(interpreter_machine: str) -> bool:
+    """Return True if the underlying hardware is Apple Silicon.
+
+    ``platform.machine()`` reports the architecture of the *running
+    interpreter*, not the hardware, when running under Rosetta 2 - an
+    x86_64 Python on Apple Silicon still reports ``x86_64``. To detect the
+    real hardware we shell out to ``sysctl -n hw.optional.arm64``, which
+    returns ``"1"`` on Apple Silicon (even under Rosetta) and errors or is
+    absent on genuine Intel Macs. Any failure is treated as "not Apple
+    Silicon" (i.e. assume Intel) since that's the conservative choice for a
+    read-only diagnostic that must never raise.
+    """
+    if interpreter_machine == "arm64":
+        return True
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.optional.arm64"],
+            capture_output=True,
+            text=True,
+            timeout=_OSASCRIPT_SHORT_TIMEOUT_SECS,
+        )
+        return result.stdout.strip() == "1"
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return False
+
+
+def check_python_architecture() -> CheckResult:
+    """Check whether the running Python interpreter matches the host CPU architecture.
+
+    ``uvx`` can select an x86_64 (Rosetta) Python on Apple Silicon Macs if
+    that interpreter happens to be first on ``PATH`` (e.g. a Rosetta-mode
+    miniconda). Transitive dependencies such as ``cryptography>=50`` ship no
+    macOS x86_64 wheels, so ``uv`` falls back to a source build that fails
+    without Rust/OpenSSL toolchains installed. This check never FAILs - a
+    mismatch is only a WARN, since the server itself is not broken, just
+    slower/riskier to install in that configuration.
+    """
+    name = "Python architecture"
+    interpreter_machine = platform.machine()
+    apple_silicon = _hardware_is_apple_silicon(interpreter_machine)
+
+    if apple_silicon and interpreter_machine != "arm64":
+        return CheckResult(
+            name,
+            STATUS_WARN,
+            detail="Python is x86_64 (Rosetta) on Apple Silicon",
+            hint=(
+                "Transitive deps (e.g. cryptography>=50) ship no macOS x86_64 wheels; "
+                "use an arm64 Python - e.g. 'uvx -p 3.12 mcp-server-things' with a "
+                "Homebrew/uv-managed arm64 interpreter"
+            ),
+        )
+
+    if apple_silicon:
+        detail = f"Python is {interpreter_machine}, matching Apple Silicon hardware"
+    else:
+        detail = (
+            f"Python is {interpreter_machine}, matching Intel hardware "
+            "(note: some transitive deps like cryptography>=50 no longer ship macOS x86_64 wheels)"
+        )
+    return CheckResult(name, STATUS_PASS, detail=detail)
+
+
 def _auth_token_paths() -> List[Path]:
     """Return the auth-token file search paths, matching AppleScriptManager._load_auth_token."""
     # Path from src/things_mcp/doctor.py -> things_mcp -> src -> project root
@@ -371,6 +437,7 @@ def run_all_checks(db_timeout: float = _DB_READ_TIMEOUT_SECS) -> List[CheckResul
         check_automation_permission(),
         check_database_readable(timeout=db_timeout),
         check_uv_installed(),
+        check_python_architecture(),
         check_auth_token(),
         check_environment(),
     ]

@@ -191,6 +191,58 @@ class TestCheckUvInstalled:
 
 
 # ---------------------------------------------------------------------------
+# check_python_architecture
+# ---------------------------------------------------------------------------
+
+class TestCheckPythonArchitecture:
+    def test_pass_when_arm64_interpreter(self, monkeypatch):
+        monkeypatch.setattr(doctor.platform, "machine", lambda: "arm64")
+        with patch("things_mcp.doctor.subprocess.run") as mock_run:
+            result = doctor.check_python_architecture()
+        assert result.status == doctor.STATUS_PASS
+        # Fast path: arm64 interpreter implies Apple Silicon without shelling out.
+        mock_run.assert_not_called()
+
+    def test_warn_when_x86_64_interpreter_on_apple_silicon(self, monkeypatch):
+        monkeypatch.setattr(doctor.platform, "machine", lambda: "x86_64")
+        mock_result = MagicMock(stdout="1\n")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result):
+            result = doctor.check_python_architecture()
+        assert result.status == doctor.STATUS_WARN
+        assert "rosetta" in result.detail.lower()
+        assert "arm64" in result.hint.lower()
+        assert "uvx" in result.hint.lower()
+
+    def test_pass_when_x86_64_interpreter_on_intel_sysctl_returns_zero(self, monkeypatch):
+        monkeypatch.setattr(doctor.platform, "machine", lambda: "x86_64")
+        mock_result = MagicMock(stdout="0\n")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result):
+            result = doctor.check_python_architecture()
+        assert result.status == doctor.STATUS_PASS
+        assert "wheel" in result.detail.lower()
+
+    def test_pass_when_x86_64_interpreter_and_sysctl_fails(self, monkeypatch):
+        monkeypatch.setattr(doctor.platform, "machine", lambda: "x86_64")
+        with patch(
+            "things_mcp.doctor.subprocess.run",
+            side_effect=FileNotFoundError("sysctl not found"),
+        ):
+            result = doctor.check_python_architecture()
+        assert result.status == doctor.STATUS_PASS
+        assert "wheel" in result.detail.lower()
+
+    def test_no_exception_when_sysctl_raises(self, monkeypatch):
+        monkeypatch.setattr(doctor.platform, "machine", lambda: "x86_64")
+        with patch(
+            "things_mcp.doctor.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="sysctl", timeout=10),
+        ):
+            result = doctor.check_python_architecture()
+        assert result.status in (doctor.STATUS_PASS, doctor.STATUS_WARN)
+        assert result.status != doctor.STATUS_FAIL
+
+
+# ---------------------------------------------------------------------------
 # check_auth_token
 # ---------------------------------------------------------------------------
 

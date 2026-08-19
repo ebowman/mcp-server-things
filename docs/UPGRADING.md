@@ -116,6 +116,11 @@ claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}'
 existing venv-based config also continues to work unchanged if you prefer
 not to switch.
 
+- If `uvx mcp-server-things` fails while `Building cryptography==...` with Rust/maturin
+  errors, your default Python is an x86_64 (Intel/Rosetta) build — fix with an arm64
+  interpreter, e.g. `uvx -p 3.12 mcp-server-things`; `mcp-server-things doctor` warns
+  about this.
+
 ## Verify
 
 ```bash
