@@ -1301,13 +1301,15 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_logbook(
-            limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
+            limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50 (1-500)", ge=1, le=500),
             period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$"),
-            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0)
+            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0),
+            include_canceled: bool = Field(True, description="Also include canceled to-dos alongside completed ones, matching the Things app's own Logbook view. Defaults to true. Each item's `status` field ('completed' or 'canceled') distinguishes them; set false to return only completed to-dos.")
         ) -> Dict[str, Any]:
-            """Get completed todos from Logbook. Supports limit (max 100), offset, and period filters (e.g., '7d', '1w')."""
+            """Get completed (and, by default, canceled) todos from Logbook. Supports limit (max 500), offset, and period filters (e.g., '7d', '1w')."""
             try:
-                logbook_data = await self.tools.get_logbook(limit=limit, period=period, offset=offset)
+                logbook_data = await self.tools.get_logbook(
+                    limit=limit, period=period, offset=offset, include_canceled=include_canceled)
                 total = getattr(logbook_data, 'total_count', None)
                 result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
                 result['period'] = period

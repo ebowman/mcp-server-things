@@ -131,7 +131,7 @@
     },
     {
       "name": "get_logbook",
-      "description": "Get completed todos from Logbook."
+      "description": "Get completed (and, by default, canceled) todos from Logbook."
     },
     {
       "name": "get_project_headings",

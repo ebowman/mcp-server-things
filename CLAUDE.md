@@ -396,6 +396,8 @@ The structured shape is consistent across list-returning tools:
 
 `offset: int = 0` (paired with `limit`, same semantics as `get_trash`) is supported on `search_todos`, `search_advanced`, and `get_logbook` in addition to `get_trash`, so results past the first page are reachable: call again with `offset += limit` to fetch the next window. `offset` windows over an unchanged underlying dataset are disjoint and, taken together, cover the full matching set exactly once.
 
+`get_logbook` includes both completed **and** canceled to-dos by default (matching what the Things app itself shows in its Logbook list), sorted together by stop date (most recent first); each item's `status` field (`'completed'` or `'canceled'`) tells them apart. Pass `include_canceled=false` to restore the completed-only behavior. `limit` accepts up to 500 (was capped at 100 before `offset` existed).
+
 Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 `get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.
@@ -1048,7 +1050,7 @@ replace_checklist_items(
 
 3. **Limits** - Respect parameter limits:
    - Search results: max 500
-   - Logbook: max 100
+   - Logbook: max 500
    - Date ranges: max 365 days
    - Bulk operations: optimal 2-50 todos
 

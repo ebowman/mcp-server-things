@@ -261,7 +261,10 @@ async def test_get_logbook_total_count_is_pre_limit(tools):
         for i in range(30)
     ]
 
-    with patch("things_mcp.tools_helpers.read_operations.things.todos", return_value=completed):
+    def _todos_by_status(status=None, **kwargs):
+        return completed if status == 'completed' else []
+
+    with patch("things_mcp.tools_helpers.read_operations.things.todos", side_effect=_todos_by_status):
         result = await tools.get_logbook(limit=10)
 
     assert len(result) == 10
@@ -280,7 +283,10 @@ async def test_get_logbook_offset_windows_disjoint_and_complete(tools):
         for i in range(14)
     ]
 
-    with patch("things_mcp.tools_helpers.read_operations.things.todos", return_value=completed):
+    def _todos_by_status(status=None, **kwargs):
+        return completed if status == 'completed' else []
+
+    with patch("things_mcp.tools_helpers.read_operations.things.todos", side_effect=_todos_by_status):
         page1 = await tools.get_logbook(limit=8, offset=0)
         page2 = await tools.get_logbook(limit=8, offset=8)
 
@@ -293,6 +299,69 @@ async def test_get_logbook_offset_windows_disjoint_and_complete(tools):
     assert uuids1 | uuids2 == {f"c{i}" for i in range(14)}
     assert page1.total_count == 14
     assert page2.total_count == 14
+
+
+@pytest.mark.asyncio
+async def test_get_logbook_includes_canceled_by_default(tools):
+    """get_logbook: canceled to-dos are merged in alongside completed ones
+    by default, each tagged with its own status."""
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    completed = [
+        {"uuid": "comp1", "title": "Completed 1", "status": "completed",
+         "stop_date": (now - timedelta(minutes=1)).isoformat()},
+    ]
+    canceled = [
+        {"uuid": "canc1", "title": "Canceled 1", "status": "canceled",
+         "stop_date": (now - timedelta(minutes=2)).isoformat()},
+    ]
+
+    def _todos_by_status(status=None, **kwargs):
+        if status == 'completed':
+            return completed
+        if status == 'canceled':
+            return canceled
+        return []
+
+    with patch("things_mcp.tools_helpers.read_operations.things.todos", side_effect=_todos_by_status):
+        result = await tools.get_logbook(limit=10)
+
+    assert result.total_count == 2
+    statuses = {t["uuid"]: t["status"] for t in result}
+    assert statuses == {"comp1": "completed", "canc1": "canceled"}
+    # Most recent (completed) first.
+    assert [t["uuid"] for t in result] == ["comp1", "canc1"]
+
+
+@pytest.mark.asyncio
+async def test_get_logbook_include_canceled_false_excludes_canceled(tools):
+    """get_logbook(include_canceled=False): only completed to-dos are
+    returned, matching the pre-hq-nxu.6 behavior."""
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    completed = [
+        {"uuid": "comp1", "title": "Completed 1", "status": "completed",
+         "stop_date": (now - timedelta(minutes=1)).isoformat()},
+    ]
+    canceled = [
+        {"uuid": "canc1", "title": "Canceled 1", "status": "canceled",
+         "stop_date": (now - timedelta(minutes=2)).isoformat()},
+    ]
+
+    def _todos_by_status(status=None, **kwargs):
+        if status == 'completed':
+            return completed
+        if status == 'canceled':
+            return canceled
+        return []
+
+    with patch("things_mcp.tools_helpers.read_operations.things.todos", side_effect=_todos_by_status):
+        result = await tools.get_logbook(limit=10, include_canceled=False)
+
+    assert result.total_count == 1
+    assert [t["uuid"] for t in result] == ["comp1"]
 
 
 # ============================================================================

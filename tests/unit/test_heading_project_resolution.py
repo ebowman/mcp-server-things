@@ -264,7 +264,12 @@ class TestCompletedHeadingsAreResolved:
     async def test_get_logbook_resolves_heading_under_completed_project(self, tools):
         """get_logbook (completed-only by construction) must likewise resolve
         project/projectTitle for a completed heading-child."""
-        with patch(TODOS_PATCH, return_value=[dict(self.COMPLETED_TODO_UNDER_COMPLETED_HEADING)]), \
+        def todos_side_effect(status=None, **kwargs):
+            if status == 'completed':
+                return [dict(self.COMPLETED_TODO_UNDER_COMPLETED_HEADING)]
+            return []
+
+        with patch(TODOS_PATCH, side_effect=todos_side_effect), \
                 patch(TASKS_PATCH, return_value=[dict(self.COMPLETED_HEADING_ROW)]):
             result = await tools.get_logbook(period="365d")
 

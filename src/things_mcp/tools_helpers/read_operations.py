@@ -946,12 +946,15 @@ class ReadOperations:
             logger.error(f"Error in _get_someday_sync: {e}")
             return []
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
-        """Get completed todos from Logbook."""
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
+                           include_canceled: bool = True) -> List[Dict]:
+        """Get completed (and, by default, canceled) todos from Logbook."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period, offset)
+        return await loop.run_in_executor(
+            None, self._get_logbook_sync, limit, period, offset, include_canceled)
 
-    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
+    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0,
+                           include_canceled: bool = True) -> List[Dict]:
         """Synchronous implementation.
 
         Args:
@@ -960,6 +963,13 @@ class ReadOperations:
             period: Time window to look back (e.g. '7d').
             offset: Number of sorted items to skip before applying limit
                 (same semantics as get_trash's offset).
+            include_canceled: When True (default), also include canceled
+                to-dos alongside completed ones - matching what the Things
+                3 app itself shows in its Logbook list (completed and
+                canceled items interleaved, sorted by stop date). When
+                False, only completed to-dos are returned (prior behavior).
+                Each returned item's `status` field ('completed' or
+                'canceled') lets callers tell them apart.
 
         Returns:
             A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
@@ -968,13 +978,16 @@ class ReadOperations:
             populate `total`).
         """
         try:
-            completed_todos = things.todos(status='completed')
+            statuses = ('completed', 'canceled') if include_canceled else ('completed',)
+            logbook_todos = []
+            for status in statuses:
+                logbook_todos.extend(things.todos(status=status) or [])
 
             days = ToolsHelpers.parse_period_to_days(period)
             cutoff_date = datetime.now() - timedelta(days=days)
 
             result = []
-            for todo in completed_todos:
+            for todo in logbook_todos:
                 completed_date = todo.get('stop_date')
                 if completed_date:
                     try:
@@ -988,7 +1001,7 @@ class ReadOperations:
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Skipping todo with invalid completion date '{completed_date}': {e}")
 
-            # Sort by completion date (most recent first)
+            # Sort by completion/cancellation date (most recent first)
             result.sort(key=lambda x: x.get('_sort_date', datetime.min), reverse=True)
 
             # Remove temporary sort key
