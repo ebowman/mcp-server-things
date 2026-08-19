@@ -568,11 +568,7 @@ are on todos (hq-f0w.29), in addition to the project-specific `area`/
 set (`ContextAwareResponseManager.PROJECT_FIELD_SETS`), not the todo field
 lists above - the todo sets never carry `area`/`areaTitle` (to-do rows never
 have those keys), so filtering project rows against them silently dropped a
-project's area under `minimal`/`standard` mode until hq-f0w.32. `get_areas()`
-top-level rows are areas (`uuid`/`title`/`type`/`tags` from `convert_area`)
-and still use the todo field sets, which is sufficient for that small schema
-under every mode except `minimal` (which lacks `tags` for areas - tracked
-separately, out of scope for hq-f0w.32).
+project's area under `minimal`/`standard` mode until hq-f0w.32.
 
 - **`summary`**: `uuid`, `title`, `status`, `tags`, `dueDate`
 - **`minimal`**: `uuid`, `title`, `status`, `type`, `area`, `start`, `dueDate`,
@@ -584,6 +580,51 @@ separately, out of scope for hq-f0w.32).
 - **`detailed`** / **`raw`**: all fields, including `index`, `todayIndex`,
   `completionDate`/`cancellationDate` (derived from things.py's single
   `stop_date` field by `status`)
+
+This project field set is also applied per-row, independent of which tool is
+calling: any item whose own `type == 'project'` - e.g. a project row inside
+`get_today`/`get_anytime`/`get_upcoming`/`get_someday`'s
+`include_projects=true` results, or `search_advanced(type='project')` /
+unfiltered `search_advanced()` results - is filtered against
+`PROJECT_FIELD_SETS`, not the todo-shaped set the rest of that list uses
+(hq-f0w.37). Before hq-f0w.37 those mixed-list project rows were converted
+via `convert_todo` (not `convert_project`), so they never carried
+`area`/`areaTitle` at any mode; `read_operations.py`'s `convert_item()`
+helper now dispatches each raw row to `convert_project`/`convert_todo` based
+on its own `type` before it ever reaches field filtering.
+
+### Area field lists per mode (hq-f0w.37)
+
+`get_areas()` top-level rows are areas (`uuid`/`title`/`type`/`tags` from
+`convert_area`), filtered against `ContextAwareResponseManager.AREA_FIELD_SETS`.
+Unlike the todo/project field sets, `summary`/`minimal`/`standard` are
+identical - `convert_area`'s output is a fixed 4-key schema, so there's
+nothing smaller to trim to for `minimal` and no extra optional fields to add
+for `standard`. Before hq-f0w.37, `get_areas(mode='minimal')` fell through to
+the todo-shaped `TODO_FIELD_SETS` MINIMAL set (which lacks `tags`), silently
+dropping an area's tags.
+
+- **`summary`** / **`minimal`** / **`standard`**: `uuid`, `title`, `type`, `tags`
+- **`detailed`** / **`raw`**: same 4 fields (no filtering is applied, but
+  `convert_area` never emits more than these)
+
+### `include_items=true` nested rows are not re-filtered by mode (hq-f0w.37)
+
+`get_areas(include_items=true)` and `get_projects(include_items=true)` attach
+nested `projects`/`todos` lists directly in `read_operations.py`
+(`_get_areas_sync`/`_get_projects_sync`), independent of response mode. These
+nested lists are preserved as-is under every mode once `include_items=true`
+asked for them - `minimal`/`standard` no longer silently drop the nested
+`projects`/`todos` key the way they did before hq-f0w.37 (only
+`detailed`/`raw` used to keep it, since `minimal`/`standard`'s field sets
+never listed those keys). The nested items themselves are NOT re-filtered
+per-mode - they already went through `convert_project`/`convert_todo` once
+and are attached whole. This does **not** change the existing danger
+guidance below: `get_projects(include_items=true)` is still context-expensive
+on large databases regardless of mode, because the nested `todos` lists
+themselves are still full, unfiltered item lists - prefer
+`get_projects(mode='summary')` plus targeted `get_todos(project_uuid=...)`
+calls instead.
 
 ### Performance Tips
 
