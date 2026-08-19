@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 import logging
 
 from .applescript_manager import AppleScriptManager
+from ..utils.applescript_utils import AppleScriptTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -291,9 +292,10 @@ class ValidationService:
         """
         if not id_string:
             return ""
-        
-        # Escape quotes and backslashes for AppleScript safety
-        return id_string.replace('\\', '\\\\').replace('"', '\\"')
+
+        # Escape quotes and backslashes for AppleScript safety (delegates
+        # to the shared escaper - see AppleScriptTemplates.escape_string_inner)
+        return AppleScriptTemplates.escape_string_inner(id_string)
     
     def validate_bulk_operation_limits(self, item_count: int, operation_type: str = "move") -> Dict[str, Any]:
         """Validate bulk operation limits to prevent system overload.
