@@ -8,11 +8,15 @@ backup, and invalid JSON refusal), and CLI argv routing in main().
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from things_mcp import client_config
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+MANIFEST_PATH = REPO_ROOT / "manifest.json"
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +27,7 @@ class TestBuildServerConfig:
     def test_uvx(self):
         assert client_config.build_server_config("uvx") == {
             "command": "uvx",
-            "args": ["mcp-server-things"],
+            "args": list(client_config.UVX_ARGS),
         }
 
     def test_current_python(self):
@@ -41,7 +45,7 @@ class TestFormatClaudeDesktopSnippet:
         data = json.loads(snippet)
         assert data == {
             "mcpServers": {
-                "things": {"command": "uvx", "args": ["mcp-server-things"]}
+                "things": {"command": "uvx", "args": list(client_config.UVX_ARGS)}
             }
         }
 
@@ -58,10 +62,14 @@ class TestFormatClaudeDesktopSnippet:
 class TestFormatClaudeCodeCommands:
     def test_uvx(self):
         out = client_config.format_claude_code_commands(via="uvx")
+        expected_json = json.dumps(
+            {"command": "uvx", "args": list(client_config.UVX_ARGS)},
+            separators=(",", ":"),
+        )
         lines = out.splitlines()
         assert lines == [
-            "claude mcp add-json things '{\"command\":\"uvx\",\"args\":[\"mcp-server-things\"]}'",
-            "claude mcp add-json things '{\"command\":\"uvx\",\"args\":[\"mcp-server-things\"]}' -s user",
+            f"claude mcp add-json things '{expected_json}'",
+            f"claude mcp add-json things '{expected_json}' -s user",
         ]
 
     def test_current_python(self):
@@ -78,7 +86,7 @@ class TestFormatClaudeCodeCommands:
 class TestFormatGenericSnippet:
     def test_uvx(self):
         snippet = client_config.format_generic_snippet(via="uvx")
-        assert json.loads(snippet) == {"command": "uvx", "args": ["mcp-server-things"]}
+        assert json.loads(snippet) == {"command": "uvx", "args": list(client_config.UVX_ARGS)}
 
     def test_current_python(self):
         snippet = client_config.format_generic_snippet(via="current-python")
@@ -116,11 +124,16 @@ class TestWriteClaudeDesktopConfig:
         assert result.changed is True
         assert result.backup_path is None  # nothing to back up - file didn't exist
         assert result.old_server_config is None
-        assert result.new_server_config == {"command": "uvx", "args": ["mcp-server-things"]}
+        assert result.new_server_config == {
+            "command": "uvx",
+            "args": list(client_config.UVX_ARGS),
+        }
 
         on_disk = json.loads(config_path.read_text())
         assert on_disk == {
-            "mcpServers": {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+            "mcpServers": {
+                "things": {"command": "uvx", "args": list(client_config.UVX_ARGS)}
+            }
         }
         assert config_path.read_text().endswith("\n")
 
@@ -143,7 +156,7 @@ class TestWriteClaudeDesktopConfig:
         assert on_disk["mcpServers"]["other-server"] == {"command": "foo", "args": ["bar"]}
         assert on_disk["mcpServers"]["things"] == {
             "command": "uvx",
-            "args": ["mcp-server-things"],
+            "args": list(client_config.UVX_ARGS),
         }
         assert on_disk["someOtherTopLevelKey"] == "keep-me"
 
@@ -156,7 +169,9 @@ class TestWriteClaudeDesktopConfig:
     def test_noop_when_identical_entry_exists(self, tmp_path):
         config_path = tmp_path / "claude_desktop_config.json"
         initial = {
-            "mcpServers": {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+            "mcpServers": {
+                "things": {"command": "uvx", "args": list(client_config.UVX_ARGS)}
+            }
         }
         config_path.write_text(json.dumps(initial, indent=2))
         before_mtime = config_path.stat().st_mtime_ns
@@ -204,12 +219,15 @@ class TestWriteClaudeDesktopConfig:
 
         assert result.changed is True
         assert result.old_server_config == {"command": "old-command", "args": ["old"]}
-        assert result.new_server_config == {"command": "uvx", "args": ["mcp-server-things"]}
+        assert result.new_server_config == {
+            "command": "uvx",
+            "args": list(client_config.UVX_ARGS),
+        }
 
         on_disk = json.loads(config_path.read_text())
         assert on_disk["mcpServers"]["things"] == {
             "command": "uvx",
-            "args": ["mcp-server-things"],
+            "args": list(client_config.UVX_ARGS),
         }
 
         assert result.backup_path is not None
@@ -283,7 +301,7 @@ class TestMainConfigDispatch:
         assert code == 0
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert data == {"command": "uvx", "args": ["mcp-server-things"]}
+        assert data == {"command": "uvx", "args": list(client_config.UVX_ARGS)}
 
     def test_config_write_rejected_for_non_claude_desktop(self, monkeypatch, capsys):
         from things_mcp import main as main_module
@@ -314,7 +332,7 @@ class TestMainConfigDispatch:
         data = json.loads(config_path.read_text())
         assert data["mcpServers"]["things"] == {
             "command": "uvx",
-            "args": ["mcp-server-things"],
+            "args": list(client_config.UVX_ARGS),
         }
 
     def test_config_write_refused_reports_nonzero_exit(self, monkeypatch, capsys, tmp_path):
@@ -343,3 +361,20 @@ class TestMainConfigDispatch:
             code = main_module.main()
         mock_build.assert_not_called()
         assert code == 0
+
+
+# ---------------------------------------------------------------------------
+# manifest.json / client_config single-source-of-truth guard
+# ---------------------------------------------------------------------------
+
+class TestManifestUvxArgsMatchClientConfig:
+    def test_manifest_args_match_uvx_args_constant(self):
+        """manifest.json's server.mcp_config.args must match client_config.UVX_ARGS.
+
+        Guards against the two hardened-uvx-args copies (manifest.json for the
+        .mcpb bundle, client_config.UVX_ARGS for the `config` CLI) drifting
+        apart.
+        """
+        manifest = json.loads(MANIFEST_PATH.read_text())
+        manifest_args = manifest["server"]["mcp_config"]["args"]
+        assert manifest_args == client_config.UVX_ARGS

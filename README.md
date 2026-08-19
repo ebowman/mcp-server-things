@@ -21,7 +21,7 @@ A Model Context Protocol (MCP) server that connects Claude and other AI assistan
 
 Download the latest `.mcpb` file from the [releases page](https://github.com/ebowman/mcp-server-things/releases) and double-click it to install into Claude Desktop.
 
-The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`).
+The bundle launches the server via `uvx`, so [uv](https://docs.astral.sh/uv/) must be installed and on `PATH` (`brew install uv`). The generated config pins uv's managed Python (`--python-preference only-managed`) so a stray Intel/Rosetta Python on your PATH can't break the install; first launch may download a managed CPython.
 
 **Option B: `config` CLI**
 
@@ -38,7 +38,7 @@ Safely adds/updates the `things` entry in your Claude Desktop config (`--force` 
   "mcpServers": {
     "things": {
       "command": "uvx",
-      "args": ["mcp-server-things"]
+      "args": ["--python-preference", "only-managed", "--python", "3.12", "mcp-server-things"]
     }
   }
 }
@@ -47,8 +47,8 @@ Safely adds/updates the `things` entry in your Claude Desktop config (`--force` 
 ### Claude Code
 
 ```bash
-claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}'
-claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}' -s user
+claude mcp add-json things '{"command":"uvx","args":["--python-preference","only-managed","--python","3.12","mcp-server-things"]}'
+claude mcp add-json things '{"command":"uvx","args":["--python-preference","only-managed","--python","3.12","mcp-server-things"]}' -s user
 ```
 
 `mcp-server-things config --client claude-code` prints these exact commands.
@@ -58,7 +58,7 @@ claude mcp add-json things '{"command":"uvx","args":["mcp-server-things"]}' -s u
 ```json
 {
   "command": "uvx",
-  "args": ["mcp-server-things"]
+  "args": ["--python-preference", "only-managed", "--python", "3.12", "mcp-server-things"]
 }
 ```
 
