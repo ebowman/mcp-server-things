@@ -324,6 +324,24 @@ class TestGetSomedayInheritsProjectTasks:
     @patch('things_mcp.tools_helpers.read_operations.things.todos')
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.someday')
+    async def test_get_someday_default_excludes_inherited_project_tasks(
+        self, mock_someday, mock_projects, mock_todos, tools
+    ):
+        """By default (include_project_tasks=False), get_someday() must not include
+        tasks inherited from Someday projects, and must not even scan all incomplete
+        todos to look for them (avoids the cost on large databases)."""
+        mock_projects.return_value = [SOMEDAY_PROJECT]
+        mock_someday.return_value = []  # things.py doesn't report it as Someday itself
+
+        result = await tools.get_someday()
+
+        assert result == []
+        mock_todos.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch('things_mcp.tools_helpers.read_operations.things.todos')
+    @patch('things_mcp.tools_helpers.read_operations.things.projects')
+    @patch('things_mcp.tools_helpers.read_operations.things.someday')
     async def test_get_someday_adds_inherited_project_task_with_marker(
         self, mock_someday, mock_projects, mock_todos, tools
     ):
@@ -331,7 +349,7 @@ class TestGetSomedayInheritsProjectTasks:
         mock_someday.return_value = []  # things.py doesn't report it as Someday itself
         mock_todos.return_value = [TASK_DIRECT_SOMEDAY, TASK_ANYTIME_PROJECT]
 
-        result = await tools.get_someday()
+        result = await tools.get_someday(include_project_tasks=True)
 
         by_uuid = {t['uuid']: t for t in result}
         assert 'task-direct' in by_uuid
@@ -351,7 +369,7 @@ class TestGetSomedayInheritsProjectTasks:
         mock_someday.return_value = [TASK_DIRECT_SOMEDAY]
         mock_todos.return_value = [TASK_DIRECT_SOMEDAY]
 
-        result = await tools.get_someday()
+        result = await tools.get_someday(include_project_tasks=True)
 
         uuids = [t['uuid'] for t in result]
         assert uuids.count('task-direct') == 1
@@ -371,7 +389,7 @@ class TestGetSomedayInheritsProjectTasks:
         mock_get.return_value = HEADING_IN_SOMEDAY
         mock_todos.return_value = [TASK_HEADING_SOMEDAY]
 
-        result = await tools.get_someday()
+        result = await tools.get_someday(include_project_tasks=True)
 
         assert len(result) == 1
         assert result[0]['uuid'] == 'task-heading'

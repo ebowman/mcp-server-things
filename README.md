@@ -303,7 +303,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_today()` - Get Today's todos
 - `get_upcoming(days?)` - Get upcoming todos (with optional days filter)
 - `get_anytime()` - Get Anytime todos
-- `get_someday()` - Get Someday todos
+- `get_someday(include_project_tasks?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?)` - Get completed todos
 - `get_trash()` - Get trashed todos
 

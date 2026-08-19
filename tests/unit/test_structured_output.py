@@ -210,3 +210,59 @@ class TestStructuredContentShape:
         assert sc["count"] == 1
         assert sc["has_more"] is True
         assert sc["total_count"] == 5
+
+
+class TestGetSomedayIncludeProjectTasks:
+    """Verify the get_someday MCP tool threads include_project_tasks through to
+    ThingsTools.get_someday, and defaults to False (opt-in inheritance)."""
+
+    @pytest.mark.asyncio
+    async def test_get_someday_default_does_not_include_project_tasks(self):
+        """No include_project_tasks arg -> ThingsTools.get_someday called with
+        include_project_tasks=False, and structured_content shape is intact."""
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_someday=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_someday", {})
+
+        server.tools.get_someday.assert_awaited_once_with(
+            limit=None, include_project_tasks=False
+        )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+        assert sc["count"] == 3
+        assert sc["total"] == 3
+        assert len(sc["items"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_get_someday_include_project_tasks_true_threads_through(self):
+        """include_project_tasks=True is passed through to ThingsTools.get_someday
+        and inherited items (marked inheritedSomeday) flow through unchanged."""
+        native = dict(SAMPLE_TODO, uuid="native1")
+        inherited = dict(SAMPLE_TODO, uuid="inherited1", inheritedSomeday=True)
+        todos = [native, inherited]
+        server = _make_server_with_mock_tools(get_someday=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_someday", {"include_project_tasks": True}
+            )
+
+        server.tools.get_someday.assert_awaited_once_with(
+            limit=None, include_project_tasks=True
+        )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+        assert sc["count"] == 2
+        assert sc["total"] == 2
+        uuids = {item["uuid"] for item in sc["items"]}
+        assert uuids == {"native1", "inherited1"}
+        inherited_item = next(i for i in sc["items"] if i["uuid"] == "inherited1")
+        assert inherited_item.get("inheritedSomeday") is True

@@ -548,40 +548,57 @@ class ReadOperations:
             logger.error(f"Error in _get_anytime_sync: {e}")
             return []
 
-    async def get_someday(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get todos from Someday list."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_someday_sync, limit)
+    async def get_someday(self, limit: Optional[int] = None,
+                           include_project_tasks: bool = False) -> List[Dict]:
+        """Get todos from Someday list.
 
-    def _get_someday_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_project_tasks: If True, also include tasks that live
+                inside Someday projects (marked inherited_someday=True in
+                the raw dict / inheritedSomeday in the converted todo).
+                Defaults to False - by default only native things.someday()
+                items are returned, since inherited items on databases with
+                many Someday projects can be very large and crowd out the
+                native items when responses are paginated/truncated.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_someday_sync, limit, include_project_tasks)
+
+    def _get_someday_sync(self, limit: Optional[int] = None,
+                           include_project_tasks: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
             someday_todos = list(things.someday() or [])
 
             # things.py doesn't mark a todo as Someday just because its
             # parent project is Someday - it reports the todo's own
-            # start state (often Anytime). Find those "inherited" Someday
-            # todos and add them too, so get_someday() matches what the
-            # Things UI shows under a Someday project.
-            someday_project_ids = _get_someday_project_ids()
-            if someday_project_ids:
-                existing_uuids = {t.get('uuid') for t in someday_todos}
-                heading_cache: Dict[str, Optional[str]] = {}
-                try:
-                    other_todos = things.todos(status='incomplete') or []
-                except Exception as e:
-                    logger.debug(f"Error loading todos for inherited Someday check: {e}")
-                    other_todos = []
+            # start state (often Anytime). When include_project_tasks is
+            # True, find those "inherited" Someday todos and add them too,
+            # so get_someday() matches what the Things UI shows under a
+            # Someday project. This is opt-in: on databases with many
+            # Someday projects the inherited set can be very large and
+            # crowd out native Someday items under response truncation.
+            if include_project_tasks:
+                someday_project_ids = _get_someday_project_ids()
+                if someday_project_ids:
+                    existing_uuids = {t.get('uuid') for t in someday_todos}
+                    heading_cache: Dict[str, Optional[str]] = {}
+                    try:
+                        other_todos = things.todos(status='incomplete') or []
+                    except Exception as e:
+                        logger.debug(f"Error loading todos for inherited Someday check: {e}")
+                        other_todos = []
 
-                for todo in other_todos:
-                    uuid = todo.get('uuid')
-                    if not uuid or uuid in existing_uuids:
-                        continue
-                    if _is_in_someday_project(todo, someday_project_ids, heading_cache):
-                        todo = dict(todo)
-                        todo['inherited_someday'] = True
-                        someday_todos.append(todo)
-                        existing_uuids.add(uuid)
+                    for todo in other_todos:
+                        uuid = todo.get('uuid')
+                        if not uuid or uuid in existing_uuids:
+                            continue
+                        if _is_in_someday_project(todo, someday_project_ids, heading_cache):
+                            todo = dict(todo)
+                            todo['inherited_someday'] = True
+                            someday_todos.append(todo)
+                            existing_uuids.add(uuid)
 
             result = []
             for todo in someday_todos:

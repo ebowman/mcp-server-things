@@ -121,9 +121,10 @@ class ThingsTools:
         """Get anytime items directly from database."""
         return await self.read_ops.get_anytime(limit=limit)
 
-    async def get_someday(self, limit: Optional[int] = None) -> List[Dict]:
+    async def get_someday(self, limit: Optional[int] = None,
+                           include_project_tasks: bool = False) -> List[Dict]:
         """Get someday items directly from database."""
-        return await self.read_ops.get_someday(limit=limit)
+        return await self.read_ops.get_someday(limit=limit, include_project_tasks=include_project_tasks)
 
     async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
         """Get completed items directly from database."""

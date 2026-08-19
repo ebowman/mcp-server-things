@@ -1046,12 +1046,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects.")
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(limit=limit)
+                raw_data = await self.tools.get_someday(limit=limit, include_project_tasks=include_project_tasks)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
