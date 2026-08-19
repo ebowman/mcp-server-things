@@ -96,9 +96,10 @@ class ThingsTools:
         """Get per-tag usage counts (open/total), sorted by usage, for tag cleanup."""
         return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
 
-    async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
-        """Search todos directly in database with optional limit."""
-        return await self.read_ops.search_todos(query=query, limit=limit)
+    async def search_todos(self, query: str, limit: Optional[int] = None,
+                            status: Optional[str] = 'incomplete') -> List[Dict]:
+        """Search todos directly in database with optional limit and status filter."""
+        return await self.read_ops.search_todos(query=query, limit=limit, status=status)
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get inbox items directly from database."""
@@ -173,9 +174,11 @@ class ThingsTools:
         """Advanced search - delegate to AppleScript scheduler with limit support."""
         return await self.read_ops.search_advanced(**filters)
 
-    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
-        """Get recent items."""
-        return await self.read_ops.get_recent(period=period)
+    async def get_recent(self, period: str, status: Optional[str] = None,
+                          type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get recent items. Defaults to all statuses, to-dos + projects (no headings
+        unless type='heading' is passed explicitly) - see read_ops.get_recent."""
+        return await self.read_ops.get_recent(period=period, status=status, type=type)
 
     # ========== WRITE OPERATIONS (delegate to WriteOperations) ==========
 

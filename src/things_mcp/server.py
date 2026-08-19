@@ -1004,7 +1004,11 @@ class ThingsMCPServer:
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
         ) -> Dict[str, Any]:
-            """Get todos from Inbox. Supports response optimization via mode parameter and limit."""
+            """Get todos from Inbox. Supports response optimization via mode parameter and limit.
+
+            Note: filter_someday_project_tasks is NOT applied here - it is a no-op for
+            Inbox in any case, since Inbox items cannot belong to a project.
+            """
             try:
                 # Get raw data with optional limit
                 raw_data = await self.tools.get_inbox(limit=limit)
@@ -1309,9 +1313,25 @@ class ThingsMCPServer:
         async def search_todos(
             query: str = Field(..., description="Search term to look for in todo titles and notes"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
-            mode: Optional[str] = None
+            mode: Optional[str] = None,
+            status: Optional[str] = 'incomplete'
         ) -> Dict[str, Any]:
-            """Search todos by query term. Supports limit (1-500) and response modes for context optimization."""
+            """Search todos by query term. Supports limit (1-500) and response modes for context optimization.
+
+            Args:
+                query: Search term to look for in todo titles and notes (case-insensitive
+                    substring match). Cannot be empty or whitespace-only.
+                limit: Maximum number of results to return (1-500).
+                mode: Response mode (auto/summary/minimal/standard/detailed/raw).
+                status: Filter by status - 'incomplete' (default, for backward compatibility),
+                    'completed', 'canceled', or None to search all statuses. Note the default
+                    means a completed or canceled todo will NOT match unless you pass
+                    status='completed'/'canceled'/None explicitly.
+
+            Note: filter_someday_project_tasks is NOT applied to search - todos inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can still
+            match a search.
+            """
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
@@ -1320,23 +1340,45 @@ class ThingsMCPServer:
                         "error": "Invalid mode",
                         "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
                     }
-                
+
+                # Normalize status parameter (MCP may pass string "None")
+                if status == "None" or status == "null":
+                    status = None
+
+                # Validate status parameter
+                if status is not None and status not in ["incomplete", "completed", "canceled"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid status",
+                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
+                    }
+
+                # Reject empty/whitespace-only query - an empty substring matches
+                # every todo's title/notes, which is never a useful search result.
+                if not query or not query.strip():
+                    return {
+                        "success": False,
+                        "error": "Invalid query",
+                        "message": "query must not be empty or whitespace-only"
+                    }
+
                 # Prepare request parameters
                 request_params = {
                     'query': query,
                     'limit': limit,
-                    'mode': mode
+                    'mode': mode,
+                    'status': status
                 }
-                
+
                 # Apply smart defaults and optimization
                 optimized_params, was_modified = self.context_manager.optimize_request('search_todos', request_params)
-                
+
                 # Extract optimized parameters
                 final_limit = optimized_params.get('limit', 50)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                
+
                 # Get raw data from tools layer
-                raw_data = await self.tools.search_todos(query=query, limit=final_limit)
+                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status)
 
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
@@ -1360,7 +1402,7 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def search_advanced(
-            status: Optional[str] = Field(None, description="Filter by todo status", pattern="^(incomplete|completed|canceled)$"),
+            status: Optional[str] = Field(None, description="Filter by todo status. If omitted, ALL statuses (incomplete, completed, canceled) are searched", pattern="^(incomplete|completed|canceled)$"),
             type: Optional[str] = Field(None, description="Filter by item type", pattern="^(to-do|project|heading)$"),
             tag: Optional[str] = Field(None, description="Filter by tag (case-sensitive)"),
             area: Optional[str] = Field(None, description="Filter by area UUID"),
@@ -1375,6 +1417,15 @@ class ThingsMCPServer:
             wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
             structured error ({"success": false, "error": "unknown_tag", ...})
             with case-insensitive suggestions instead of an empty result.
+
+            Unlike search_todos() and get_todos() (which default to 'incomplete' only),
+            search_advanced with no `status` filter searches items of ALL statuses
+            (incomplete, completed, and canceled). Pass status='incomplete' explicitly
+            to restrict to open items.
+
+            Note: filter_someday_project_tasks is NOT applied here - todos inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+            still match search_advanced.
             """
             try:
                 # Import datetime for validation
@@ -1476,11 +1527,25 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def get_recent(
-            period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$")
+            period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$"),
+            status: Optional[str] = Field(None, description="Filter by status - 'incomplete', 'completed', 'canceled', or None (default) for all statuses", pattern="^(incomplete|completed|canceled)$"),
+            type: Optional[str] = Field(None, description="Filter by item type - 'to-do', 'project', 'heading', or None (default) for to-dos and projects (headings are never included by default; pass type='heading' explicitly to fetch them)", pattern="^(to-do|project|heading)$")
         ) -> Dict[str, Any]:
-            """Get recently created items within a time period (e.g., '3d', '1w')."""
+            """Get recently created items within a time period (e.g., '3d', '1w').
+
+            By default returns items of ALL statuses and both to-dos and projects -
+            completed/canceled to-dos and recently created projects are included, not
+            just open to-dos. Headings are NEVER included by default (list tools never
+            return headings by default - they aren't user-facing items); pass
+            type='heading' explicitly if you need recently created headings. Pass
+            status and/or type to narrow the results.
+
+            Note: filter_someday_project_tasks is NOT applied here - items inside a
+            Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+            still appear in get_recent results.
+            """
             try:
-                recent_items = await self.tools.get_recent(period=period)
+                recent_items = await self.tools.get_recent(period=period, status=status, type=type)
                 result = self._read_result(recent_items, mode='standard')
                 result['period'] = period
                 return result

@@ -553,15 +553,34 @@ class ReadOperations:
             'tags': rows,
         }
 
-    async def search_todos(self, query: str, limit: Optional[int] = None) -> List[Dict]:
-        """Search todos using things.py."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_sync, query, limit)
+    async def search_todos(
+        self, query: str, limit: Optional[int] = None,
+        status: Optional[str] = 'incomplete'
+    ) -> List[Dict]:
+        """Search todos using things.py.
 
-    def _search_sync(self, query: str, limit: Optional[int] = None) -> List[Dict]:
-        """Synchronous search implementation."""
+        Note: filter_someday_project_tasks is NOT applied here - todos that
+        live inside a Someday project (and are hidden from Today/Anytime/
+        Upcoming in the Things UI) can still match a search.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._search_sync, query, limit, status)
+
+    def _search_sync(
+        self, query: str, limit: Optional[int] = None,
+        status: Optional[str] = 'incomplete'
+    ) -> List[Dict]:
+        """Synchronous search implementation.
+
+        Args:
+            query: Text to search for in title/notes (case-insensitive substring match).
+            limit: Maximum number of results to return.
+            status: 'incomplete' (default, matches things.py's own default and
+                preserves backward compatibility), 'completed', 'canceled', or
+                None to search all statuses.
+        """
         try:
-            all_todos = things.todos()
+            all_todos = things.todos(status=status)
             query_lower = query.lower()
 
             results = []
@@ -1109,7 +1128,9 @@ class ReadOperations:
         Args:
             filters: Dictionary containing search filters:
                 - query: Text to search in title/notes
-                - status: 'incomplete', 'completed', 'canceled', or None for all
+                - status: 'incomplete', 'completed', or 'canceled'. If omitted (or
+                  None), ALL statuses are searched - this differs from things.py's
+                  own default of 'incomplete', and from search_todos()'s default.
                 - type: 'to-do', 'project', 'heading'
                 - tag: Tag name to filter by (case-sensitive - things.py does
                   exact-match tag lookups, so e.g. 'Work' and 'work' are
@@ -1119,6 +1140,10 @@ class ReadOperations:
                 - deadline: Deadline date or operator (e.g., '<=2025-12-31', 'past')
                 - project: Project UUID to filter by
                 - limit: Maximum number of results
+
+        Note: filter_someday_project_tasks is NOT applied here - todos that live
+        inside a Someday project (hidden from Today/Anytime/Upcoming in the Things
+        UI) can still match search_advanced.
 
         Returns:
             List of matching todos with full details. If ``tag`` is unknown
@@ -1158,10 +1183,15 @@ class ReadOperations:
                     )
                 }]
 
-            # Build things.py query parameters
+            # Build things.py query parameters. Unlike things.py itself (which
+            # defaults status to 'incomplete'), search_advanced with no status
+            # filter searches ALL statuses - explicitly pass status=None so
+            # things.todos()/things.tasks() don't fall back to their own default.
             query_params = {}
             if status:
                 query_params['status'] = status
+            else:
+                query_params['status'] = None
             if todo_type:
                 query_params['type'] = todo_type
             if tag:
@@ -1214,19 +1244,52 @@ class ReadOperations:
             logger.error(f"Error in _search_advanced_sync: {e}")
             return []
 
-    async def get_recent(self, period: str) -> List[Dict[str, Any]]:
-        """Get recently created items."""
+    async def get_recent(
+        self, period: str,
+        status: Optional[str] = None,
+        type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get recently created items.
+
+        Args:
+            period: Time period string (e.g. '3d', '1w', '2m', '1y').
+            status: Optional status filter - 'incomplete', 'completed', 'canceled',
+                or None (default) to include items of ALL statuses. Unlike
+                search_todos()/get_todos(), get_recent defaults to including
+                completed and canceled items so "recently created items" isn't
+                silently restricted to open to-dos.
+            type: Optional type filter - 'to-do', 'project', 'heading', or None
+                (default) to include to-dos and projects but NOT headings.
+                Headings are never user-facing items in list tools by default
+                (epic-wide ruling, hq-f0w.3) - pass type='heading' explicitly
+                to fetch recently created headings.
+
+        Note: filter_someday_project_tasks is NOT applied here - items inside a
+        Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
+        still appear in get_recent results.
+        """
         loop = asyncio.get_event_loop()
 
         def _get_recent_sync():
             try:
-                all_todos = things.todos()
+                # Query all statuses/types by default (things.tasks() itself
+                # defaults status to 'incomplete', which would silently hide
+                # recently completed/canceled items and projects).
+                all_items = things.tasks(status=status, type=type)
                 days = ToolsHelpers.parse_period_to_days(period)
                 cutoff_date = datetime.now() - timedelta(days=days)
 
+                # When the caller didn't explicitly ask for headings, drop
+                # them - list tools never return headings by default
+                # (epic-wide ruling, hq-f0w.3); they're not user-facing items.
+                include_headings = (type == 'heading')
+
                 results = []
-                for todo in all_todos:
-                    created_date = todo.get('created')
+                for item in all_items:
+                    if not include_headings and item.get('type') == 'heading':
+                        continue
+
+                    created_date = item.get('created')
                     if created_date:
                         try:
                             if isinstance(created_date, str):
@@ -1235,9 +1298,9 @@ class ReadOperations:
                                 created_dt = created_date
 
                             if created_dt >= cutoff_date:
-                                results.append(ToolsHelpers.convert_todo(todo))
+                                results.append(ToolsHelpers.convert_todo(item))
                         except (ValueError, TypeError) as e:
-                            logger.warning(f"Skipping todo with invalid created date '{created_date}': {e}")
+                            logger.warning(f"Skipping item with invalid created date '{created_date}': {e}")
 
                 return results
 

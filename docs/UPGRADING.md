@@ -68,6 +68,25 @@ have automation or prompts that depend on exact output shape, check these:
   parameter on any of these five tools to restore projects in the results
   (headings are never returned, even with this flag) — `get_inbox` is
   unaffected since the Inbox can never contain projects.
+- **`search_todos` gained a `status` parameter and `search_advanced`/
+  `get_recent` changed their default status scope.** `search_todos` now
+  accepts `status` (`'incomplete'` (default, unchanged) / `'completed'` /
+  `'canceled'` / `None` for all) - previously it always searched only
+  incomplete todos with no way to search completed/canceled ones. What to
+  do: pass `status='completed'`, `status='canceled'`, or `status=None` if
+  you need to find a completed/canceled todo by search. `search_advanced`
+  with no `status` filter now searches items of **all** statuses (it
+  previously silently defaulted to incomplete-only, same bug as above);
+  pass `status='incomplete'` explicitly to restrict to open items as
+  before. `get_recent` now defaults to **all** statuses, and to both
+  to-dos and projects (previously incomplete to-dos only), so
+  recently-created completed/canceled to-dos and recently-created
+  projects now appear in the results; headings are still NEVER included
+  by default (list tools never return headings by default), pass
+  `type='heading'` explicitly if you need recently created headings.
+  Pass the new `status`/`type` parameters to narrow the results.
+  `search_todos` also now rejects an empty or whitespace-only `query` with
+  a structured error instead of silently matching every todo.
 - **Todo/project dicts gained new fields and one field changed shape**
   (hq-f0w.4). New: `type` (`'to-do'`/`'project'`/etc.), `start` (Inbox /
   Anytime / Someday — distinct from the existing `startDate`, a specific
