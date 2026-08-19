@@ -872,8 +872,15 @@ class TodoOperations:
             project: New project name (looked up by name via
                 `project <name>`); kept only for backwards compatibility -
                 prefer project_id.
-            completed: Completion status
-            canceled: Canceled status
+            completed: Completion status. None leaves status unchanged
+                (unless canceled=False is given - see canceled below);
+                True marks completed; False marks open (unless canceled=True
+                takes precedence).
+            canceled: Canceled status. canceled=True takes precedence over
+                completed (whatever completed is set to). canceled=False
+                with completed=None reopens the todo (matches
+                update_project's semantics - not a no-op). None leaves the
+                canceled state alone (fall through to completed handling).
             project_id: Project UUID to move the todo into, escaped safely
                 via AppleScriptTemplates.escape_string and looked up by id
                 via `project id "..."`. Takes precedence over `project`.
@@ -955,7 +962,11 @@ class TodoOperations:
                     set due date of targetTodo to deadlineDate
                     '''
 
-        # Update status
+        # Update status if provided (canceled takes precedence over completed,
+        # matching update_project's precedence). canceled=False alone also
+        # reopens the todo (no completed given) so that
+        # update_todo(canceled='false') reliably returns the todo to
+        # 'incomplete' rather than being a silent no-op.
         if canceled is not None and canceled:
             script += 'set status of targetTodo to canceled\n                    '
         elif completed is not None:
@@ -963,6 +974,8 @@ class TodoOperations:
                 script += 'set status of targetTodo to completed\n                    '
             else:
                 script += 'set status of targetTodo to open\n                    '
+        elif canceled is not None and not canceled:
+            script += 'set status of targetTodo to open\n                    '
 
         script += '''
                     return "updated"

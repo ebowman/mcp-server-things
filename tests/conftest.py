@@ -245,14 +245,6 @@ class MockAppleScriptManager:
             "error": None
         })
     
-    async def update_project_direct(self, project_id, **kwargs):
-        """Mock update_project_direct method."""
-        return self.mock_responses.get("update_project_direct", {
-            "success": True,
-            "data": {"id": project_id, "updated": True},
-            "error": None
-        })
-    
 
 @pytest.fixture
 def mock_applescript_manager():

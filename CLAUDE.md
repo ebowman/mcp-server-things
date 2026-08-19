@@ -836,10 +836,22 @@ AppleScript-only fields in the call) - `list_id`/`list_title` is not also
 sent on the following URL-scheme call that applies the evening schedule,
 which would otherwise re-apply the same move a second time.
 
-**Status semantics (`completed`/`canceled`):**
-- `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
-- Passing `completed="false"` or `canceled="false"` alone reopens the project.
-- Omitting both parameters leaves the project's status unchanged.
+**Status semantics (`completed`/`canceled`) - identical across `update_todo`, `bulk_update_todos`, and `update_project` (hq-f0w.22):**
+
+Full 3x3 truth table (`completed` x `canceled`, each `"true"` / `"false"` / omitted):
+
+| `completed` \ `canceled` | `"true"` | `"false"` | omitted / `None` |
+|---|---|---|---|
+| `"true"` | canceled | completed | completed |
+| `"false"` | canceled | open (reopened) | open (reopened) |
+| omitted / `None` | canceled | open (reopened) | unchanged |
+
+- `canceled="true"` always wins, regardless of what `completed` is set to (even `completed="true"` in the same call).
+- Whenever `canceled` is not `"true"`, `completed` (if given) decides the result: `"true"` -> completed, `"false"` -> open.
+- `canceled="false"` alone (with `completed` omitted) also reopens the item - this is **not** a no-op, matching `completed="false"` alone.
+- Omitting both parameters leaves the item's status unchanged.
+- `completed`/`canceled` accept only an actual boolean or the strings `"true"`/`"false"` (case-insensitive, e.g. `"True"`/`"FALSE"` are fine). Any other value (`"yes"`, `"1"`, `"no"`, etc.) is rejected with a structured `{"success": false, "error": "VALIDATION_ERROR", "field": "completed"|"canceled", "message": ...}` error rather than being silently coerced - a prior looser parser turned any non-`"true"` string into `False`, which could unintentionally reopen a completed/canceled item.
+- Via the MCP tool interface, `completed`/`canceled` are typed `Optional[str]` - pass the strings `"true"`/`"false"` (case-insensitive), not JSON booleans; a literal JSON `true`/`false` is rejected by pydantic before it ever reaches this validation. Passing an actual Python `bool` only works for in-process/direct `ThingsTools`/`TodoOperations` callers, not through the MCP tool schema.
 
 ### Reading Project Headings
 

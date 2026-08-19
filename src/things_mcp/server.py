@@ -48,6 +48,58 @@ def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
     return tag_list or None
 
 
+class _StrictBoolError(ValueError):
+    """Raised by `_parse_strict_bool` when a value is not 'true'/'false'.
+
+    Carries `field` and `message` so callers can build a structured
+    VALIDATION_ERROR response matching
+    `parameter_validator.create_validation_error_response`'s shape.
+    """
+
+    def __init__(self, field: str, value: Any):
+        self.field = field
+        self.value = value
+        self.message = (
+            f"must be 'true' or 'false' (case-insensitive), got '{value}'"
+        )
+        super().__init__(f"{field}: {self.message}")
+
+
+def _parse_strict_bool(value: Optional[Union[str, bool]], field_name: str) -> Optional[bool]:
+    """Strictly parse a completed/canceled parameter to bool or None.
+
+    Unlike the historical `value.lower() == 'true'` pattern (which silently
+    turns any non-'true' string - including typos like 'yes'/'1' - into
+    False and can unintentionally reopen a completed/canceled item), this
+    only accepts an actual bool, or the strings 'true'/'false'
+    (case-insensitive, surrounding whitespace stripped). Anything else
+    raises `_StrictBoolError` so the caller can return a structured
+    VALIDATION_ERROR instead of guessing.
+
+    Args:
+        value: None (leave unchanged), a bool, or a 'true'/'false' string.
+        field_name: Name of the field, used in the raised error.
+
+    Returns:
+        True, False, or None if `value` is None.
+
+    Raises:
+        _StrictBoolError: If `value` is a non-bool, non-'true'/'false' string,
+            or any other type (e.g. int).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == 'true':
+            return True
+        if lowered == 'false':
+            return False
+    raise _StrictBoolError(field_name, value)
+
+
 def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
     """Parse a comma-separated tag string for update_todo/update_project/update_area/
     bulk_update_todos, preserving the "clear all tags" signal.
@@ -487,6 +539,18 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled). Whenever
+            canceled is not 'true', completed (if given) decides the result:
+            'true' -> completed, 'false' -> open. canceled='false' alone (with
+            completed omitted) also reopens the todo - this is NOT a no-op.
+            Omitting both leaves status unchanged. completed/canceled only accept
+            the strings 'true'/'false' (case-insensitive) - any other value (e.g.
+            'yes', '1') is rejected with a structured VALIDATION_ERROR rather than
+            being silently coerced to False.
+
             Clear-field semantics for partial updates: a field left at its
             default (None/omitted) leaves the existing value unchanged.
             Passing notes='' or deadline='' clears that field. Passing
@@ -568,14 +632,20 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the todo.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message
+                    }
 
                 result = await self.tools.update_todo(
                     todo_id=id,
@@ -621,6 +691,18 @@ class ThingsMCPServer:
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
             """Update multiple todos with the same changes in a single operation.
+
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled for every
+            todo). Whenever canceled is not 'true', completed (if given) decides
+            the result: 'true' -> completed, 'false' -> open. canceled='false'
+            alone (with completed omitted) also reopens every todo - this is NOT
+            a no-op. Omitting both leaves status unchanged. completed/canceled
+            only accept the strings 'true'/'false' (case-insensitive) - any
+            other value (e.g. 'yes', '1') is rejected with a structured
+            VALIDATION_ERROR rather than being silently coerced to False.
 
             Clear-field semantics for partial updates (same contract as
             update_todo): a field left at its default (None/omitted) leaves
@@ -680,14 +762,21 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the todos.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message,
+                        "updated_count": 0
+                    }
 
                 result = await self.tools.bulk_update_todos(
                     todo_ids=id_list,
@@ -985,10 +1074,17 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content.
 
-            Status semantics for completed/canceled: canceled takes precedence when both are
-            given (e.g. completed='false', canceled='true' results in canceled). Passing
-            completed='false' or canceled='false' alone (with the other omitted) reopens the
-            project. Omitting both leaves status unchanged.
+            Status semantics for completed/canceled (identical across update_todo,
+            bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
+            table): canceled='true' always wins regardless of completed (e.g.
+            completed='false', canceled='true' results in canceled). Whenever
+            canceled is not 'true', completed (if given) decides the result:
+            'true' -> completed, 'false' -> open. canceled='false' alone (with
+            completed omitted) also reopens the project - this is NOT a no-op.
+            Omitting both leaves status unchanged. completed/canceled only accept
+            the strings 'true'/'false' (case-insensitive) - any other value (e.g.
+            'yes', '1') is rejected with a structured VALIDATION_ERROR rather than
+            being silently coerced to False.
 
             Clear-field semantics for partial updates: a field left at its
             default (None/omitted) leaves the existing value unchanged.
@@ -1027,14 +1123,20 @@ class ThingsMCPServer:
                 # None (tags not provided) leaves tags unchanged.
                 tag_list = _parse_tag_list_for_update(tags)
 
-                # Convert string booleans to actual booleans
-                completed_bool = None
-                if completed is not None:
-                    completed_bool = completed.lower() == 'true' if isinstance(completed, str) else completed
-
-                canceled_bool = None
-                if canceled is not None:
-                    canceled_bool = canceled.lower() == 'true' if isinstance(canceled, str) else canceled
+                # Strictly parse completed/canceled: only an actual bool or
+                # the strings 'true'/'false' (case-insensitive) are accepted;
+                # anything else (e.g. 'yes', '1') is a structured error
+                # rather than silently becoming False and reopening the project.
+                try:
+                    completed_bool = _parse_strict_bool(completed, 'completed')
+                    canceled_bool = _parse_strict_bool(canceled, 'canceled')
+                except _StrictBoolError as e:
+                    return {
+                        "success": False,
+                        "error": "VALIDATION_ERROR",
+                        "field": e.field,
+                        "message": e.message
+                    }
 
                 return await self.tools.update_project(
                     project_id=id,
