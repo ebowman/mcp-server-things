@@ -1448,13 +1448,18 @@ class ReadOperations:
             exactly like ``List[Dict]`` for all existing callers, but also
             carries the true pre-limit/offset match count on ``.total_count``
             (used by server.py to populate `total`). If ``tag`` is unknown
-            to things.py (things.py raises ValueError, e.g. for a wrong-case
-            variant of a real tag), returns a plain single-element list
-            containing a structured error dict: ``[{'success': False, 'error':
-            'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
-            suggestions are case-insensitive title matches from
-            ``things.tags()``. This mirrors the existing structured-error
-            convention used above for an invalid ``type`` filter.
+            to things.py (things.py raises ``ValueError("Unrecognized tag
+            type: ...")``, e.g. for a wrong-case variant of a real tag),
+            returns a plain single-element list containing a structured
+            error dict: ``[{'success': False, 'error': 'unknown_tag', 'tag':
+            tag, 'suggestions': [...]}]`` where suggestions are
+            case-insensitive title matches from ``things.tags()``. This
+            mirrors the existing structured-error convention used above for
+            an invalid ``type`` filter. Any other ``ValueError`` from
+            things.py (e.g. an invalid ``start_date``/``deadline`` value or
+            operator) is NOT reinterpreted as an unknown tag even when
+            ``tag`` was also supplied - it instead returns a single-element
+            list containing ``read_error('invalid_parameter', str(e))``.
         """
         try:
             # Extract filters
@@ -1516,7 +1521,7 @@ class ReadOperations:
                 else:
                     todos = things.todos(**query_params)
             except ValueError as e:
-                if tag:
+                if tag and 'Unrecognized tag type' in str(e):
                     logger.info(f"Unknown tag '{tag}' in _search_advanced_sync: {e}")
                     return [_build_unknown_tag_error(tag)]
                 raise
@@ -1545,6 +1550,15 @@ class ReadOperations:
 
             logger.debug(f"search_advanced found {total_count} matching todos using things.py")
             return ListWithTotal(results, total_count=total_count)
+
+        except ValueError as e:
+            # A ValueError from things.py that wasn't the tag-specific
+            # 'Unrecognized tag type' case handled above (e.g. an invalid
+            # start_date/deadline value/operator) - surface it as a
+            # structured error instead of silently returning an empty list,
+            # so callers can distinguish "bad input" from "no matches".
+            logger.error(f"Error in _search_advanced_sync: {e}")
+            return [read_error('invalid_parameter', str(e))]
 
         except Exception as e:
             logger.error(f"Error in _search_advanced_sync: {e}")

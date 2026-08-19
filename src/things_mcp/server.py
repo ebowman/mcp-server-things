@@ -1424,7 +1424,9 @@ class ThingsMCPServer:
             try:
                 tagged_items = await self.tools.get_tagged_items(tag=tag)
                 if isinstance(tagged_items, dict) and tagged_items.get('error') == 'unknown_tag':
-                    tagged_items['tag'] = tag
+                    # 'tag' is already set on this dict by
+                    # _build_unknown_tag_error (read_operations.py) - no need
+                    # to overwrite it here.
                     return tagged_items
                 result = self._read_result(tagged_items, mode='standard')
                 result['tag'] = tag
@@ -1718,11 +1720,12 @@ class ThingsMCPServer:
                     offset=offset
                 )
 
-                # A structured error (e.g. unknown_tag) comes back as a
-                # single-element list wrapping an error dict, per the
-                # existing convention (see also the invalid `type` filter
-                # error above). Surface it directly rather than feeding it
-                # through optimize_response, which expects a list of todos.
+                # A structured error (e.g. unknown_tag, invalid_parameter)
+                # comes back from ReadOperations.search_advanced as a
+                # single-element list wrapping a `read_error(...)` dict
+                # (`{"success": False, "error": ..., "message": ...}`).
+                # Surface it directly rather than feeding it through
+                # optimize_response, which expects a list of todos.
                 if (
                     len(raw_data) == 1
                     and isinstance(raw_data[0], dict)
