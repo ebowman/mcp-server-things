@@ -226,7 +226,15 @@ class TestParserComparison:
             assert '2024-01-15' in legacy_result[0][field]
 
     def test_new_parser_fixes_completion_date_bug(self, legacy_manager, new_manager):
-        """Test that new parser correctly handles completion_date (legacy parser bug)."""
+        """Test that both parsers avoid leaking §COMMA§ for completion_date.
+
+        completion_date is not in the legacy parser's protected-date-field
+        list, so it falls into the generic string-value branch. That branch
+        now unescapes §COMMA§/§QUOTE§/§COLON§ for all fields (GH #10 bugs
+        1-2 fix), so the legacy parser no longer leaks the placeholder here
+        either - it just doesn't additionally reformat the date to ISO the
+        way the new parser does.
+        """
         output = 'id:123, name:Task, completion_date:Monday, January 15, 2024 at 2:30:00 PM'
 
         legacy_result = legacy_manager._parse_applescript_list(output)
@@ -234,15 +242,20 @@ class TestParserComparison:
 
         assert len(legacy_result) == len(new_result) == 1
 
-        # Legacy parser has a bug - leaves §COMMA§ placeholders
-        assert '§COMMA§' in legacy_result[0]['completion_date']
+        # Legacy parser no longer leaks §COMMA§, but also doesn't ISO-format the date
+        assert '§COMMA§' not in legacy_result[0]['completion_date']
+        assert legacy_result[0]['completion_date'] == 'Monday, January 15, 2024 at 2:30:00 PM'
 
-        # New parser correctly parses the date
+        # New parser correctly parses the date to ISO format
         assert '2024-01-15' in new_result[0]['completion_date']
         assert '§COMMA§' not in new_result[0]['completion_date']
 
     def test_new_parser_fixes_cancellation_date_bug(self, legacy_manager, new_manager):
-        """Test that new parser correctly handles cancellation_date (legacy parser bug)."""
+        """Test that both parsers avoid leaking §COMMA§ for cancellation_date.
+
+        See test_new_parser_fixes_completion_date_bug for the same rationale
+        applied to cancellation_date.
+        """
         output = 'id:123, name:Task, cancellation_date:Monday, January 15, 2024 at 2:30:00 PM'
 
         legacy_result = legacy_manager._parse_applescript_list(output)
@@ -250,10 +263,11 @@ class TestParserComparison:
 
         assert len(legacy_result) == len(new_result) == 1
 
-        # Legacy parser has a bug - leaves §COMMA§ placeholders
-        assert '§COMMA§' in legacy_result[0]['cancellation_date']
+        # Legacy parser no longer leaks §COMMA§, but also doesn't ISO-format the date
+        assert '§COMMA§' not in legacy_result[0]['cancellation_date']
+        assert legacy_result[0]['cancellation_date'] == 'Monday, January 15, 2024 at 2:30:00 PM'
 
-        # New parser correctly parses the date
+        # New parser correctly parses the date to ISO format
         assert '2024-01-15' in new_result[0]['cancellation_date']
         assert '§COMMA§' not in new_result[0]['cancellation_date']
 

@@ -390,6 +390,16 @@ class AppleScriptManager:
                         if value.startswith('"') and value.endswith('"'):
                             value = value[1:-1]
 
+                        # Restore any placeholders used to protect commas, quotes,
+                        # and colons in free-text fields (e.g. name, notes) - without
+                        # this, placeholder strings would leak into tool output.
+                        if '§COMMA§' in value:
+                            value = value.replace('§COMMA§', ',')
+                        if '§QUOTE§' in value:
+                            value = value.replace('§QUOTE§', '"')
+                        if '§COLON§' in value:
+                            value = value.replace('§COLON§', ':')
+
                         # Handle AppleScript "missing value"
                         if value == 'missing value':
                             value = None

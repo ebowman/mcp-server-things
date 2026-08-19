@@ -419,3 +419,159 @@ class TestErrorHandling:
         # Should get at least the first record
         assert len(result) >= 1
         assert result[0]['id'] == '123'
+
+
+class TestPlaceholderProtectedFields:
+    """Regression tests for GH #10 bugs 1-2: titles/notes with , " : must
+    round-trip intact when produced through the §COMMA§/§QUOTE§/§COLON§
+    placeholder protection applied in queries.py.
+
+    The real query builders never wrap name/notes values in AppleScript
+    quotes - these tests feed the parser the UNQUOTED protected form that
+    queries.py actually emits (e.g. "Buy milk§COMMA§ eggs§COMMA§ and bread"),
+    not a quoted literal.
+    """
+
+    def test_name_with_comma_unquoted(self):
+        """A name containing a comma, protected the way queries.py protects it."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:Buy milk§COMMA§ eggs§COMMA§ and bread, notes:missing value, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == 'Buy milk, eggs, and bread'
+        # No spurious extra fields created by the embedded commas
+        assert set(result[0].keys()) == {'id', 'name', 'notes', 'status'}
+
+    def test_name_with_straight_double_quote_unquoted(self):
+        """A name containing a literal straight double quote."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:6§QUOTE§ pipe fitting, notes:missing value, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == '6" pipe fitting'
+        assert set(result[0].keys()) == {'id', 'name', 'notes', 'status'}
+
+    def test_name_with_colon_unquoted(self):
+        """A name containing a colon."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:Meeting§COLON§ 3pm sync, notes:missing value, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == 'Meeting: 3pm sync'
+        assert set(result[0].keys()) == {'id', 'name', 'notes', 'status'}
+
+    def test_name_with_combination_of_all_three(self):
+        """A name containing comma, quote, and colon together."""
+        parser = AppleScriptParser()
+        output = (
+            'id:123, name:Notes§COLON§ 12§QUOTE§ box§COMMA§ 6§QUOTE§ lid, '
+            'notes:missing value, status:open'
+        )
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == 'Notes: 12" box, 6" lid'
+        assert set(result[0].keys()) == {'id', 'name', 'notes', 'status'}
+
+    def test_notes_with_combination_of_all_three(self):
+        """The notes field is protected the same way as name."""
+        parser = AppleScriptParser()
+        output = (
+            'id:123, name:Task, '
+            'notes:Size§COLON§ 6§QUOTE§§COMMA§ weight§COMMA§ 2lb, status:open'
+        )
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == 'Task'
+        assert result[0]['notes'] == 'Size: 6", weight, 2lb'
+
+    def test_no_placeholder_strings_leak_into_output(self):
+        """Placeholder tokens must never appear in parsed output."""
+        parser = AppleScriptParser()
+        output = (
+            'id:123, name:A§COMMA§B§QUOTE§C§COLON§D, '
+            'notes:E§COMMA§F§QUOTE§G§COLON§H, status:open'
+        )
+        result = parser.parse(output)
+        for value in result[0].values():
+            if isinstance(value, str):
+                assert '§COMMA§' not in value
+                assert '§QUOTE§' not in value
+                assert '§COLON§' not in value
+        assert result[0]['name'] == 'A,B"C:D'
+        assert result[0]['notes'] == 'E,F"G:H'
+
+    def test_empty_name(self):
+        """Empty name value parses to None (missing-value semantics), not a crash."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:, notes:missing value, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] is None
+
+    def test_name_of_only_special_chars(self):
+        """A name consisting solely of protected special characters."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:§COMMA§§QUOTE§§COLON§, notes:missing value, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['name'] == ',":'
+
+    def test_tag_list_parsing_still_works_with_commas_in_tag_names(self):
+        """Edge case guard: tag_names list parsing (parser.py ~213-215 LIST state)
+        must still correctly split multiple tags and preserve commas embedded
+        inside an individual quoted tag name."""
+        parser = AppleScriptParser()
+        output = 'id:123, name:Task, tag_names:{"work", "a, b", "urgent"}, status:open'
+        result = parser.parse(output)
+        assert len(result) == 1
+        assert result[0]['tag_names'] == ['work', 'a, b', 'urgent']
+
+    def test_quoted_parser_state_unaffected_for_explicitly_quoted_values(self):
+        """The QUOTED parser state (entered via a literal opening ") must still
+        work for values that do arrive pre-quoted - this protection only
+        changes how the real query builders emit unquoted values."""
+        parser = AppleScriptParser()
+        result = parser.parse('id:123, name:"Quoted, value: here"')
+        assert result[0]['name'] == 'Quoted, value: here'
+
+
+class TestQueryBuilderNameProtection:
+    """Assert the query builders emit the same §COMMA§/§QUOTE§/§COLON§
+    protection for the name field that notes already receives, so raw
+    unprotected names never reach the parser (GH #10 bugs 1-2 root cause)."""
+
+    def test_get_todos_script_with_project_uuid_protects_name(self):
+        from things_mcp.services.applescript.queries import AppleScriptQueries
+
+        script = AppleScriptQueries().build_get_todos_script(project_uuid="abc-123")
+        assert '& (name of theTodo)' not in script
+        assert 'replaceText(nameStr, ",", "§COMMA§")' in script
+        assert 'replaceText(nameStr, "\\"", "§QUOTE§")' in script
+        assert 'replaceText(nameStr, ":", "§COLON§")' in script
+
+    def test_get_todos_script_without_project_uuid_protects_name(self):
+        from things_mcp.services.applescript.queries import AppleScriptQueries
+
+        script = AppleScriptQueries().build_get_todos_script()
+        assert '& (name of theTodo)' not in script
+        assert 'replaceText(nameStr, ",", "§COMMA§")' in script
+        assert 'replaceText(nameStr, "\\"", "§QUOTE§")' in script
+        assert 'replaceText(nameStr, ":", "§COLON§")' in script
+
+    def test_get_projects_script_protects_name(self):
+        from things_mcp.services.applescript.queries import AppleScriptQueries
+
+        script = AppleScriptQueries().build_get_projects_script()
+        assert '& (name of theProject)' not in script
+        assert 'replaceText(nameStr, ",", "§COMMA§")' in script
+        assert 'replaceText(nameStr, "\\"", "§QUOTE§")' in script
+        assert 'replaceText(nameStr, ":", "§COLON§")' in script
+
+    def test_get_areas_script_protects_name(self):
+        from things_mcp.services.applescript.queries import AppleScriptQueries
+
+        script = AppleScriptQueries().build_get_areas_script()
+        assert '& (name of theArea)' not in script
+        assert 'replaceText(nameStr, ",", "§COMMA§")' in script
+        assert 'replaceText(nameStr, "\\"", "§QUOTE§")' in script
+        assert 'replaceText(nameStr, ":", "§COLON§")' in script

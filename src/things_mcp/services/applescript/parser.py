@@ -248,9 +248,12 @@ class AppleScriptParser:
         value = self.current_value.strip()
 
         # Unescape AppleScript placeholders that were used to prevent parsing issues
-        # These are added in queries.py to protect commas and colons in dates/notes
+        # These are added in queries.py to protect commas, quotes, and colons in
+        # free-text fields (name, notes) and in dates.
         if '§COMMA§' in value:
             value = value.replace('§COMMA§', ',')
+        if '§QUOTE§' in value:
+            value = value.replace('§QUOTE§', '"')
         if '§COLON§' in value:
             value = value.replace('§COLON§', ':')
 
@@ -290,11 +293,16 @@ class AppleScriptParser:
             tags = self._parse_tags(value)
             return tags
 
-        # Check if value is a list format (contains quotes and commas from LIST state)
-        # This handles generic list fields like "tags"
-        if value and ('"' in value or (value.count(',') > 0 and not value.strip().replace(',', '').replace(' ', ''))):
-            # Looks like a list - parse it
-            return self._parse_tags(value)
+        # Known free-text scalar fields are never list-shaped even if their
+        # (unescaped) value now contains a literal '"' - queries.py protects
+        # these with §QUOTE§/§COMMA§/§COLON§ specifically so they round-trip
+        # as plain strings, not so they get mistaken for a list here.
+        if field_name not in ('name', 'notes'):
+            # Check if value is a list format (contains quotes and commas from LIST state)
+            # This handles generic list fields like "tags"
+            if value and ('"' in value or (value.count(',') > 0 and not value.strip().replace(',', '').replace(' ', ''))):
+                # Looks like a list - parse it
+                return self._parse_tags(value)
 
         # Handle missing value and empty strings
         if value == 'missing value' or value == '':
