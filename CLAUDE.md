@@ -517,10 +517,24 @@ isn't under a heading/project respectively); other fields are omitted when `null
 
 Note: `area` was removed from the todo field sets (a to-do row from things.py
 never actually carries an `area` key - only projects do; the field was always
-absent in practice). `heading`/`headingTitle`/`projectTitle`/`start` come
-directly from things.py on every read path, including `get_todos(project_uuid=...)`
-(the former AppleScript-backed project read path was removed in favor of
-things.py - see CHANGELOG).
+absent in practice). `heading`/`headingTitle`/`start` come directly from
+things.py on every read path, including `get_todos(project_uuid=...)` (the
+former AppleScript-backed project read path was removed in favor of things.py
+- see CHANGELOG). `project`/`projectTitle` also come directly from things.py
+for todos filed directly in a project - but things.py never stamps a
+heading-child to-do row with `project`/`project_title` (only the heading's own
+row carries them; live: 0/40 heading-children have a populated `project`
+field), so every read tool now backfills `project`/`projectTitle` for
+heading-children in a post-conversion pass (`_fill_project_from_heading` in
+`read_operations.py`, hq-f0w.24) that resolves the heading's parent project -
+`get_todo_by_id('WMVVPmqvWnmbMXsZ8GPdER')` (a to-do under a heading) reports
+`project`/`projectTitle` populated, not `null`. The heading lookup covers
+headings under every project status, not just open ones - it fetches
+`things.tasks(type='heading', status=None)` rather than relying on
+`things.tasks()`'s own `status='incomplete'` default, so completed to-dos
+filed under a heading that belongs to a completed (or finished
+repeating-instance) project also resolve correctly, e.g. via
+`get_todos(status='completed')` or `get_logbook`.
 `reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
 is only present on the small subset of to-dos/projects that actually carry a
 reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.

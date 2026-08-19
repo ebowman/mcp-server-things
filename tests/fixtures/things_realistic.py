@@ -30,11 +30,15 @@ Real to-do/project/heading rows never carry separate
 'completion_date'/'cancellation_date' keys - only 'stop_date',
 disambiguated by 'status'. 'checklist' (when present on a to-do row) is a
 bool "has a checklist" flag, not a list of items. Real heading-children
-(to-dos with a 'heading' key) never also carry 'project'/'project_title'
-(live: 0/40 heading-children have a project key) - a heading's own
-'project'/'project_title' identify its parent project, but the child
-to-do itself is not separately stamped with that project (tracked as
-hq-f0w.24).
+(to-dos with a 'heading' key) never also carry 'project'/'project_title' at
+the things.py row level (live: 0/40 heading-children have a project key) - a
+heading's own 'project'/'project_title' identify its parent project, but the
+child to-do row itself is not separately stamped with that project.
+ReadOperations backfills project/projectTitle for these rows in a
+post-conversion pass (_fill_project_from_heading, hq-f0w.24), so the raw
+fixture rows below intentionally omit project/project_title (matching real
+things.py), while the MCP-layer converted output for a heading-child todo
+does carry them once resolved.
 
 Use the factory helpers (make_todo/make_project/make_heading/make_area/
 make_tag) to build realistic rows for ad-hoc test data, or the canned
@@ -278,9 +282,12 @@ TODO_NO_TAGS = make_todo(
     # No tags key at all - matches real things.py behaviour for untagged rows.
 )
 
-# Real heading-children never also carry project/project_title (live:
-# 0/40 heading-children have a project key; tracked as hq-f0w.24) - only
-# heading/heading_title identify the parent chain for this row.
+# Real heading-children never also carry project/project_title at the raw
+# things.py row level (live: 0/40 heading-children have a project key) -
+# only heading/heading_title identify the parent chain for this row.
+# ReadOperations._fill_project_from_heading() backfills project/projectTitle
+# onto the *converted* MCP output for rows like this one (hq-f0w.24) by
+# resolving HEADING_IN_ANYTIME_PROJECT's project/project_title.
 TODO_UNDER_HEADING = make_todo(
     "todo-heading-1",
     "Pick a color: blue, green, or ‘slate’",

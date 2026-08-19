@@ -156,6 +156,89 @@ def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]])
     return project_uuid
 
 
+def _build_heading_project_map() -> Dict[str, tuple]:
+    """Batch-resolve every heading's parent project in a single things.py call.
+
+    things.py to-do rows for a to-do parented under a heading carry
+    heading/heading_title but leave project/project_title None (things.py
+    only denormalizes project onto the heading row itself, not onto the
+    heading's children) - live-confirmed 2026-08-19: 0/40 heading-children
+    have a populated project field. Heading rows themselves DO carry
+    project/project_title directly. This fetches all headings once
+    (things.tasks(type='heading', status=None)) so per-item lookups during a
+    single request are O(1) dict gets instead of one things.get() call per
+    heading-child todo.
+
+    status=None is required here: things.tasks()'s own default status filter
+    is 'incomplete', which only covers headings belonging to open projects
+    (live: 30/674 headings) - headings under completed/canceled projects
+    (e.g. completed projects, finished repeating-project instances) would be
+    silently excluded from the map, leaving their to-do children's
+    project/projectTitle unresolved (live-confirmed regression: with the
+    default filter, get_todos(status='completed') had 912 heading-children
+    and 0 resolved; get_logbook(period='365d') had 18 heading-children and 0
+    resolved). With status=None, all 674 headings are fetched regardless of
+    their project's status, all carrying project/project_title.
+
+    Returns:
+        Dict mapping heading uuid -> (project_uuid, project_title) tuple.
+        Empty dict on any error (defensive - callers simply won't enrich
+        project/projectTitle for heading-children in that case).
+    """
+    try:
+        headings = things.tasks(type='heading', status=None) or []
+        return {
+            h['uuid']: (h.get('project'), h.get('project_title'))
+            for h in headings if h.get('uuid')
+        }
+    except Exception as e:
+        logger.debug(f"Error building heading->project map: {e}")
+        return {}
+
+
+def _fill_project_from_heading(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Backfill project/projectTitle on converted todo dicts that are under a heading.
+
+    Applied as a post-conversion pass after ToolsHelpers.convert_todo() - operates
+    on the already-camelCased MCP dicts (project/projectTitle/heading keys), not
+    raw things.py rows. Only fills items that have a heading but no project (the
+    heading-child case); items already carrying a project (e.g. the heading row
+    itself, or a top-level todo) are left untouched. Mutates and returns the same
+    list/dicts in place for convenience.
+
+    _build_heading_project_map() (one things.tasks(type='heading') call) is only
+    invoked lazily, when at least one item actually needs enrichment - this keeps
+    the common case (no heading-children in the result) from adding an extra
+    things.py query, which matters both for performance and because several unit
+    tests assert exact call counts on the mocked things module.
+
+    Args:
+        items: List of converted todo dicts (as returned by convert_todo).
+
+    Returns:
+        The same `items` list, with project/projectTitle backfilled in place
+        wherever resolvable.
+    """
+    needs_fill = [item for item in items if item.get('heading') and not item.get('project')]
+    if not needs_fill:
+        return items
+
+    heading_map = _build_heading_project_map()
+    if not heading_map:
+        return items
+
+    for item in needs_fill:
+        resolved = heading_map.get(item['heading'])
+        if resolved:
+            project_uuid, project_title = resolved
+            if project_uuid:
+                item['project'] = project_uuid
+            if project_title:
+                item['projectTitle'] = project_title
+
+    return items
+
+
 def _is_in_someday_project(todo: Dict[str, Any], someday_project_ids: set,
                             heading_cache: Dict[str, Optional[str]]) -> bool:
     """Check whether a todo belongs to a Someday project, directly or via heading.
@@ -343,7 +426,7 @@ class ReadOperations:
 
                 result.append(converted)
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_todos_sync: {e}")
@@ -366,7 +449,8 @@ class ReadOperations:
                 if include_items and project.get('uuid'):
                     try:
                         project_todos = things.todos(project=project['uuid'])
-                        converted['todos'] = [ToolsHelpers.convert_todo(t) for t in project_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in project_todos]
+                        converted['todos'] = _fill_project_from_heading(converted_todos)
                     except Exception as e:
                         logger.error(f"Error getting project todos: {e}")
 
@@ -398,7 +482,8 @@ class ReadOperations:
                         converted['projects'] = [ToolsHelpers.convert_project(p) for p in area_projects]
 
                         area_todos = things.todos(area=area['uuid'])
-                        converted['todos'] = [ToolsHelpers.convert_todo(t) for t in area_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in area_todos]
+                        converted['todos'] = _fill_project_from_heading(converted_todos)
                     except Exception as e:
                         logger.error(f"Error getting area items: {e}")
 
@@ -431,7 +516,8 @@ class ReadOperations:
                     tag_title = tag.get('title', tag.get('name', ''))
                     try:
                         tagged_todos = things.todos(tag=tag_title)
-                        tag_dict['todos'] = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+                        tag_dict['todos'] = _fill_project_from_heading(converted_todos)
                         tag_dict['count'] = len(tagged_todos)
                     except Exception as e:
                         logger.error(f"Error getting tagged items: {e}")
@@ -653,6 +739,7 @@ class ReadOperations:
                 windowed = windowed[:limit]
 
             results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+            results = _fill_project_from_heading(results)
 
             return ListWithTotal(results, total_count=total_count)
 
@@ -679,7 +766,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_inbox_sync: {e}")
@@ -713,7 +800,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_today_sync: {e}")
@@ -747,7 +834,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_upcoming_sync: {e}")
@@ -781,7 +868,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_anytime_sync: {e}")
@@ -853,7 +940,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_someday_sync: {e}")
@@ -913,6 +1000,7 @@ class ReadOperations:
             # Apply offset then limit, after sorting
             windowed = result[offset:]
             windowed = windowed[:limit]
+            windowed = _fill_project_from_heading(windowed)
 
             return ListWithTotal(windowed, total_count=total_count)
 
@@ -947,6 +1035,7 @@ class ReadOperations:
             paginated = trash_data[offset:offset + limit]
 
             items = [ToolsHelpers.convert_todo(t) for t in paginated]
+            items = _fill_project_from_heading(items)
 
             return {
                 'items': items,
@@ -991,7 +1080,8 @@ class ReadOperations:
         """
         try:
             tagged_todos = things.todos(tag=tag)
-            return [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+            return _fill_project_from_heading(converted)
 
         except ValueError as e:
             logger.info(f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}")
@@ -1095,6 +1185,20 @@ class ReadOperations:
                 # (type == 'heading') is preserved correctly.
                 converted = ToolsHelpers.convert_todo(item)
 
+                # Single-item lookup: avoid fetching the whole heading list
+                # (_build_heading_project_map) for one row - resolve directly
+                # via things.get() on the heading, same as _resolve_heading_project.
+                if item_type == 'to-do' and item.get('heading') and not item.get('project'):
+                    try:
+                        heading = things.get(item['heading'])
+                        if heading:
+                            if heading.get('project'):
+                                converted['project'] = heading['project']
+                            if heading.get('project_title'):
+                                converted['projectTitle'] = heading['project_title']
+                    except Exception as e:
+                        logger.debug(f"Error resolving heading project for todo {todo_id}: {e}")
+
                 if item_type == 'to-do':
                     try:
                         items = things.checklist_items(todo_id)
@@ -1144,7 +1248,8 @@ class ReadOperations:
             if not include_overdue:
                 due_todos = [t for t in due_todos if (t.get('deadline') or '') >= today]
 
-            return [ToolsHelpers.convert_todo(t) for t in due_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in due_todos]
+            return _fill_project_from_heading(converted)
         except Exception as e:
             logger.error(f"Error in _get_due_in_days_sync: {e}")
             return []
@@ -1180,7 +1285,8 @@ class ReadOperations:
             activating_todos = filter_someday_project_tasks(activating_todos or [])
             activating_todos = [t for t in activating_todos if (t.get('start_date') or '') >= today]
 
-            return [ToolsHelpers.convert_todo(t) for t in activating_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in activating_todos]
+            return _fill_project_from_heading(converted)
         except Exception as e:
             logger.error(f"Error in _get_activating_in_days_sync: {e}")
             return []
@@ -1236,7 +1342,7 @@ class ReadOperations:
                 if include_todo:
                     results.append(ToolsHelpers.convert_todo(todo))
 
-            return results
+            return _fill_project_from_heading(results)
 
         except Exception as e:
             logger.error(f"Error in _get_todos_upcoming_in_days_sync: {e}")
@@ -1377,6 +1483,7 @@ class ReadOperations:
                 windowed = windowed[:limit]
 
             results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+            results = _fill_project_from_heading(results)
 
             logger.debug(f"search_advanced found {total_count} matching todos using things.py")
             return ListWithTotal(results, total_count=total_count)
@@ -1440,7 +1547,7 @@ class ReadOperations:
                         except (ValueError, TypeError) as e:
                             logger.warning(f"Skipping item with invalid created date '{created_date}': {e}")
 
-                return results
+                return _fill_project_from_heading(results)
 
             except Exception as e:
                 logger.error(f"Error in _get_recent_sync: {e}")
