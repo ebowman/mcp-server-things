@@ -146,6 +146,10 @@ class ThingsTools:
         """Get items with a specific tag directly from database."""
         return await self.read_ops.get_tagged_items(tag=tag)
 
+    async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
+        """Get the heading structure of a project, in Things' display order."""
+        return await self.read_ops.get_project_headings(project_id=project_id)
+
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific todo by ID directly from database."""
         return await self.read_ops.get_todo_by_id(todo_id=todo_id)

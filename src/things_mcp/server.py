@@ -1333,6 +1333,67 @@ class ThingsMCPServer:
                 raise
 
         @self.mcp.tool()
+        async def get_project_headings(
+            project_id: str = Field(..., description="UUID of the project to read headings from"),
+            mode: Optional[str] = Field(None, description="Response mode (auto/summary/minimal/standard/detailed/raw)")
+        ) -> Dict[str, Any]:
+            """Get the heading structure of a project, in Things' own display order.
+
+            Each item has: uuid, title, index (Things' internal ordering value,
+            lower sorts first), and todoCount (number of open to-dos directly
+            under that heading, via things.todos(heading=uuid, status='incomplete')).
+
+            Read-only by design: headings cannot be created, renamed, or deleted
+            via any public Things 3 API. There is no AppleScript heading class,
+            and the URL scheme can only place to-dos under headings that already
+            exist, or seed headings at project-creation time via add-project's
+            ``##`` lines. This tool exists purely to read the heading structure
+            that already exists in a project.
+
+            Args:
+                project_id: UUID of the project. Must resolve to an item of
+                    type 'project' - ids for to-dos, areas, or headings, and
+                    unknown ids, return a structured error instead of raising.
+                mode: Response mode for the items list - 'auto' (default,
+                    resolves to a concrete mode based on data size), 'summary',
+                    'minimal', 'standard', 'detailed', or 'raw'.
+            """
+            try:
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return {
+                        "success": False,
+                        "error": "Invalid mode",
+                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
+                    }
+
+                headings_result = await self.tools.get_project_headings(project_id=project_id)
+                if isinstance(headings_result, dict) and headings_result.get('error'):
+                    return headings_result
+                raw_data = headings_result.get('items', []) if isinstance(headings_result, dict) else headings_result
+
+                # Apply smart defaults and optimization
+                request_params = {'mode': mode}
+                optimized_params, was_modified = self.context_manager.optimize_request(
+                    'get_project_headings', request_params
+                )
+                response_mode = ResponseMode(optimized_params.get('mode', 'standard'))
+
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'get_project_headings', response_mode, optimized_params
+                )
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
+            except Exception as e:
+                logger.error(f"Error getting project headings: {e}")
+                raise
+
+        @self.mcp.tool()
         async def get_tag_usage(
             only_unused: bool = Field(False, description="If true, only return tags with zero items (cleanup candidates)"),
             mode: str = Field("standard", description="Response mode: summary, minimal, standard, or detailed")

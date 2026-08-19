@@ -925,6 +925,70 @@ class ReadOperations:
             logger.error(f"Error in _get_tagged_items_sync: {e}")
             return []
 
+    async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
+        """Get the heading structure of a project, in Things' display order.
+
+        Headings cannot be created, renamed, or deleted via the public Things 3
+        APIs (there is no AppleScript heading class; the URL scheme can only
+        place to-dos under existing headings, or seed headings at project
+        creation time via ``add-project`` ``##`` lines). This is a read-only
+        view of the heading structure that already exists in a project.
+
+        Args:
+            project_id: UUID of the project to read headings from.
+
+        Returns:
+            On success: {'items': [{'uuid', 'title', 'index', 'todoCount'}, ...]}
+            in Things' own heading order.
+            On failure (unknown id, or id resolves to something other than a
+            project): {'error': True, 'error_type': ..., 'message': ...}.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_project_headings_sync, project_id)
+
+    def _get_project_headings_sync(self, project_id: str) -> Dict[str, Any]:
+        """Synchronous implementation."""
+        try:
+            project = things.get(project_id)
+            if project is None:
+                return {
+                    'error': True,
+                    'error_type': 'not_found',
+                    'message': f"No item found with id: {project_id}",
+                }
+            if project.get('type') != 'project':
+                return {
+                    'error': True,
+                    'error_type': 'invalid_type',
+                    'message': (
+                        f"Item {project_id} is a '{project.get('type')}', not a project. "
+                        "get_project_headings only accepts project ids."
+                    ),
+                }
+
+            headings = things.tasks(type='heading', project=project_id) or []
+
+            items = []
+            for heading in headings:
+                heading_uuid = heading.get('uuid')
+                open_todos = things.todos(heading=heading_uuid, status='incomplete') or []
+                items.append({
+                    'uuid': heading_uuid,
+                    'title': heading.get('title'),
+                    'index': heading.get('index'),
+                    'todoCount': len(open_todos),
+                })
+
+            return {'items': items}
+
+        except Exception as e:
+            logger.error(f"Error in _get_project_headings_sync: {e}")
+            return {
+                'error': True,
+                'error_type': 'internal_error',
+                'message': str(e),
+            }
+
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific Things item by ID.
 

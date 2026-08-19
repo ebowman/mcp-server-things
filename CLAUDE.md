@@ -627,6 +627,36 @@ project/area, returns a structured error.
 - Passing `completed="false"` or `canceled="false"` alone reopens the project.
 - Omitting both parameters leaves the project's status unchanged.
 
+### Reading Project Headings
+
+`get_project_headings(project_id, mode?)` returns the heading structure of a project, in
+Things' own display order - useful for understanding how a project is organized before
+adding or moving todos into a specific heading. Like other list tools, `mode` defaults to
+`'auto'`, which resolves to a concrete mode (`summary`/`minimal`/`standard`/`detailed`)
+based on data size - `structured_content['mode']` always reports that concrete mode, never
+the literal string `'auto'`:
+
+```python
+get_project_headings(project_id="abc123")
+# {"items": [
+#   {"uuid": "...", "title": "Research", "index": -515, "todoCount": 2},
+#   {"uuid": "...", "title": "Design", "index": -341, "todoCount": 1},
+# ], "count": 2, "total": 2, "mode": "detailed", "requested_mode": "auto", ...}
+```
+
+Each item's `todoCount` is the number of **open** to-dos directly under that heading
+(`things.todos(heading=uuid, status='incomplete')`). Passing an id that doesn't resolve, or
+that resolves to something other than a project (an area, a to-do, or a heading), returns a
+structured error (`{"error": true, "error_type": ..., "message": ...}`) instead of raising.
+An invalid `mode` value returns `{"success": false, "error": "Invalid mode", "message": ...}`,
+matching `get_projects`/`get_areas`.
+
+**This tool is read-only by design.** Headings cannot be created, renamed, or deleted via
+any public Things 3 API - there is no AppleScript heading class, and the URL scheme can
+only place to-dos under headings that already exist, or seed headings at project-creation
+time via `add_project(todos=...)`'s `##` lines. To add a todo under an existing heading,
+use `add_todo(title=..., list_id=project_id, heading="Existing Heading Title")`.
+
 ### Moving Todos Between Projects
 
 ```python
