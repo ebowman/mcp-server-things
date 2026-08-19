@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import signal
 import sys
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 from .boot_trace import arm_boot_watchdog, boot_marker
+from .client_config import CLIENT_CHOICES as _CLIENT_CHOICES
+from .client_config import VIA_CHOICES as _VIA_CHOICES
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
@@ -101,6 +104,8 @@ Examples:
   %(prog)s --version                # Show version information
   %(prog)s doctor                   # Run diagnostic checks and exit
   %(prog)s doctor --json            # Diagnostic checks with machine-readable JSON output
+  %(prog)s config --client claude-desktop --write   # Safely add/update this server in Claude Desktop's config
+  %(prog)s config --client claude-code              # Print the 'claude mcp add-json' one-liners
 
 Environment:
   The server requires Things 3 to be installed on macOS.
@@ -111,14 +116,43 @@ Environment:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["doctor"],
-        help="Optional subcommand. 'doctor' runs read-only diagnostic checks and exits."
+        choices=["doctor", "config"],
+        help=(
+            "Optional subcommand. 'doctor' runs read-only diagnostic checks and exits. "
+            "'config' prints (or writes) MCP client configuration and exits."
+        )
     )
 
     parser.add_argument(
         "--json",
         action="store_true",
         help="With 'doctor': print machine-readable JSON instead of a table"
+    )
+
+    # 'config' subcommand options
+    parser.add_argument(
+        "--client",
+        choices=list(_CLIENT_CHOICES),
+        help="With 'config': target MCP client (claude-desktop, claude-code, or generic)"
+    )
+
+    parser.add_argument(
+        "--via",
+        choices=list(_VIA_CHOICES),
+        default="uvx",
+        help="With 'config': how the server is launched (default: uvx)"
+    )
+
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="With 'config' --client claude-desktop: write/merge the config file instead of just printing it"
+    )
+
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With 'config' --write: overwrite an existing differing 'things' entry"
     )
 
     # Server options
@@ -288,6 +322,67 @@ def show_version():
     print("  - FastMCP 3.0+")
 
 
+def run_config(client: Optional[str], via: str, write: bool, force: bool) -> int:
+    """Handle the 'config' subcommand: print or write client configuration.
+
+    Args:
+        client: One of 'claude-desktop', 'claude-code', 'generic', or None.
+        via: 'uvx' or 'current-python'.
+        write: If True, write/merge the config file (claude-desktop only).
+        force: If True, overwrite an existing differing entry when writing.
+
+    Returns:
+        Process exit code: 0 on success/no-op, non-zero on refusal/error.
+    """
+    from . import client_config
+
+    if client is None:
+        print("Error: 'config' requires --client (claude-desktop, claude-code, or generic)", file=sys.stderr)
+        return 2
+
+    if write and client != "claude-desktop":
+        print("Error: --write is only supported with --client claude-desktop", file=sys.stderr)
+        return 2
+
+    caveat = client_config.current_python_source_tree_caveat() if via == "current-python" else None
+    if caveat:
+        print(caveat, file=sys.stderr)
+
+    if client == "claude-desktop":
+        if write:
+            try:
+                result = client_config.write_claude_desktop_config(via=via, force=force)
+            except client_config.ClientConfigError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 1
+
+            if not result.changed:
+                print(f"No changes needed - {result.path} already has the requested 'things' entry.")
+                return 0
+
+            print(f"Updated {result.path}")
+            print(f"  old: {json.dumps(result.old_server_config)}")
+            print(f"  new: {json.dumps(result.new_server_config)}")
+            if result.backup_path is not None:
+                print(f"Backup written to {result.backup_path}")
+            return 0
+
+        print(client_config.format_claude_desktop_snippet(via=via))
+        print(f"\n# Config file location: {client_config.get_claude_desktop_config_path()}")
+        return 0
+
+    if client == "claude-code":
+        print(client_config.format_claude_code_commands(via=via))
+        return 0
+
+    if client == "generic":
+        print(client_config.format_generic_snippet(via=via))
+        return 0
+
+    print(f"Error: unknown client {client!r}", file=sys.stderr)
+    return 2
+
+
 def main():
     """Main entry point."""
     boot_marker("process-start")
@@ -298,6 +393,9 @@ def main():
     if args.command == "doctor":
         from .doctor import run_doctor
         return run_doctor(json_output=args.json)
+
+    if args.command == "config":
+        return run_config(client=args.client, via=args.via, write=args.write, force=args.force)
 
     # Handle utility commands
     if args.version:

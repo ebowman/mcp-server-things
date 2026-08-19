@@ -45,6 +45,10 @@ Configure your MCP client to use `uvx` with `mcp-server-things` as the argument,
 }
 ```
 
+**Shortcut:** instead of hand-editing JSON, run `mcp-server-things config --client claude-desktop --write` to safely add/update this entry in your Claude Desktop config (see [`config` CLI](#config-cli) below).
+
+For Claude Code, run `mcp-server-things config --client claude-code` to print the exact `claude mcp add-json` command(s) to register the server.
+
 ### Option 2: From PyPI
 
 1. Create and activate a virtual environment:
@@ -83,6 +87,18 @@ pip install -e .
 ```
 
 ## Claude Desktop Configuration
+
+### `config` CLI
+
+`mcp-server-things config --client <claude-desktop|claude-code|generic> [--via uvx|current-python] [--write] [--force]`
+prints the MCP client configuration for the requested client (or, for
+`claude-desktop --write`, safely merges it into
+`~/Library/Application Support/Claude/claude_desktop_config.json`, backing up
+the previous file first and refusing to clobber an existing, different
+`things` entry unless `--force` is also passed). Run
+`mcp-server-things config --client claude-desktop --write` or
+`mcp-server-things config --client claude-code` instead of hand-editing JSON
+or memorizing the `claude mcp add-json` syntax.
 
 ### For PyPI Installation
 
