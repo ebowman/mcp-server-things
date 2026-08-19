@@ -104,35 +104,42 @@ class ThingsTools:
         """Get inbox items directly from database."""
         return await self.read_ops.get_inbox(limit=limit)
 
-    async def get_today(self, limit: Optional[int] = None) -> List[Dict]:
+    async def get_today(self, limit: Optional[int] = None,
+                         include_projects: bool = False) -> List[Dict]:
         """Get today items directly from database."""
-        return await self.read_ops.get_today(limit=limit)
+        return await self.read_ops.get_today(limit=limit, include_projects=include_projects)
 
-    async def get_upcoming(self, limit: Optional[int] = None, days: Optional[int] = None) -> List[Dict]:
+    async def get_upcoming(self, limit: Optional[int] = None, days: Optional[int] = None,
+                            include_projects: bool = False) -> List[Dict]:
         """Get upcoming items. If days is specified, returns todos due/activating within that timeframe."""
         if days is not None:
             result = await self.read_ops.get_todos_upcoming_in_days(days=days)
             if limit and len(result) > limit:
                 return result[:limit]
             return result
-        return await self.read_ops.get_upcoming(limit=limit)
+        return await self.read_ops.get_upcoming(limit=limit, include_projects=include_projects)
 
-    async def get_anytime(self, limit: Optional[int] = None) -> List[Dict]:
+    async def get_anytime(self, limit: Optional[int] = None,
+                           include_projects: bool = False) -> List[Dict]:
         """Get anytime items directly from database."""
-        return await self.read_ops.get_anytime(limit=limit)
+        return await self.read_ops.get_anytime(limit=limit, include_projects=include_projects)
 
     async def get_someday(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False) -> List[Dict]:
+                           include_project_tasks: bool = False,
+                           include_projects: bool = False) -> List[Dict]:
         """Get someday items directly from database."""
-        return await self.read_ops.get_someday(limit=limit, include_project_tasks=include_project_tasks)
+        return await self.read_ops.get_someday(
+            limit=limit, include_project_tasks=include_project_tasks,
+            include_projects=include_projects)
 
     async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
         """Get completed items directly from database."""
         return await self.read_ops.get_logbook(limit=limit, period=period)
 
-    async def get_trash(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    async def get_trash(self, limit: int = 50, offset: int = 0,
+                         include_projects: bool = False) -> Dict[str, Any]:
         """Get trashed items directly from database with pagination."""
-        return await self.read_ops.get_trash(limit=limit, offset=offset)
+        return await self.read_ops.get_trash(limit=limit, offset=offset, include_projects=include_projects)
 
     async def get_tagged_items(self, tag: str) -> List[Dict]:
         """Get items with a specific tag directly from database."""

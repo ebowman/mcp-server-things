@@ -59,6 +59,15 @@ have automation or prompts that depend on exact output shape, check these:
   like `"a,,b"` or `"a, "` previously could send an empty-string tag name
   through to Things 3; they're now stripped before validation. What to do:
   nothing — this only removes previously-invalid empty tag entries.
+- **`get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and
+  `get_trash` no longer include projects or headings by default.**
+  Previously these list tools returned a mix of to-dos, projects, and
+  headings straight from things.py; headings were never meant to be
+  user-facing items in these lists and projects crowded out to-dos in
+  response-mode truncation. What to do: pass the new `include_projects=true`
+  parameter on any of these five tools to restore projects in the results
+  (headings are never returned, even with this flag) — `get_inbox` is
+  unaffected since the Inbox can never contain projects.
 
 ## Recommended: switch to uvx
 

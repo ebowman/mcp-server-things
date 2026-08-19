@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` no longer leak projects and headings into to-do lists** (GH#9 items 1-2 + sweep C6) - these list tools called their underlying `things.py` list functions with no `type=` filter, so e.g. `get_anytime()` on a real database returned 1175 items (1106 to-dos + 39 projects + 30 headings) instead of the 1106 to-dos a caller would expect, and `get_trash()` similarly mixed in projects despite its docstring saying "Get trashed todos". Headings are now never returned by these five tools plus `get_inbox`. Before: `get_anytime()` → 1175 mixed items. After: `get_anytime()` → 1106 to-dos only; pass the new `include_projects=true` parameter on `get_today`/`get_upcoming`/`get_anytime`/`get_someday`/`get_trash` to opt back into projects (headings remain excluded even then). `get_inbox` has no such flag since the Inbox can never contain projects.
+
 ### Docs
 - **README "Why this server?" section and `docs/COMPARISON.md`** - a new README section right after the opening description answers "why this instead of hald/things-mcp?" (AppleScript-enabled delete/move/remove-tags vs URL-scheme trade-offs, `doctor`/`config`/response-mode tooling), pointing to a new `docs/COMPARISON.md` with a detailed, dated feature matrix and a "which should you pick?" recommendation.
 

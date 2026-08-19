@@ -347,13 +347,16 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `update_area(id, title?, tags?)` - Update existing area
 
 ### List Access
+
+`get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` never return headings, and exclude projects by default - pass `include_projects=true` to also include projects that belong to that list (e.g. a project due today), matching the Things app's list views. `get_inbox` has no `include_projects` flag since the Inbox can never contain projects.
+
 - `get_inbox()` - Get Inbox todos
-- `get_today()` - Get Today's todos
-- `get_upcoming(days?)` - Get upcoming todos (with optional days filter)
-- `get_anytime()` - Get Anytime todos
-- `get_someday(include_project_tasks?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
+- `get_today(include_projects?)` - Get Today's todos
+- `get_upcoming(days?, include_projects?)` - Get upcoming todos (with optional days filter)
+- `get_anytime(include_projects?)` - Get Anytime todos
+- `get_someday(include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?)` - Get completed todos
-- `get_trash()` - Get trashed todos
+- `get_trash(include_projects?)` - Get trashed todos
 
 ### Date-Range Queries
 - `get_due_in_days(days)` - Get todos due within specified days

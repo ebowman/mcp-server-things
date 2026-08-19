@@ -1000,12 +1000,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_projects: bool = Field(False, description="Also include projects due today. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Today list view.")
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_today(limit=limit)
+                raw_data = await self.tools.get_today(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1024,7 +1025,8 @@ class ThingsMCPServer:
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
-            days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365)
+            days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365),
+            include_projects: bool = Field(False, description="Only applies when 'days' is not provided. Also include upcoming projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Upcoming list view.")
         ) -> Dict[str, Any]:
             """Get upcoming todos. Supports response optimization via mode parameter and limit.
 
@@ -1056,7 +1058,7 @@ class ThingsMCPServer:
                         return result
 
                 # Original behavior: get items from Things 3's Upcoming list
-                raw_data = await self.tools.get_upcoming(limit=limit)
+                raw_data = await self.tools.get_upcoming(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1074,12 +1076,13 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            include_projects: bool = Field(False, description="Also include Anytime projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Anytime list view.")
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_anytime(limit=limit)
+                raw_data = await self.tools.get_anytime(limit=limit, include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1098,12 +1101,15 @@ class ThingsMCPServer:
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
-            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects.")
+            include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects."),
+            include_projects: bool = Field(False, description="Also include Someday projects themselves. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Someday list view.")
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
                 # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(limit=limit, include_project_tasks=include_project_tasks)
+                raw_data = await self.tools.get_someday(
+                    limit=limit, include_project_tasks=include_project_tasks,
+                    include_projects=include_projects)
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1136,7 +1142,8 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_trash(
             limit: int = Field(50, description="Maximum number of items to return (default: 50, max: 100)", ge=1, le=100),
-            offset: int = Field(0, description="Number of items to skip (default: 0)", ge=0)
+            offset: int = Field(0, description="Number of items to skip (default: 0)", ge=0),
+            include_projects: bool = Field(False, description="Also include trashed projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Trash list view.")
         ) -> Dict[str, Any]:
             """Get trashed todos with pagination support.
 
@@ -1154,7 +1161,7 @@ class ThingsMCPServer:
             - get_trash(limit=100, offset=200) - Get items 201-300
             """
             try:
-                trash_data = await self.tools.get_trash(limit=limit, offset=offset)
+                trash_data = await self.tools.get_trash(limit=limit, offset=offset, include_projects=include_projects)
                 return self._read_result(
                     trash_data,
                     mode='standard',

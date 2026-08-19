@@ -347,7 +347,7 @@ class TestGetSomedayIncludeProjectTasks:
             result = await client.call_tool("get_someday", {})
 
         server.tools.get_someday.assert_awaited_once_with(
-            limit=None, include_project_tasks=False
+            limit=None, include_project_tasks=False, include_projects=False
         )
 
         sc = result.structured_content
@@ -373,7 +373,7 @@ class TestGetSomedayIncludeProjectTasks:
             )
 
         server.tools.get_someday.assert_awaited_once_with(
-            limit=None, include_project_tasks=True
+            limit=None, include_project_tasks=True, include_projects=False
         )
 
         sc = result.structured_content

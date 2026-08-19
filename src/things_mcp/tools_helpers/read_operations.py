@@ -130,6 +130,39 @@ def filter_someday_project_tasks(todos: List[Dict[str, Any]]) -> List[Dict[str, 
     ]
 
 
+def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
+    """Call a things.py list function (inbox/today/upcoming/anytime/someday/trash),
+    filtering out headings always and projects unless include_projects is True.
+
+    By default, queries with type='to-do' so filtering happens at the things.py
+    query level (not only post-hoc). When include_projects is True, queries
+    with no type filter (to get both to-dos and projects) and then drops any
+    item whose type == 'heading' post-hoc, since things.py list wrappers don't
+    support fetching multiple explicit types in one call.
+
+    Items lacking a 'type' key (e.g. in unit test mocks) are treated as to-do
+    and always kept.
+    """
+    def _normalize(data) -> List[Dict[str, Any]]:
+        if data is None:
+            return []
+        if isinstance(data, dict):
+            return [data]
+        if hasattr(data, '__iter__') and not isinstance(data, list):
+            return list(data)
+        return data
+
+    if not include_projects:
+        result = _normalize(things_fn(type='to-do'))
+        # Defensive post-hoc filter in case a mocked/older things.py ignores
+        # the type= kwarg and returns an unfiltered mix.
+        return [t for t in result if t.get('type', 'to-do') != 'project'
+                and t.get('type', 'to-do') != 'heading']
+
+    result = _normalize(things_fn())
+    return [t for t in result if t.get('type', 'to-do') != 'heading']
+
+
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
@@ -496,7 +529,9 @@ class ReadOperations:
     def _get_inbox_sync(self, limit: Optional[int] = None) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            inbox_todos = things.inbox()
+            # Inbox cannot contain projects, so always type='to-do'; headings
+            # are never returned (matches Things UI - Inbox is a task-only list).
+            inbox_todos = _fetch_list(things.inbox, include_projects=False)
 
             result = []
             for todo in inbox_todos:
@@ -511,15 +546,25 @@ class ReadOperations:
             logger.error(f"Error in _get_inbox_sync: {e}")
             return []
 
-    async def get_today(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get todos due today."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_today_sync, limit)
+    async def get_today(self, limit: Optional[int] = None,
+                         include_projects: bool = False) -> List[Dict]:
+        """Get todos due today.
 
-    def _get_today_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include projects that are due
+                today. Defaults to False - by default, and always, headings
+                are never returned; projects are excluded unless this flag
+                is set, matching the Things app's Today list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_today_sync, limit, include_projects)
+
+    def _get_today_sync(self, limit: Optional[int] = None,
+                         include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            today_todos = things.today()
+            today_todos = _fetch_list(things.today, include_projects)
             today_todos = filter_someday_project_tasks(today_todos or [])
 
             result = []
@@ -535,15 +580,25 @@ class ReadOperations:
             logger.error(f"Error in _get_today_sync: {e}")
             return []
 
-    async def get_upcoming(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get upcoming todos."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_upcoming_sync, limit)
+    async def get_upcoming(self, limit: Optional[int] = None,
+                            include_projects: bool = False) -> List[Dict]:
+        """Get upcoming todos.
 
-    def _get_upcoming_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include upcoming projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Upcoming list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_upcoming_sync, limit, include_projects)
+
+    def _get_upcoming_sync(self, limit: Optional[int] = None,
+                            include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            upcoming_todos = things.upcoming()
+            upcoming_todos = _fetch_list(things.upcoming, include_projects)
             upcoming_todos = filter_someday_project_tasks(upcoming_todos or [])
 
             result = []
@@ -559,15 +614,25 @@ class ReadOperations:
             logger.error(f"Error in _get_upcoming_sync: {e}")
             return []
 
-    async def get_anytime(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get todos from Anytime list."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_anytime_sync, limit)
+    async def get_anytime(self, limit: Optional[int] = None,
+                           include_projects: bool = False) -> List[Dict]:
+        """Get todos from Anytime list.
 
-    def _get_anytime_sync(self, limit: Optional[int] = None) -> List[Dict]:
+        Args:
+            limit: Maximum number of items to return.
+            include_projects: If True, also include Anytime projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Anytime list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_anytime_sync, limit, include_projects)
+
+    def _get_anytime_sync(self, limit: Optional[int] = None,
+                           include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            anytime_todos = things.anytime()
+            anytime_todos = _fetch_list(things.anytime, include_projects)
             anytime_todos = filter_someday_project_tasks(anytime_todos or [])
 
             result = []
@@ -584,7 +649,8 @@ class ReadOperations:
             return []
 
     async def get_someday(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False) -> List[Dict]:
+                           include_project_tasks: bool = False,
+                           include_projects: bool = False) -> List[Dict]:
         """Get todos from Someday list.
 
         Args:
@@ -596,15 +662,21 @@ class ReadOperations:
                 items are returned, since inherited items on databases with
                 many Someday projects can be very large and crowd out the
                 native items when responses are paginated/truncated.
+            include_projects: If True, also include Someday projects
+                themselves. Defaults to False - headings are never returned;
+                projects are excluded unless this flag is set, matching the
+                Things app's Someday list view.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_someday_sync, limit, include_project_tasks)
+        return await loop.run_in_executor(
+            None, self._get_someday_sync, limit, include_project_tasks, include_projects)
 
     def _get_someday_sync(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False) -> List[Dict]:
+                           include_project_tasks: bool = False,
+                           include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
-            someday_todos = list(things.someday() or [])
+            someday_todos = list(_fetch_list(things.someday, include_projects))
 
             # things.py doesn't mark a todo as Someday just because its
             # parent project is Someday - it reports the todo's own
@@ -693,21 +765,26 @@ class ReadOperations:
             logger.error(f"Error in _get_logbook_sync: {e}")
             return []
 
-    async def get_trash(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Get trashed todos with pagination."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_trash_sync, limit, offset)
+    async def get_trash(self, limit: int = 50, offset: int = 0,
+                         include_projects: bool = False) -> Dict[str, Any]:
+        """Get trashed todos with pagination.
 
-    def _get_trash_sync(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        Args:
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+            include_projects: If True, also include trashed projects.
+                Defaults to False - headings are never returned; projects
+                are excluded unless this flag is set, matching the Things
+                app's Trash list view.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_trash_sync, limit, offset, include_projects)
+
+    def _get_trash_sync(self, limit: int = 50, offset: int = 0,
+                         include_projects: bool = False) -> Dict[str, Any]:
         """Synchronous implementation."""
         try:
-            trash_data = things.trash()
-
-            # Handle different return types from things.trash()
-            if hasattr(trash_data, '__iter__') and not isinstance(trash_data, (list, dict)):
-                trash_data = list(trash_data)
-            if isinstance(trash_data, dict):
-                trash_data = [trash_data]
+            trash_data = _fetch_list(things.trash, include_projects)
 
             total_count = len(trash_data)
 
