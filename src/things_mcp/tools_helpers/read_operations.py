@@ -876,6 +876,22 @@ class ReadOperations:
             project = filters.get('project')
             limit = filters.get('limit')
 
+            # Validate type against the values things.py's tasks() accepts.
+            valid_types = {'to-do', 'project', 'heading'}
+            if todo_type and todo_type not in valid_types:
+                logger.error(
+                    f"Invalid type '{todo_type}' in search_advanced; "
+                    f"must be one of {sorted(valid_types)}"
+                )
+                return [{
+                    'error': True,
+                    'error_type': 'invalid_parameter',
+                    'message': (
+                        f"Invalid type '{todo_type}'. "
+                        f"Must be one of: {', '.join(sorted(valid_types))}"
+                    )
+                }]
+
             # Build things.py query parameters
             query_params = {}
             if status:
@@ -894,7 +910,13 @@ class ReadOperations:
                 query_params['project'] = project
 
             # Query database - this searches ENTIRE database including projects!
-            todos = things.todos(**query_params)
+            # things.todos() is a thin wrapper around things.tasks(type="to-do", **kwargs),
+            # so when the caller supplies their own `type` we must call things.tasks()
+            # directly to avoid a "multiple values for keyword argument 'type'" TypeError.
+            if 'type' in query_params:
+                todos = things.tasks(**query_params)
+            else:
+                todos = things.todos(**query_params)
 
             # Filter by query text if provided (things.py doesn't support text search natively)
             results = []
