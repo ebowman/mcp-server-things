@@ -247,20 +247,32 @@ class TestCheckPythonArchitecture:
 # ---------------------------------------------------------------------------
 
 class TestCheckAuthToken:
-    def test_info_when_present(self, tmp_path):
+    def test_pass_when_present(self, tmp_path):
         token_file = tmp_path / ".things-auth"
         token_file.write_text("abc123")
         with patch("things_mcp.doctor._auth_token_paths", return_value=[token_file]):
             result = doctor.check_auth_token()
-        assert result.status == doctor.STATUS_INFO
+        assert result.status == doctor.STATUS_PASS
         assert "configured" in result.detail
 
-    def test_info_when_absent_never_fail_or_warn(self, tmp_path):
+    def test_warn_when_absent_never_fail(self, tmp_path):
         missing = tmp_path / ".things-auth"
         with patch("things_mcp.doctor._auth_token_paths", return_value=[missing]):
             result = doctor.check_auth_token()
-        assert result.status == doctor.STATUS_INFO
-        assert result.hint  # has a hint even though INFO
+        assert result.status == doctor.STATUS_WARN
+        assert result.status != doctor.STATUS_FAIL
+        assert result.hint
+        # WARN text must name the tools that need the token (bead hq-f0w.12).
+        assert "add_checklist_items" in result.hint
+        assert "prepend_checklist_items" in result.hint
+        assert "replace_checklist_items" in result.hint
+
+    def test_warn_when_present_but_empty(self, tmp_path):
+        token_file = tmp_path / ".things-auth"
+        token_file.write_text("   \n")
+        with patch("things_mcp.doctor._auth_token_paths", return_value=[token_file]):
+            result = doctor.check_auth_token()
+        assert result.status == doctor.STATUS_WARN
 
 
 # ---------------------------------------------------------------------------

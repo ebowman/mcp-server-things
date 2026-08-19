@@ -24,6 +24,21 @@ from .applescript import (
 
 logger = logging.getLogger(__name__)
 
+# Things URL-scheme actions that require the auth token per the official
+# Things URL Scheme docs (https://culturedcode.com/things/support/articles/2803573/,
+# "Modifying existing to-dos and projects requires authentication"). ``add`` /
+# ``add-project`` / ``show`` / ``search`` / ``json`` (add mode) do NOT require a
+# token; only actions that modify existing items do.
+AUTH_REQUIRING_ACTIONS = frozenset({"update", "update-project"})
+
+AUTH_TOKEN_HINT = (
+    "Things URL-scheme auth token not configured. Add it via one of: "
+    "a '.things-auth' file in the project root, a 'things-auth.txt' file in "
+    "the project root, or a '~/.things-auth' file in your home directory "
+    "(first match wins). Find your token in Things: Settings > General > "
+    "Enable Things URLs > Manage."
+)
+
 
 class AppleScriptManager:
     """Manages AppleScript execution and Things URL schemes.
@@ -86,6 +101,11 @@ class AppleScriptManager:
                     # Handle format: THINGS_AUTH_TOKEN=xxx or just xxx
                     if '=' in token:
                         token = token.split('=', 1)[1].strip()
+                    if not token:
+                        # Empty/whitespace-only token file: treat as missing and
+                        # keep looking at the remaining candidate paths.
+                        logger.warning(f"Auth token file {auth_file} is empty - treating as missing")
+                        continue
                     logger.info(f"Loaded Things auth token from {auth_file}")
                     return token
                 except Exception as e:
@@ -121,6 +141,21 @@ class AppleScriptManager:
             Dict with success status and result information
         """
         try:
+            # Actions that modify existing items (update, update-project, ...)
+            # require the Things URL-scheme auth token. Fail fast with an
+            # actionable error instead of calling `open`, which exits 0 even
+            # when Things silently rejects the un-authenticated URL.
+            if action in AUTH_REQUIRING_ACTIONS and not self.auth_token:
+                logger.warning(
+                    f"Refusing to execute Things URL-scheme action '{action}' "
+                    "without an auth token"
+                )
+                return {
+                    "success": False,
+                    "error": "Things URL-scheme auth token not configured",
+                    "hint": AUTH_TOKEN_HINT,
+                }
+
             # Handle url_override for complete URLs (for reminder functionality)
             if parameters and "url_override" in parameters:
                 url = parameters["url_override"]

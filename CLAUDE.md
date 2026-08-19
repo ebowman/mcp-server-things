@@ -582,6 +582,18 @@ add_todo(
 
 #### Managing Checklist Items
 
+**Auth token required**: `add_checklist_items`, `prepend_checklist_items`, and
+`replace_checklist_items` go through `things:///update`, which Things 3
+rejects without an auth token. Without one configured, these three tools
+return `{"success": false, "error": "Things URL-scheme auth token not
+configured", "hint": ...}` instead of silently doing nothing - `add_todo`
+with `checklist_items` uses `things:///add`, which does **not** need a
+token, so todo creation with a checklist is unaffected. Configure a token via
+Things: Settings > General > Enable Things URLs > Manage, then save it to
+`.things-auth`, `things-auth.txt`, or `~/.things-auth` (checked in that
+order) and restart the server - the token is loaded once at startup. Run
+`mcp-server-things doctor` to check whether a token is configured.
+
 ```python
 # Add items to existing todo (appends to end)
 add_checklist_items(
@@ -618,6 +630,9 @@ replace_checklist_items(
 - URL scheme is automatically used when `checklist_items` parameter is provided
 - Todo ID is retrieved after creation by searching for the newly created todo
 - Non-checklist todos still use faster AppleScript approach
+- The auth token is loaded once at server startup; a token file added or
+  edited afterwards requires a server restart to take effect. An
+  empty/whitespace-only token file is treated as missing.
 
 ### Known Limitations
 

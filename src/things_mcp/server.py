@@ -615,7 +615,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to add checklist items to"),
             items: List[str] = Field(..., description="List of checklist items to add")
         ) -> Dict[str, Any]:
-            """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist."""
+            """Add checklist items to an existing todo. Items will be appended to the end of the existing checklist.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 if not items:
                     return {
@@ -635,7 +641,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to prepend checklist items to"),
             items: List[str] = Field(..., description="List of checklist items to prepend")
         ) -> Dict[str, Any]:
-            """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist."""
+            """Prepend checklist items to an existing todo. Items will be added at the beginning of the existing checklist.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 if not items:
                     return {
@@ -655,7 +667,13 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to replace checklist items in"),
             items: List[str] = Field(..., description="List of checklist items to replace with (empty list to clear all)")
         ) -> Dict[str, Any]:
-            """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items."""
+            """Replace all checklist items in a todo. This will remove all existing checklist items and replace them with the provided items.
+
+            Requires a Things URL-scheme auth token (Things: Settings > General >
+            Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
+            or ~/.things-auth). Without a configured token this returns
+            success=false with an actionable error instead of silently no-op'ing.
+            """
             try:
                 result = await self.tools.replace_checklist_items(todo_id=todo_id, items=items)
                 return result

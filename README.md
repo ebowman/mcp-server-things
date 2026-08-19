@@ -254,6 +254,32 @@ The server uses environment variables for configuration, settable via system env
 
 See [`.env.example`](.env.example) for the full list of options, including validation limits, retry counts, the auth-token file, and `THINGS_MCP_HOST`.
 
+### Things URL-scheme auth token
+
+`add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items`
+(and any other tool built on `things:///update`, e.g. moving a to-do under a
+heading) require a Things URL-scheme auth token. Without one configured,
+these tools return `success: false` with an actionable error instead of
+silently doing nothing - Things itself rejects un-authenticated `update`
+requests, but `open -g` still exits 0, so the failure has to be caught before
+the URL is ever opened. `things:///add`-based tools (`add_todo`,
+`add_project`, including todo creation with a checklist) do **not** need a
+token.
+
+To configure one:
+
+1. In Things 3: Settings > General > Enable Things URLs > Manage.
+2. Save the token to one of (checked in this order, first match wins):
+   - `.things-auth` in the project root
+   - `things-auth.txt` in the project root
+   - `~/.things-auth` in your home directory
+3. Restart the server - the token is loaded once at startup, so a token
+   file added or edited after the server starts is not picked up until the
+   next restart.
+
+An empty or whitespace-only token file is treated the same as a missing one
+(the loader falls through to the next candidate path).
+
 ### HTTP Transport
 
 By default the server speaks MCP over stdio. It can optionally run an HTTP
@@ -448,6 +474,14 @@ This is the same failure mode reported upstream in
 [hald/things-mcp#62](https://github.com/hald/things-mcp/issues/62); we've
 verified it applies here too since we read the Things database via the same
 `things.py` library and code path.
+
+### Checklist tools return "Things URL-scheme auth token not configured"
+
+`add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items`
+need a Things URL-scheme auth token (see "Things URL-scheme auth token" under
+Configuration above). `mcp-server-things doctor` reports this as a WARN on
+the "Auth token file" row, naming the affected tools, until a token file is
+in place.
 
 ### Common Issues
 
