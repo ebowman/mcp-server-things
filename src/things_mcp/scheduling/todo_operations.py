@@ -859,11 +859,14 @@ class TodoOperations:
                     "items_added": len(items)
                 }
             else:
-                return {
+                response = {
                     "success": False,
                     "error": result.get('error', 'Unknown error'),
                     "message": "Failed to add checklist items"
                 }
+                if result.get('hint'):
+                    response['hint'] = result['hint']
+                return response
 
         except Exception as e:
             logger.error(f"Error adding checklist items: {e}")
@@ -907,11 +910,14 @@ class TodoOperations:
                     "items_added": len(items)
                 }
             else:
-                return {
+                response = {
                     "success": False,
                     "error": result.get('error', 'Unknown error'),
                     "message": "Failed to prepend checklist items"
                 }
+                if result.get('hint'):
+                    response['hint'] = result['hint']
+                return response
 
         except Exception as e:
             logger.error(f"Error prepending checklist items: {e}")
@@ -948,11 +954,14 @@ class TodoOperations:
                     "items_count": len(items)
                 }
             else:
-                return {
+                response = {
                     "success": False,
                     "error": result.get('error', 'Unknown error'),
                     "message": "Failed to replace checklist items"
                 }
+                if result.get('hint'):
+                    response['hint'] = result['hint']
+                return response
 
         except Exception as e:
             logger.error(f"Error replacing checklist items: {e}")

@@ -219,6 +219,7 @@ class TestAddChecklistItemsAuthGate:
         result = await todo_operations_no_token.add_checklist_items("todo123", ["item1"])
         assert result["success"] is False
         assert "auth token" in result["error"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
     async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
@@ -243,6 +244,7 @@ class TestPrependChecklistItemsAuthGate:
         result = await todo_operations_no_token.prepend_checklist_items("todo123", ["item1"])
         assert result["success"] is False
         assert "auth token" in result["error"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
     async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
@@ -264,6 +266,7 @@ class TestReplaceChecklistItemsAuthGate:
         result = await todo_operations_no_token.replace_checklist_items("todo123", ["item1"])
         assert result["success"] is False
         assert "auth token" in result["error"].lower()
+        assert result["hint"] == "configure a token"
 
     @pytest.mark.asyncio
     async def test_with_token_succeeds(self, todo_operations_with_token, mock_applescript_manager_with_token):
