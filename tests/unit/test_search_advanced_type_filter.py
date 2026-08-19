@@ -109,7 +109,8 @@ class TestSearchAdvancedTypeFilter:
             mock_tasks.assert_not_called()
             mock_todos.assert_not_called()
             assert len(results) == 1
-            assert results[0].get('error') is True
+            assert results[0].get('success') is False
+            assert results[0].get('error') == 'invalid_parameter'
             assert 'bogus-type' in results[0].get('message', '')
 
     @pytest.mark.asyncio
@@ -126,6 +127,7 @@ class TestSearchAdvancedTypeFilter:
             assert results[0] == {
                 'success': False,
                 'error': 'unknown_tag',
+                'message': "Unknown tag 'LLM-WIKI'. Did you mean: llm-wiki?",
                 'tag': 'LLM-WIKI',
                 'suggestions': ['llm-wiki'],
             }

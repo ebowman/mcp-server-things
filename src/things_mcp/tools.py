@@ -9,7 +9,6 @@ from .services.validation_service import ValidationService
 from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
-from .response_optimizer import ResponseOptimizer, FieldOptimizationPolicy
 from .operation_queue import get_operation_queue, Priority
 from .tools_helpers import ToolsHelpers, ReadOperations, WriteOperations, BulkOperations
 
@@ -41,9 +40,6 @@ class ThingsTools:
         self.validation_service = ValidationService(applescript_manager)
         self.move_operations = MoveOperationsTools(applescript_manager, self.validation_service)
 
-        # Initialize response optimizer
-        self.response_optimizer = ResponseOptimizer(FieldOptimizationPolicy.STANDARD)
-
         # Initialize tag validation service if config is provided
         self.tag_validation_service = None
         if config:
@@ -54,8 +50,7 @@ class ThingsTools:
 
         # Initialize operation modules (Facade Pattern)
         self.read_ops = ReadOperations(
-            applescript_manager=applescript_manager,
-            response_optimizer=self.response_optimizer
+            applescript_manager=applescript_manager
         )
 
         self.write_ops = WriteOperations(
@@ -76,8 +71,13 @@ class ThingsTools:
 
     # ========== READ OPERATIONS (delegate to ReadOperations) ==========
 
-    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise."""
+    async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None, status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise.
+
+        Returns a structured error dict (``{"success": False, "error": "invalid_status", ...}``)
+        instead of a list if ``status`` is not 'incomplete'/'completed'/'canceled'/None - see
+        ReadOperations.get_todos.
+        """
         return await self.read_ops.get_todos(project_uuid=project_uuid, include_items=include_items, status=status)
 
     async def get_projects(self, include_items: bool = False) -> List[Dict]:
@@ -97,9 +97,9 @@ class ThingsTools:
         return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
 
     async def search_todos(self, query: str, limit: Optional[int] = None,
-                            status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Search todos directly in database with optional limit and status filter."""
-        return await self.read_ops.search_todos(query=query, limit=limit, status=status)
+                            status: Optional[str] = 'incomplete', offset: int = 0) -> List[Dict]:
+        """Search todos directly in database with optional limit, offset, and status filter."""
+        return await self.read_ops.search_todos(query=query, limit=limit, status=status, offset=offset)
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get inbox items directly from database."""
@@ -133,9 +133,9 @@ class ThingsTools:
             limit=limit, include_project_tasks=include_project_tasks,
             include_projects=include_projects)
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
         """Get completed items directly from database."""
-        return await self.read_ops.get_logbook(limit=limit, period=period)
+        return await self.read_ops.get_logbook(limit=limit, period=period, offset=offset)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:
@@ -145,6 +145,10 @@ class ThingsTools:
     async def get_tagged_items(self, tag: str) -> List[Dict]:
         """Get items with a specific tag directly from database."""
         return await self.read_ops.get_tagged_items(tag=tag)
+
+    async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
+        """Get the heading structure of a project, in Things' display order."""
+        return await self.read_ops.get_project_headings(project_id=project_id)
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific todo by ID directly from database."""

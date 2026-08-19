@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy
 from ..services.applescript_manager import AppleScriptManager
-from ..response_optimizer import ResponseOptimizer
 from .helpers import ToolsHelpers
 
 # Lazily-importing proxy for things.py -- avoids the module-level,
@@ -18,6 +17,29 @@ from .helpers import ToolsHelpers
 things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
+
+
+class ListWithTotal(list):
+    """A plain list that also carries the pre-limit/offset total item count.
+
+    Used by search_todos/search_advanced/get_logbook so their public
+    signature and behavior stay exactly `List[Dict]` (existing callers doing
+    `isinstance(result, list)`, `len(result)`, `result == []`, `result[0]`
+    etc. keep working unchanged) while still giving server.py a way to read
+    the true pre-limit total via the `.total_count` attribute for the
+    `total` field in `_read_result`. Falls back to `len(self)` if a caller
+    (e.g. an older mock) returns a plain list without setting it.
+    """
+
+    total_count: int = None
+
+    def __new__(cls, iterable=(), total_count: Optional[int] = None):
+        obj = super().__new__(cls)
+        return obj
+
+    def __init__(self, iterable=(), total_count: Optional[int] = None):
+        super().__init__(iterable)
+        self.total_count = total_count if total_count is not None else len(self)
 
 
 def _get_someday_project_ids() -> set:
@@ -43,6 +65,29 @@ def _get_someday_project_ids() -> set:
         return set()
 
 
+def read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+    """Build the canonical structured-error shape for a read tool/operation.
+
+    Single source of truth for the read-tool error contract:
+    ``{"success": False, "error": "<snake_case_code>", "message": "<human text>", ...}``.
+    ``ThingsMCPServer._read_error`` (server.py) delegates to this function so
+    there is exactly one implementation shared by every read-tool structured
+    error path, at both the tools-layer (this module) and server-tool layer.
+
+    Args:
+        code: Short, stable, machine-readable snake_case error code (e.g.
+            'invalid_mode', 'unknown_tag', 'not_found'). Stable across
+            releases - clients may switch on this value.
+        message: Human-readable explanation of the error.
+        **extra: Additional fields to merge into the result (e.g. 'tag',
+            'suggestions', 'valid_modes', 'example').
+
+    Returns:
+        A dict with 'success', 'error', 'message', plus any extra fields.
+    """
+    return {"success": False, "error": code, "message": message, **extra}
+
+
 def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
     """Build a structured error for a tag that things.py did not recognize.
 
@@ -57,9 +102,11 @@ def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
         tag: The tag string that was requested and rejected by things.py.
 
     Returns:
-        Dict with success=False, error='unknown_tag', the offending tag, and
-        a (possibly empty) list of case-insensitive title matches from
-        things.tags() to help the caller find the correctly-cased tag.
+        Dict with success=False, error='unknown_tag', a human-readable
+        'message' (mentioning suggestions when any were found), the
+        offending tag, and a (possibly empty) list of case-insensitive
+        title matches from things.tags() to help the caller find the
+        correctly-cased tag.
     """
     suggestions: List[str] = []
     try:
@@ -73,12 +120,12 @@ def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"Error building tag suggestions for '{tag}': {e}")
 
-    return {
-        'success': False,
-        'error': 'unknown_tag',
-        'tag': tag,
-        'suggestions': suggestions,
-    }
+    if suggestions:
+        message = f"Unknown tag {tag!r}. Did you mean: {', '.join(suggestions)}?"
+    else:
+        message = f"Unknown tag {tag!r}."
+
+    return read_error('unknown_tag', message, tag=tag, suggestions=suggestions)
 
 
 def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]]) -> Optional[str]:
@@ -107,6 +154,89 @@ def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]])
 
     cache[heading_uuid] = project_uuid
     return project_uuid
+
+
+def _build_heading_project_map() -> Dict[str, tuple]:
+    """Batch-resolve every heading's parent project in a single things.py call.
+
+    things.py to-do rows for a to-do parented under a heading carry
+    heading/heading_title but leave project/project_title None (things.py
+    only denormalizes project onto the heading row itself, not onto the
+    heading's children) - live-confirmed 2026-08-19: 0/40 heading-children
+    have a populated project field. Heading rows themselves DO carry
+    project/project_title directly. This fetches all headings once
+    (things.tasks(type='heading', status=None)) so per-item lookups during a
+    single request are O(1) dict gets instead of one things.get() call per
+    heading-child todo.
+
+    status=None is required here: things.tasks()'s own default status filter
+    is 'incomplete', which only covers headings belonging to open projects
+    (live: 30/674 headings) - headings under completed/canceled projects
+    (e.g. completed projects, finished repeating-project instances) would be
+    silently excluded from the map, leaving their to-do children's
+    project/projectTitle unresolved (live-confirmed regression: with the
+    default filter, get_todos(status='completed') had 912 heading-children
+    and 0 resolved; get_logbook(period='365d') had 18 heading-children and 0
+    resolved). With status=None, all 674 headings are fetched regardless of
+    their project's status, all carrying project/project_title.
+
+    Returns:
+        Dict mapping heading uuid -> (project_uuid, project_title) tuple.
+        Empty dict on any error (defensive - callers simply won't enrich
+        project/projectTitle for heading-children in that case).
+    """
+    try:
+        headings = things.tasks(type='heading', status=None) or []
+        return {
+            h['uuid']: (h.get('project'), h.get('project_title'))
+            for h in headings if h.get('uuid')
+        }
+    except Exception as e:
+        logger.debug(f"Error building heading->project map: {e}")
+        return {}
+
+
+def _fill_project_from_heading(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Backfill project/projectTitle on converted todo dicts that are under a heading.
+
+    Applied as a post-conversion pass after ToolsHelpers.convert_todo() - operates
+    on the already-camelCased MCP dicts (project/projectTitle/heading keys), not
+    raw things.py rows. Only fills items that have a heading but no project (the
+    heading-child case); items already carrying a project (e.g. the heading row
+    itself, or a top-level todo) are left untouched. Mutates and returns the same
+    list/dicts in place for convenience.
+
+    _build_heading_project_map() (one things.tasks(type='heading') call) is only
+    invoked lazily, when at least one item actually needs enrichment - this keeps
+    the common case (no heading-children in the result) from adding an extra
+    things.py query, which matters both for performance and because several unit
+    tests assert exact call counts on the mocked things module.
+
+    Args:
+        items: List of converted todo dicts (as returned by convert_todo).
+
+    Returns:
+        The same `items` list, with project/projectTitle backfilled in place
+        wherever resolvable.
+    """
+    needs_fill = [item for item in items if item.get('heading') and not item.get('project')]
+    if not needs_fill:
+        return items
+
+    heading_map = _build_heading_project_map()
+    if not heading_map:
+        return items
+
+    for item in needs_fill:
+        resolved = heading_map.get(item['heading'])
+        if resolved:
+            project_uuid, project_title = resolved
+            if project_uuid:
+                item['project'] = project_uuid
+            if project_title:
+                item['projectTitle'] = project_title
+
+    return items
 
 
 def _is_in_someday_project(todo: Dict[str, Any], someday_project_ids: set,
@@ -204,94 +334,84 @@ def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
 class ReadOperations:
     """Read operations using things.py for fast direct database access."""
 
-    def __init__(self, applescript_manager: AppleScriptManager, response_optimizer: ResponseOptimizer):
+    def __init__(self, applescript_manager: AppleScriptManager):
         """Initialize read operations.
 
         Args:
             applescript_manager: AppleScript manager for fallback queries
-            response_optimizer: Response optimizer for field optimization
         """
         self.applescript = applescript_manager
-        self.response_optimizer = response_optimizer
+
+    #: Status values _get_todos_sync accepts, besides None (meaning "all statuses").
+    VALID_TODO_STATUSES = ('incomplete', 'completed', 'canceled')
 
     async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Get todos with hybrid approach: AppleScript for projects, things.py otherwise.
+                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+        """Get todos using things.py, optionally scoped to a project.
 
-        BUG FIX: When querying by project_uuid, use AppleScript to avoid sync timing issues.
+        Historically, project-scoped queries went through AppleScript
+        instead of things.py to work around a suspected database sync
+        timing issue (things.py reading a stale SQLite snapshot right after
+        an AppleScript-driven create/update). Measured directly (hq-nxu.8):
+        creating a to-do via AppleScript and immediately calling
+        things.todos(project=...) in a tight poll loop showed the new item
+        visible on the very first check, with a mean lag of ~6ms across 5
+        trials (see bead notes) - i.e. no meaningful lag exists on this
+        macOS/Things 3 version. The AppleScript branch (and its bespoke
+        heading/start enrichment shim, since things.py already returns
+        heading/start natively) has therefore been removed; both project-
+        scoped and unscoped queries now go through the single things.py
+        path in `_get_todos_sync`, which returns one consistent
+        `convert_todo` key set regardless of whether project_uuid is given.
 
         Args:
             project_uuid: Optional project UUID to filter by
             include_items: Include checklist items
             status: Filter by status - 'incomplete' (default), 'completed', 'canceled', or None for all
+
+        Returns:
+            Normally a ``List[Dict]`` of converted todos. If ``status`` is not one
+            of 'incomplete'/'completed'/'canceled'/None, returns a structured error
+            dict instead: ``{"success": False, "error": "invalid_status", "message": ...}``
+            (server.py's get_todos tool already validates status before calling this,
+            so this is a defense-in-depth path for other/direct callers - see hq-nxu.14).
         """
-        # Use AppleScript for project queries to avoid database sync timing issues
-        if project_uuid:
-            try:
-                applescript_todos = await self.applescript.get_todos(project_uuid=project_uuid)
-
-                result = []
-                for todo in applescript_todos:
-                    todo_status = todo.get('status', 'open').lower()
-                    if todo_status == 'open':
-                        todo_status = 'incomplete'
-
-                    if status is None or todo_status == status:
-                        converted = ToolsHelpers.convert_applescript_todo(todo)
-                        result.append(converted)
-
-                logger.debug(f"Retrieved {len(result)} todos for project {project_uuid} via AppleScript")
-
-                # Best-effort enrichment: the AppleScript read path has no
-                # heading concept, so headingTitle/heading/projectTitle/start
-                # are missing from convert_applescript_todo's output. Fill
-                # them in from things.py's own project-scoped query, keyed by
-                # uuid. Never let this fail the call - AppleScript data is
-                # still returned as-is if things.py is unavailable/errors.
-                try:
-                    things_rows = things.todos(project=project_uuid)
-                    by_uuid = {row['uuid']: row for row in things_rows if row.get('uuid')}
-                    for todo in result:
-                        row = by_uuid.get(todo.get('uuid'))
-                        if row:
-                            todo['heading'] = row.get('heading')
-                            todo['headingTitle'] = row.get('heading_title')
-                            todo['projectTitle'] = row.get('project_title')
-                            todo['start'] = row.get('start')
-                except Exception as e:
-                    logger.debug(
-                        f"Best-effort heading/start enrichment failed for project {project_uuid}: {e}"
-                    )
-
-                return result
-            except Exception as e:
-                logger.error(f"AppleScript query failed for project {project_uuid}, falling back to things.py: {e}")
-
-        # Use things.py for all other queries
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
 
     def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> List[Dict]:
-        """Synchronous implementation of get_todos using things.py."""
+                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+        """Synchronous implementation of get_todos using things.py.
+
+        Returns a structured error dict (not a list) if ``status`` is unrecognized -
+        see `get_todos` docstring.
+        """
+        if status is not None and status not in self.VALID_TODO_STATUSES:
+            return {
+                "success": False,
+                "error": "invalid_status",
+                "message": (
+                    f"Status must be one of: {', '.join(repr(s) for s in self.VALID_TODO_STATUSES)}, "
+                    f"or None for all. Got: {status!r}"
+                ),
+            }
+
         try:
-            if project_uuid:
-                todos = things.todos(project=project_uuid)
+            extra_kwargs = {'project': project_uuid} if project_uuid else {}
+
+            if status == 'incomplete':
+                todos = things.todos(status='incomplete', **extra_kwargs)
+            elif status == 'completed':
+                todos = things.todos(status='completed', **extra_kwargs)
+            elif status == 'canceled':
+                todos = things.todos(status='canceled', **extra_kwargs)
             else:
-                if status == 'incomplete':
-                    todos = things.todos(status='incomplete')
-                elif status == 'completed':
-                    todos = things.todos(status='completed')
-                elif status == 'canceled':
-                    todos = things.todos(status='canceled')
-                elif status is None:
-                    all_todos = []
-                    all_todos.extend(things.todos(status='incomplete'))
-                    all_todos.extend(things.todos(status='completed'))
-                    all_todos.extend(things.todos(status='canceled'))
-                    todos = all_todos
-                else:
-                    todos = things.todos()
+                # status is None here (validated above) - fetch all statuses.
+                all_todos = []
+                all_todos.extend(things.todos(status='incomplete', **extra_kwargs))
+                all_todos.extend(things.todos(status='completed', **extra_kwargs))
+                all_todos.extend(things.todos(status='canceled', **extra_kwargs))
+                todos = all_todos
 
             result = []
             for todo in todos:
@@ -306,7 +426,7 @@ class ReadOperations:
 
                 result.append(converted)
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_todos_sync: {e}")
@@ -329,7 +449,8 @@ class ReadOperations:
                 if include_items and project.get('uuid'):
                     try:
                         project_todos = things.todos(project=project['uuid'])
-                        converted['todos'] = [ToolsHelpers.convert_todo(t) for t in project_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in project_todos]
+                        converted['todos'] = _fill_project_from_heading(converted_todos)
                     except Exception as e:
                         logger.error(f"Error getting project todos: {e}")
 
@@ -361,7 +482,8 @@ class ReadOperations:
                         converted['projects'] = [ToolsHelpers.convert_project(p) for p in area_projects]
 
                         area_todos = things.todos(area=area['uuid'])
-                        converted['todos'] = [ToolsHelpers.convert_todo(t) for t in area_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in area_todos]
+                        converted['todos'] = _fill_project_from_heading(converted_todos)
                     except Exception as e:
                         logger.error(f"Error getting area items: {e}")
 
@@ -394,7 +516,8 @@ class ReadOperations:
                     tag_title = tag.get('title', tag.get('name', ''))
                     try:
                         tagged_todos = things.todos(tag=tag_title)
-                        tag_dict['todos'] = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+                        converted_todos = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+                        tag_dict['todos'] = _fill_project_from_heading(converted_todos)
                         tag_dict['count'] = len(tagged_todos)
                     except Exception as e:
                         logger.error(f"Error getting tagged items: {e}")
@@ -436,6 +559,12 @@ class ReadOperations:
               counted via `area_count` and included in `total_count`, so they will not
               appear as "unused" if used solely on an area. Areas have no open/closed
               state, so area usage never contributes to `open_count`.
+            - Headings are intentionally excluded from this report. Verified (hq-nxu.14,
+              both against the things.py schema and a live Things 3 database):
+              `things.tasks(type='heading')` rows never carry a `'tags'` key at all -
+              headings cannot have tags assigned in Things 3 (only to-dos and projects
+              can; see the `things.tasks()` docstring's per-type description). There is
+              therefore nothing for this report to undercount by skipping headings.
 
         Args:
             only_unused: If True, only include tags with total_count == 0.
@@ -451,6 +580,10 @@ class ReadOperations:
         share the same title (e.g. a parent tag and a same-named child tag), their
         counts are merged into one row and only one uuid is retained (see
         `get_tag_usage` docstring for details).
+
+        Deliberately does not iterate headings: headings cannot carry tags in
+        Things 3 (see `get_tag_usage` docstring "Headings are intentionally
+        excluded" caveat).
         """
         try:
             tags = things.tags()
@@ -520,12 +653,12 @@ class ReadOperations:
 
         except Exception as e:
             logger.error(f"Error in _get_tag_usage_sync: {e}")
-            return {'error': str(e), 'tags': []}
+            return read_error('internal_error', str(e), tags=[])
 
     @staticmethod
     def _format_tag_usage_response(rows: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
         """Apply response-mode shaping to tag usage rows (custom schema; not routed
-        through the generic ResponseOptimizer/context_manager machinery, which assumes
+        through the generic context_manager field-filtering machinery, which assumes
         a todo/project field schema that doesn't fit tag-usage rows)."""
         unused_count = sum(1 for r in rows if r['total_count'] == 0)
 
@@ -555,7 +688,7 @@ class ReadOperations:
 
     async def search_todos(
         self, query: str, limit: Optional[int] = None,
-        status: Optional[str] = 'incomplete'
+        status: Optional[str] = 'incomplete', offset: int = 0
     ) -> List[Dict]:
         """Search todos using things.py.
 
@@ -564,11 +697,11 @@ class ReadOperations:
         Upcoming in the Things UI) can still match a search.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_sync, query, limit, status)
+        return await loop.run_in_executor(None, self._search_sync, query, limit, status, offset)
 
     def _search_sync(
         self, query: str, limit: Optional[int] = None,
-        status: Optional[str] = 'incomplete'
+        status: Optional[str] = 'incomplete', offset: int = 0
     ) -> List[Dict]:
         """Synchronous search implementation.
 
@@ -578,27 +711,41 @@ class ReadOperations:
             status: 'incomplete' (default, matches things.py's own default and
                 preserves backward compatibility), 'completed', 'canceled', or
                 None to search all statuses.
+            offset: Number of matching results to skip before applying limit
+                (same semantics as get_trash's offset). Applied after the full
+                filtered match set is collected, before limit.
+
+        Returns:
+            A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
+            existing callers, but also carries the true pre-limit/offset match
+            count on ``.total_count`` (used by server.py to populate `total`).
         """
         try:
             all_todos = things.todos(status=status)
             query_lower = query.lower()
 
-            results = []
+            matches = []
             for todo in all_todos:
                 title = todo.get('title', '').lower()
                 notes = todo.get('notes', '').lower()
 
                 if query_lower in title or query_lower in notes:
-                    results.append(ToolsHelpers.convert_todo(todo))
+                    matches.append(todo)
 
-                    if limit and len(results) >= limit:
-                        break
+            total_count = len(matches)
 
-            return results
+            windowed = matches[offset:]
+            if limit:
+                windowed = windowed[:limit]
+
+            results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+            results = _fill_project_from_heading(results)
+
+            return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _search_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get todos from Inbox."""
@@ -619,7 +766,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_inbox_sync: {e}")
@@ -653,7 +800,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_today_sync: {e}")
@@ -687,7 +834,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_upcoming_sync: {e}")
@@ -721,7 +868,7 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_anytime_sync: {e}")
@@ -793,19 +940,33 @@ class ReadOperations:
                 if limit and len(result) >= limit:
                     break
 
-            return result
+            return _fill_project_from_heading(result)
 
         except Exception as e:
             logger.error(f"Error in _get_someday_sync: {e}")
             return []
 
-    async def get_logbook(self, limit: int = 50, period: str = "7d") -> List[Dict]:
+    async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
         """Get completed todos from Logbook."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period)
+        return await loop.run_in_executor(None, self._get_logbook_sync, limit, period, offset)
 
-    def _get_logbook_sync(self, limit: int = 50, period: str = "7d") -> List[Dict]:
-        """Synchronous implementation."""
+    def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0) -> List[Dict]:
+        """Synchronous implementation.
+
+        Args:
+            limit: Maximum number of items to return, applied after sorting
+                and after offset.
+            period: Time window to look back (e.g. '7d').
+            offset: Number of sorted items to skip before applying limit
+                (same semantics as get_trash's offset).
+
+        Returns:
+            A ``ListWithTotal`` - behaves exactly like ``List[Dict]`` for all
+            existing callers, but also carries the true pre-limit/offset item
+            count within the period on ``.total_count`` (used by server.py to
+            populate `total`).
+        """
         try:
             completed_todos = things.todos(status='completed')
 
@@ -817,10 +978,7 @@ class ReadOperations:
                 completed_date = todo.get('stop_date')
                 if completed_date:
                     try:
-                        if isinstance(completed_date, str):
-                            completed_dt = datetime.fromisoformat(completed_date.replace('Z', '+00:00'))
-                        else:
-                            completed_dt = completed_date
+                        completed_dt = ToolsHelpers.parse_things_datetime(completed_date)
 
                         if completed_dt >= cutoff_date:
                             converted_todo = ToolsHelpers.convert_todo(todo)
@@ -837,12 +995,18 @@ class ReadOperations:
             for todo in result:
                 todo.pop('_sort_date', None)
 
-            # Apply limit after sorting
-            return result[:limit]
+            total_count = len(result)
+
+            # Apply offset then limit, after sorting
+            windowed = result[offset:]
+            windowed = windowed[:limit]
+            windowed = _fill_project_from_heading(windowed)
+
+            return ListWithTotal(windowed, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _get_logbook_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:
@@ -871,6 +1035,7 @@ class ReadOperations:
             paginated = trash_data[offset:offset + limit]
 
             items = [ToolsHelpers.convert_todo(t) for t in paginated]
+            items = _fill_project_from_heading(items)
 
             return {
                 'items': items,
@@ -915,7 +1080,8 @@ class ReadOperations:
         """
         try:
             tagged_todos = things.todos(tag=tag)
-            return [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
+            return _fill_project_from_heading(converted)
 
         except ValueError as e:
             logger.info(f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}")
@@ -924,6 +1090,64 @@ class ReadOperations:
         except Exception as e:
             logger.error(f"Error in _get_tagged_items_sync: {e}")
             return []
+
+    async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
+        """Get the heading structure of a project, in Things' display order.
+
+        Headings cannot be created, renamed, or deleted via the public Things 3
+        APIs (there is no AppleScript heading class; the URL scheme can only
+        place to-dos under existing headings, or seed headings at project
+        creation time via ``add-project`` ``##`` lines). This is a read-only
+        view of the heading structure that already exists in a project.
+
+        Args:
+            project_id: UUID of the project to read headings from.
+
+        Returns:
+            On success: {'items': [{'uuid', 'title', 'index', 'todoCount'}, ...]}
+            in Things' own heading order.
+            On failure (unknown id, or id resolves to something other than a
+            project): the canonical structured-error shape
+            {'success': False, 'error': ..., 'message': ...}.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._get_project_headings_sync, project_id)
+
+    def _get_project_headings_sync(self, project_id: str) -> Dict[str, Any]:
+        """Synchronous implementation."""
+        try:
+            project = things.get(project_id)
+            if project is None:
+                return read_error(
+                    'not_found', f"No item found with id: {project_id}",
+                )
+            if project.get('type') != 'project':
+                return read_error(
+                    'invalid_type',
+                    (
+                        f"Item {project_id} is a '{project.get('type')}', not a project. "
+                        "get_project_headings only accepts project ids."
+                    ),
+                )
+
+            headings = things.tasks(type='heading', project=project_id) or []
+
+            items = []
+            for heading in headings:
+                heading_uuid = heading.get('uuid')
+                open_todos = things.todos(heading=heading_uuid, status='incomplete') or []
+                items.append({
+                    'uuid': heading_uuid,
+                    'title': heading.get('title'),
+                    'index': heading.get('index'),
+                    'todoCount': len(open_todos),
+                })
+
+            return {'items': items}
+
+        except Exception as e:
+            logger.error(f"Error in _get_project_headings_sync: {e}")
+            return read_error('internal_error', str(e))
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific Things item by ID.
@@ -960,6 +1184,20 @@ class ReadOperations:
                 # emits item.get('type', 'to-do') as-is, so a heading row
                 # (type == 'heading') is preserved correctly.
                 converted = ToolsHelpers.convert_todo(item)
+
+                # Single-item lookup: avoid fetching the whole heading list
+                # (_build_heading_project_map) for one row - resolve directly
+                # via things.get() on the heading, same as _resolve_heading_project.
+                if item_type == 'to-do' and item.get('heading') and not item.get('project'):
+                    try:
+                        heading = things.get(item['heading'])
+                        if heading:
+                            if heading.get('project'):
+                                converted['project'] = heading['project']
+                            if heading.get('project_title'):
+                                converted['projectTitle'] = heading['project_title']
+                    except Exception as e:
+                        logger.debug(f"Error resolving heading project for todo {todo_id}: {e}")
 
                 if item_type == 'to-do':
                     try:
@@ -1010,7 +1248,8 @@ class ReadOperations:
             if not include_overdue:
                 due_todos = [t for t in due_todos if (t.get('deadline') or '') >= today]
 
-            return [ToolsHelpers.convert_todo(t) for t in due_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in due_todos]
+            return _fill_project_from_heading(converted)
         except Exception as e:
             logger.error(f"Error in _get_due_in_days_sync: {e}")
             return []
@@ -1046,7 +1285,8 @@ class ReadOperations:
             activating_todos = filter_someday_project_tasks(activating_todos or [])
             activating_todos = [t for t in activating_todos if (t.get('start_date') or '') >= today]
 
-            return [ToolsHelpers.convert_todo(t) for t in activating_todos]
+            converted = [ToolsHelpers.convert_todo(t) for t in activating_todos]
+            return _fill_project_from_heading(converted)
         except Exception as e:
             logger.error(f"Error in _get_activating_in_days_sync: {e}")
             return []
@@ -1102,7 +1342,7 @@ class ReadOperations:
                 if include_todo:
                     results.append(ToolsHelpers.convert_todo(todo))
 
-            return results
+            return _fill_project_from_heading(results)
 
         except Exception as e:
             logger.error(f"Error in _get_todos_upcoming_in_days_sync: {e}")
@@ -1146,10 +1386,13 @@ class ReadOperations:
         UI) can still match search_advanced.
 
         Returns:
-            List of matching todos with full details. If ``tag`` is unknown
+            A ``ListWithTotal`` of matching todos with full details - behaves
+            exactly like ``List[Dict]`` for all existing callers, but also
+            carries the true pre-limit/offset match count on ``.total_count``
+            (used by server.py to populate `total`). If ``tag`` is unknown
             to things.py (things.py raises ValueError, e.g. for a wrong-case
-            variant of a real tag), returns a single-element list containing
-            a structured error dict: ``[{'success': False, 'error':
+            variant of a real tag), returns a plain single-element list
+            containing a structured error dict: ``[{'success': False, 'error':
             'unknown_tag', 'tag': tag, 'suggestions': [...]}]`` where
             suggestions are case-insensitive title matches from
             ``things.tags()``. This mirrors the existing structured-error
@@ -1166,6 +1409,7 @@ class ReadOperations:
             deadline = filters.get('deadline')
             project = filters.get('project')
             limit = filters.get('limit')
+            offset = filters.get('offset', 0) or 0
 
             # Validate type against the values things.py's tasks() accepts.
             valid_types = {'to-do', 'project', 'heading'}
@@ -1174,14 +1418,13 @@ class ReadOperations:
                     f"Invalid type '{todo_type}' in search_advanced; "
                     f"must be one of {sorted(valid_types)}"
                 )
-                return [{
-                    'error': True,
-                    'error_type': 'invalid_parameter',
-                    'message': (
+                return [read_error(
+                    'invalid_parameter',
+                    (
                         f"Invalid type '{todo_type}'. "
                         f"Must be one of: {', '.join(sorted(valid_types))}"
-                    )
-                }]
+                    ),
+                )]
 
             # Build things.py query parameters. Unlike things.py itself (which
             # defaults status to 'incomplete'), search_advanced with no status
@@ -1221,7 +1464,7 @@ class ReadOperations:
                 raise
 
             # Filter by query text if provided (things.py doesn't support text search natively)
-            results = []
+            matches = []
             for todo in todos:
                 # Apply text search filter
                 if query:
@@ -1230,19 +1473,24 @@ class ReadOperations:
                     if query not in title and query not in notes:
                         continue
 
-                # Convert and add to results
-                results.append(ToolsHelpers.convert_todo(todo))
+                matches.append(todo)
 
-                # Apply limit
-                if limit and len(results) >= limit:
-                    break
+            total_count = len(matches)
 
-            logger.debug(f"search_advanced found {len(results)} todos using things.py")
-            return results
+            # Apply offset then limit, after the full filtered match set is known
+            windowed = matches[offset:]
+            if limit:
+                windowed = windowed[:limit]
+
+            results = [ToolsHelpers.convert_todo(todo) for todo in windowed]
+            results = _fill_project_from_heading(results)
+
+            logger.debug(f"search_advanced found {total_count} matching todos using things.py")
+            return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
             logger.error(f"Error in _search_advanced_sync: {e}")
-            return []
+            return ListWithTotal([], total_count=0)
 
     async def get_recent(
         self, period: str,
@@ -1292,17 +1540,14 @@ class ReadOperations:
                     created_date = item.get('created')
                     if created_date:
                         try:
-                            if isinstance(created_date, str):
-                                created_dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
-                            else:
-                                created_dt = created_date
+                            created_dt = ToolsHelpers.parse_things_datetime(created_date)
 
                             if created_dt >= cutoff_date:
                                 results.append(ToolsHelpers.convert_todo(item))
                         except (ValueError, TypeError) as e:
                             logger.warning(f"Skipping item with invalid created date '{created_date}': {e}")
 
-                return results
+                return _fill_project_from_heading(results)
 
             except Exception as e:
                 logger.error(f"Error in _get_recent_sync: {e}")

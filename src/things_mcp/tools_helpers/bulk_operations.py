@@ -245,11 +245,27 @@ class BulkOperations:
 
         # Handle scheduling
         scheduling_results = []
+        when_is_evening = bool(when_value) and when_value.lower() == 'evening'
         if when_value and success_count > 0:
             logger.info(f"Scheduling {success_count} todos for: {when_value}")
             for todo_id in todo_ids:
                 try:
-                    schedule_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when_value)
+                    if when_is_evening:
+                        # AppleScript's 'schedule' command has no way to set
+                        # "This Evening" - only the Things URL scheme's
+                        # 'update' action accepts when=evening. The auth
+                        # token is already verified present in
+                        # bulk_update_todos before this method is reached.
+                        url_result = await self.applescript.execute_url_scheme(
+                            'update', {'id': todo_id, 'when': 'evening'}
+                        )
+                        schedule_result = {
+                            "success": url_result.get('success', False),
+                            "method": "url_scheme",
+                            "date_set": "evening"
+                        }
+                    else:
+                        schedule_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when_value)
                     if schedule_result.get('success'):
                         scheduling_results.append(f"{todo_id}: scheduled")
                     else:
@@ -286,6 +302,19 @@ class BulkOperations:
 
         Returns:
             Dict with success status, count of updated items, and any errors
+
+        when='evening' (alias 'tonight', normalized to 'evening' by
+        ParameterValidator) is scheduled via the Things URL scheme's
+        'update' action per todo (AppleScript's 'schedule' command cannot
+        set "This Evening"), and therefore requires the Things auth token
+        - checked once up front before any AppleScript write, so a missing
+        token never results in a partially-applied bulk update. If the
+        token IS configured, the AppleScript-only fields (title/notes/
+        tags/deadline/etc.) are applied to every todo via the single bulk
+        AppleScript script FIRST, then the per-todo URL-scheme evening
+        schedule calls happen second - if a given todo's evening-schedule
+        call fails, the AppleScript fields already applied to that todo
+        are NOT rolled back.
         """
         try:
             # Validate parameters
@@ -297,6 +326,22 @@ class BulkOperations:
                     "error": "No todo IDs provided",
                     "updated_count": 0
                 }
+
+            # when='evening' is only honoured via the Things URL scheme's
+            # 'update' action (AppleScript's 'schedule' command has no way to
+            # set the "This Evening" flag), which requires the Things auth
+            # token. Fail fast BEFORE any AppleScript write so nothing is
+            # partially applied across the batch.
+            if when_value and when_value.lower() == 'evening':
+                if not self.applescript.auth_token:
+                    from ..services.applescript_manager import AUTH_TOKEN_HINT
+                    return {
+                        "success": False,
+                        "error": "Things URL-scheme auth token not configured",
+                        "hint": AUTH_TOKEN_HINT,
+                        "message": "Failed to bulk update todos",
+                        "updated_count": 0
+                    }
 
             # Build and execute update script
             script = self._build_bulk_update_script(todo_ids, kwargs)

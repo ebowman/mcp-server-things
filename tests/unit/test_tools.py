@@ -740,8 +740,10 @@ class TestRemoveTags:
     async def test_remove_nonexistent_tags(self, tools_with_mock, mock_applescript_manager):
         """Test removing tags that don't exist on the todo.
 
-        The function should handle this gracefully - AppleScript will simply not find
-        the tags to remove, which is fine.
+        This is a no-op: removed_count reflects the actual set difference
+        (0, since neither requested tag is present), and both requested tags
+        are reported back via not_present. The operation still succeeds -
+        removing an unknown tag is not an error.
         """
         todo_id = "todo-123"
         tags = ["NonExistent", "AlsoNotThere"]
@@ -757,7 +759,16 @@ class TestRemoveTags:
 
         # Should succeed - AppleScript filters gracefully
         assert result["success"] is True
-        assert "Removed 2 tags successfully" in result["message"]
+        assert "Removed 0 tags successfully" in result["message"]
+        assert result["removed_count"] == 0
+        assert sorted(result["not_present"]) == ["AlsoNotThere", "NonExistent"]
+        # Neither requested (non-existent) tag name should appear in the
+        # emitted "set tag names" script, since they were never present to
+        # begin with - removing them must be a true no-op on the tag value.
+        assert len(mock_applescript_manager.execution_calls) == 2
+        set_tags_script = mock_applescript_manager.execution_calls[1]["script"]
+        assert "NonExistent" not in set_tags_script
+        assert "AlsoNotThere" not in set_tags_script
 
     @pytest.mark.asyncio
     async def test_remove_tags_empty_list(self, tools_with_mock, mock_applescript_manager):
@@ -999,6 +1010,12 @@ class TestBulkUpdateTodos:
         assert result["updated_count"] == 2
         assert result["failed_count"] == 1
         assert result["total_requested"] == 3
+        # The bulk script must still target all three ids (parsing the
+        # partial-failure output doesn't mean fewer ids were attempted).
+        script = mock_applescript_manager.execution_calls[0]["script"]
+        for todo_id in todo_ids:
+            assert f'to do id "{todo_id}"' in script
+        assert script.count("set status of targetTodo to completed") == 3
 
     @pytest.mark.asyncio
     async def test_bulk_update_empty_todo_list(self, tools_with_mock, mock_applescript_manager):

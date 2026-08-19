@@ -192,6 +192,7 @@ class SmartDefaultManager:
         'get_logbook': ResponseMode.MINIMAL,   # Historical data, keep minimal
         'search_todos': ResponseMode.AUTO,     # Search results vary widely in size
         'search_advanced': ResponseMode.AUTO,  # Advanced search results unpredictable
+        'get_project_headings': ResponseMode.AUTO,  # Headings per project are usually few
     }
     
     def apply_smart_defaults(self, method_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -449,8 +450,8 @@ class ContextAwareResponseManager:
             return self._handle_oversized_response(data, method_name, mode, params, estimated_size)
         
         # Response fits within context budget
-        filtered_data = self._apply_field_filtering(data, mode)
-        
+        filtered_data = self._apply_field_filtering(data, mode, method_name)
+
         return {
             "data": filtered_data,
             "meta": {
@@ -458,21 +459,21 @@ class ContextAwareResponseManager:
                 "count": len(filtered_data)
             }
         }
-    
+
     def _handle_oversized_response(self, data: List[Dict[str, Any]], method_name: str,
-                                  mode: ResponseMode, params: Dict[str, Any], 
+                                  mode: ResponseMode, params: Dict[str, Any],
                                   estimated_size: int) -> Dict[str, Any]:
         """Handle responses that exceed context budget."""
-        
+
         # Calculate how many items we can fit
         avg_item_size = estimated_size / len(data)
         max_items = int(self.context_budget.max_response_size / avg_item_size)
-        
+
         # Apply relevance ranking for pagination
         ranked_data = self._apply_relevance_ranking(data)
         current_page = ranked_data[:max_items]
-        
-        filtered_data = self._apply_field_filtering(current_page, mode)
+
+        filtered_data = self._apply_field_filtering(current_page, mode, method_name)
         
         return {
             "data": filtered_data,
@@ -485,32 +486,61 @@ class ContextAwareResponseManager:
             }
         }
     
-    def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode) -> List[Dict[str, Any]]:
-        """Apply field-level filtering based on response mode."""
+    # get_project_headings' items use a distinct schema (uuid/title/index/
+    # todoCount) that shares no fields with the todo/project/area schemas
+    # below. Filtered separately by method_name in _apply_field_filtering
+    # rather than by widening the global TODO_FIELD_SETS, so 'index'/
+    # 'todoCount' never leak into ordinary todo rows under MINIMAL/STANDARD/
+    # SUMMARY (see hq-f0w.6 review history).
+    HEADING_FIELDS = {'uuid', 'title', 'index', 'todoCount'}
+
+    # Field sets by mode for the shared todo/project/area schema. Keys follow
+    # ToolsHelpers.convert_todo / convert_project's camelCase output (see
+    # hq-f0w.4). 'area' was dropped from the STANDARD todo set - things.py
+    # to-do rows never carry an 'area' key (only projects do), so it was
+    # always absent. This is the single source of truth for these sets;
+    # get_optimization_capabilities() below reads it directly rather than
+    # maintaining a second, driftable copy.
+    TODO_FIELD_SETS = {
+        ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
+        ResponseMode.MINIMAL: {
+            # Minimum needed to still locate a todo: identity, status,
+            # kind, and where it lives (start state + parent project).
+            'uuid', 'title', 'status', 'type', 'start', 'project',
+            'dueDate', 'modificationDate', 'creationDate'
+        },
+        ResponseMode.STANDARD: {
+            'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
+            'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
+            'start', 'startDate', 'inheritedSomeday',
+                'reminderTime'
+            },
+        ResponseMode.DETAILED: None  # Include all fields
+    }
+
+    def _apply_field_filtering(self, data: List[Dict[str, Any]], mode: ResponseMode,
+                               method_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Apply field-level filtering based on response mode.
+
+        Args:
+            data: Items to filter.
+            mode: Response mode controlling which field set to apply.
+            method_name: Name of the calling tool method. Most tools share
+                the todo/project/area field sets below; a small number of
+                tools (currently only get_project_headings) return a
+                different item schema and are filtered against a
+                method-specific field set instead.
+        """
         if mode == ResponseMode.RAW:
             return data  # No filtering
-        
-        # Define field sets by mode. Keys follow ToolsHelpers.convert_todo /
-        # convert_project's camelCase output (see hq-f0w.4). 'area' was
-        # dropped from the STANDARD todo set - things.py to-do rows never
-        # carry an 'area' key (only projects do), so it was always absent.
-        field_sets = {
-            ResponseMode.SUMMARY: {'uuid', 'title', 'status', 'tags', 'dueDate'},  # Include useful fields in summary
-            ResponseMode.MINIMAL: {
-                # Minimum needed to still locate a todo: identity, status,
-                # kind, and where it lives (start state + parent project).
-                'uuid', 'title', 'status', 'type', 'start', 'project',
-                'dueDate', 'modificationDate', 'creationDate'
-            },
-            ResponseMode.STANDARD: {
-                'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
-                'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
-                'start', 'startDate', 'inheritedSomeday'
-            },
-            ResponseMode.DETAILED: None  # Include all fields
-        }
-        
-        allowed_fields = field_sets.get(mode)
+
+        if method_name == 'get_project_headings':
+            allowed_fields = None if mode == ResponseMode.DETAILED else self.HEADING_FIELDS
+            if allowed_fields is None:
+                return data
+            return [{k: v for k, v in item.items() if k in allowed_fields} for item in data]
+
+        allowed_fields = self.TODO_FIELD_SETS.get(mode)
         if allowed_fields is None:
             return data  # No filtering for detailed mode
         
@@ -640,9 +670,9 @@ class ContextAwareResponseManager:
                     "enabled": True,
                     "description": "Filters fields based on response mode to reduce size",
                     "field_sets": {
-                        "summary": ["id", "name", "status"],
-                        "minimal": ["id", "name", "status", "due_date", "modification_date"],
-                        "standard": "Essential workflow fields",
+                        "summary": sorted(self.TODO_FIELD_SETS[ResponseMode.SUMMARY]),
+                        "minimal": sorted(self.TODO_FIELD_SETS[ResponseMode.MINIMAL]),
+                        "standard": sorted(self.TODO_FIELD_SETS[ResponseMode.STANDARD]),
                         "detailed": "All available fields"
                     }
                 },

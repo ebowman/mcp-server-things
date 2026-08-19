@@ -1,7 +1,7 @@
 """Helper functions for Things 3 tools - conversion and utility methods."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 from datetime import datetime, timedelta
 
 from ..utils.applescript_utils import AppleScriptTemplates
@@ -125,10 +125,12 @@ class ToolsHelpers:
         things.py's real to-do key set (captured live, 2026-08-19) is:
         uuid, type, title, status, notes, start, start_date, deadline,
         stop_date, created, modified, index, today_index, tags, project,
-        project_title, heading, heading_title, checklist. Notably there is
-        NO 'completion_date'/'cancellation_date'/'area' key on to-do rows -
-        `stop_date` carries both, disambiguated by `status`. `checklist` (when
-        present) is a bool "has a checklist" flag, not a list of items.
+        project_title, heading, heading_title, checklist, reminder_time
+        (optional - present on a small subset of rows, live: 8/1699 todos).
+        Notably there is NO 'completion_date'/'cancellation_date'/'area' key
+        on to-do rows - `stop_date` carries both, disambiguated by `status`.
+        `checklist` (when present) is a bool "has a checklist" flag, not a
+        list of items.
 
         Args:
             todo: Todo dict from things.py (uses snake_case field names). Also
@@ -180,6 +182,7 @@ class ToolsHelpers:
             'hasChecklist': has_checklist,
             'index': todo.get('index'),
             'todayIndex': todo.get('today_index'),
+            'reminderTime': todo.get('reminder_time'),
         }
         if checklist_items is not None:
             converted['checklist'] = checklist_items
@@ -206,13 +209,20 @@ class ToolsHelpers:
         things.py project rows carry `stop_date` (not separate
         completion_date/cancellation_date keys), same as to-do rows -
         disambiguated by `status`. `area`/`area_title` are only present when
-        the project actually belongs to an area.
+        the project actually belongs to an area. `reminderTime` is emitted
+        the same way as on to-dos (things.py's `reminder_time`, present on a
+        small subset of rows - live: 8/67 projects). `start`/`startDate`/
+        `index`/`todayIndex` are emitted the same way convert_todo emits
+        them for to-dos.
 
         Args:
             project: Project dict from things.py (uses snake_case field names)
 
         Returns:
-            Converted project dict in MCP format (uses camelCase field names)
+            Converted project dict in MCP format (uses camelCase field names).
+            `start` is always present (None when things.py doesn't supply
+            it), matching convert_todo's always_present handling of the
+            same field.
         """
         status = project.get('status')
         stop_date = project.get('stop_date')
@@ -229,15 +239,26 @@ class ToolsHelpers:
             'tags': project.get('tags', []),
             'area': project.get('area'),
             'areaTitle': project.get('area_title'),
+            'start': project.get('start'),  # Inbox | Anytime | Someday
             'creationDate': project.get('created'),  # things.py: 'created'
             'modificationDate': project.get('modified'),  # things.py: 'modified'
             'completionDate': completion_date,
             'cancellationDate': cancellation_date,
-            'dueDate': project.get('deadline')  # things.py: 'deadline'
+            'dueDate': project.get('deadline'),  # things.py: 'deadline'
+            'startDate': project.get('start_date'),  # things.py: 'start_date'
+            'index': project.get('index'),
+            'todayIndex': project.get('today_index'),
+            'reminderTime': project.get('reminder_time'),
         }
 
-        # Remove None values
-        return {k: v for k, v in converted.items() if v is not None}
+        # Remove None values, but keep 'start' explicit (as None) so callers
+        # can rely on the key being present, matching convert_todo's
+        # always_present handling of the same field.
+        always_present = {'start'}
+        return {
+            k: v for k, v in converted.items()
+            if v is not None or k in always_present
+        }
 
     @staticmethod
     def convert_area(area: Dict) -> Dict:
@@ -298,3 +319,50 @@ class ToolsHelpers:
             return value * 365  # Approximate
         else:
             raise ValueError(f"Invalid period unit: '{unit}' (use d/w/m/y)")
+
+    @staticmethod
+    def parse_things_datetime(value: Union[str, datetime]) -> datetime:
+        """Parse a things.py timestamp string (or pass through a datetime) into a
+        naive-local ``datetime`` suitable for direct comparison against
+        ``datetime.now()``.
+
+        things.py normally emits local-naive strings like ``'2025-12-31 09:00:00'``,
+        but this helper also tolerates values that carry an explicit UTC/offset
+        marker (``'...Z'`` or ``'...+HH:MM'``) so that an aware value never raises
+        ``TypeError`` when compared against a naive cutoff (previously that
+        TypeError was caught as "invalid date" and the row was silently dropped -
+        see hq-nxu.14). Any timezone-aware result is converted to the local
+        timezone and then stripped of tzinfo so the return value always compares
+        cleanly against naive ``datetime.now()``-derived cutoffs.
+
+        Args:
+            value: Either a things.py date/datetime string, or an already-parsed
+                ``datetime`` (passed through, converted from aware to naive-local
+                if needed).
+
+        Returns:
+            A naive ``datetime`` in local time.
+
+        Raises:
+            ValueError: If ``value`` is a string that cannot be parsed.
+            TypeError: If ``value`` is neither a string nor a ``datetime``.
+        """
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            text = value.strip()
+            # datetime.fromisoformat only understands 'Z' from Python 3.11+;
+            # normalize it to an explicit UTC offset for compatibility.
+            if text.endswith('Z'):
+                text = text[:-1] + '+00:00'
+            parsed = datetime.fromisoformat(text)
+        else:
+            raise TypeError(f"Expected str or datetime, got {type(value).__name__}")
+
+        if parsed.tzinfo is not None:
+            # Aware value (e.g. carries a 'Z' or '+HH:MM' offset) - convert to
+            # local time, then drop tzinfo so it compares like-with-like against
+            # naive-local cutoffs computed from datetime.now().
+            parsed = parsed.astimezone().replace(tzinfo=None)
+
+        return parsed

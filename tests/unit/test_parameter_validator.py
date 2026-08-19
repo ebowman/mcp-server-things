@@ -189,7 +189,7 @@ class TestValidateDateFormat:
 
     def test_relative_dates(self):
         """Test relative date strings."""
-        for date_str in ['today', 'tomorrow', 'yesterday', 'someday', 'anytime']:
+        for date_str in ['today', 'tomorrow', 'yesterday', 'someday', 'anytime', 'evening']:
             result = ParameterValidator.validate_date_format(date_str, allow_relative=True)
             assert result == date_str.lower()
 
@@ -197,6 +197,32 @@ class TestValidateDateFormat:
         """Test relative dates when not allowed."""
         with pytest.raises(ValidationError) as exc_info:
             ParameterValidator.validate_date_format("today", allow_relative=False)
+        assert "must be in YYYY-MM-DD format" in str(exc_info.value)
+
+    def test_evening_accepted_case_insensitive(self):
+        """'evening' is accepted (Things 'This Evening' scheduling keyword),
+        case-insensitively, same as the other relative keywords."""
+        for variant in ['evening', 'Evening', 'EVENING']:
+            result = ParameterValidator.validate_date_format(variant, allow_relative=True)
+            assert result == 'evening'
+
+    def test_tonight_normalizes_to_evening(self):
+        """'tonight' is accepted as a user-facing alias and normalized to
+        the canonical 'evening' keyword, case-insensitively."""
+        for variant in ['tonight', 'Tonight', 'TONIGHT']:
+            result = ParameterValidator.validate_date_format(variant, allow_relative=True)
+            assert result == 'evening'
+
+    def test_evening_rejected_when_relative_disabled(self):
+        """deadline validation (allow_relative=False) rejects 'evening' just
+        like every other relative keyword."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_date_format("evening", allow_relative=False)
+        assert "must be in YYYY-MM-DD format" in str(exc_info.value)
+
+    def test_tonight_rejected_when_relative_disabled(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_date_format("tonight", allow_relative=False)
         assert "must be in YYYY-MM-DD format" in str(exc_info.value)
 
     def test_datetime_format(self):
@@ -380,6 +406,26 @@ class TestValidateTagList:
         result = ParameterValidator.validate_tag_list("  work  ,  home  ")
         assert result == ["work", "home"]
 
+    def test_tag_list_rejects_comma_in_list_element(self):
+        """A tag name containing a literal comma cannot round-trip through
+        Things' comma-joined AppleScript tag API, so it must be rejected with
+        a structured error naming the offending tag. This can only be
+        observed via list input - comma-separated string input already
+        splits on ',' before an individual tag name is ever formed."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_tag_list(["home, office", "urgent"])
+        assert "home, office" in str(exc_info.value)
+        assert exc_info.value.field == "tags"
+        assert exc_info.value.value == "home, office"
+
+    def test_tag_list_rejects_comma_in_list_element_custom_field_name(self):
+        """The offending tag and the caller-supplied field_name both surface
+        in the error for API callers that pass a non-default field_name."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_tag_list(["a,b"], field_name="update_tags")
+        assert exc_info.value.field == "update_tags"
+        assert "a,b" in str(exc_info.value)
+
 
 class TestValidateIdList:
     """Tests for ID list validation."""
@@ -523,6 +569,33 @@ class TestValidateUpdateParams:
             title=None, notes=None, tags=None, when=None, deadline=None
         )
         assert result == {}
+
+    def test_update_params_when_evening_accepted(self):
+        """when='evening' is accepted (hq-nxu.10) - Things 'This Evening' keyword."""
+        result = ParameterValidator.validate_update_params(when="evening")
+        assert result['when'] == "evening"
+
+    def test_update_params_when_tonight_normalizes_to_evening(self):
+        """when='tonight' is accepted as an alias and normalized to 'evening' (hq-nxu.10)."""
+        result = ParameterValidator.validate_update_params(when="tonight")
+        assert result['when'] == "evening"
+
+    def test_update_params_deadline_relative_keyword_rejected(self):
+        """deadline must be YYYY-MM-DD in validate_update_params too (hq-nxu.10) -
+        this matches the allow_relative=False pre-validation server.py already
+        performs for add_todo/update_todo/bulk_update_todos, so a relative
+        keyword like 'today' is rejected identically at both layers instead of
+        silently reaching AppleScript/URL-scheme code with no relative-date
+        handling for deadline."""
+        with pytest.raises(ValidationError) as exc_info:
+            ParameterValidator.validate_update_params(deadline="today")
+        assert "must be in YYYY-MM-DD format" in str(exc_info.value)
+        assert exc_info.value.field == 'deadline'
+
+    def test_update_params_deadline_iso_date_still_accepted(self):
+        """Non-relative deadlines are unaffected by the allow_relative=False fix."""
+        result = ParameterValidator.validate_update_params(deadline="2025-12-31")
+        assert result['deadline'] == "2025-12-31"
 
 
 class TestCreateValidationErrorResponse:

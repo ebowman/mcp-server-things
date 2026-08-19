@@ -29,6 +29,17 @@ def mock_applescript_manager():
     return manager
 
 
+def id_lookup_side_effect(new_id):
+    """Build an execute_applescript side_effect list for
+    _add_todo_via_url_scheme's snapshot-then-poll id lookup (hq-nxu.12):
+    the first call is the pre-create snapshot (no existing todo with this
+    title), the second is the post-create poll that finds the new id."""
+    return [
+        {"success": True, "output": ""},
+        {"success": True, "output": new_id},
+    ]
+
+
 @pytest.fixture
 def scheduler(mock_applescript_manager):
     return PureAppleScriptScheduler(mock_applescript_manager)
@@ -46,10 +57,7 @@ class TestHeadingUrlSchemeBranch:
             "success": True,
             "url": "things:///add?title=heading%20test&list=PROJECT123&heading=Research",
         }
-        mock_applescript_manager.execute_applescript.return_value = {
-            "success": True,
-            "output": "new-todo-id",
-        }
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("new-todo-id")
 
         with patch("things_mcp.scheduling.todo_operations.things.tasks", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.get", return_value={"type": "project"}):
@@ -79,7 +87,7 @@ class TestHeadingUrlSchemeBranch:
     async def test_heading_with_list_title_no_project_id_still_errors_if_missing(self, scheduler, mock_applescript_manager):
         """heading passed with list_title (not list_id) is accepted as a valid target."""
         mock_applescript_manager.execute_url_scheme.return_value = {"success": True, "url": "things:///add"}
-        mock_applescript_manager.execute_applescript.return_value = {"success": True, "output": "abc123"}
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("abc123")
 
         with patch("things_mcp.scheduling.todo_operations.things.tasks", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[{"uuid": "P1", "title": "Work"}]), \
@@ -99,7 +107,7 @@ class TestHeadingUrlSchemeBranch:
     async def test_heading_plus_checklist_regression(self, scheduler, mock_applescript_manager):
         """heading + checklist_items together still works (regression check)."""
         mock_applescript_manager.execute_url_scheme.return_value = {"success": True, "url": "things:///add"}
-        mock_applescript_manager.execute_applescript.return_value = {"success": True, "output": "todo-with-checklist"}
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("todo-with-checklist")
 
         with patch("things_mcp.scheduling.todo_operations.things.tasks", return_value=[{"title": "Research"}]), \
              patch("things_mcp.scheduling.todo_operations.things.get", return_value={"type": "project"}):
@@ -121,7 +129,7 @@ class TestHeadingUrlSchemeBranch:
         """If the heading does not exist in the resolved project, a warning is
         added to the response (Things silently ignores an unknown heading)."""
         mock_applescript_manager.execute_url_scheme.return_value = {"success": True, "url": "things:///add"}
-        mock_applescript_manager.execute_applescript.return_value = {"success": True, "output": "todo-x"}
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("todo-x")
 
         with patch("things_mcp.scheduling.todo_operations.things.tasks", return_value=[{"title": "Other Heading"}]), \
              patch("things_mcp.scheduling.todo_operations.things.get", return_value={"type": "project"}):
@@ -142,7 +150,13 @@ class TestHeadingUrlSchemeBranch:
 
         real_manager = RealManager()
         real_manager.executor = MagicMock()
-        real_manager.executor.execute_script = AsyncMock(return_value={"success": True, "output": ""})
+        # First call is the pre-create id snapshot (empty); every call
+        # after (the URL open + the post-create poll) reports the new id,
+        # so the poll resolves on its first iteration instead of running
+        # out the full lookup deadline.
+        real_manager.executor.execute_script = AsyncMock(
+            side_effect=[{"success": True, "output": ""}] + [{"success": True, "output": "new-id"}] * 5
+        )
         real_scheduler = PureAppleScriptScheduler(real_manager)
 
         with patch("things_mcp.scheduling.todo_operations.things.tasks", return_value=[]), \
@@ -153,9 +167,12 @@ class TestHeadingUrlSchemeBranch:
                 heading="A&B?C#D%E",
             )
 
-        first_call_script = real_manager.executor.execute_script.await_args_list[0].args[0]
-        assert "A&B?C#D%E" not in first_call_script
-        assert "heading=A%26B%3FC%23D%25E" in first_call_script
+        # await_args_list[0] is the pre-create snapshot script (issued
+        # before the URL-scheme call); the URL open script is the second
+        # call.
+        url_open_script = real_manager.executor.execute_script.await_args_list[1].args[0]
+        assert "A&B?C#D%E" not in url_open_script
+        assert "heading=A%26B%3FC%23D%25E" in url_open_script
 
 
 class TestListTitleResolutionAppleScriptPath:
@@ -331,7 +348,7 @@ class TestListTitleResolutionUrlSchemePath:
         """checklist_items + list_title (no heading) also resolves list_title
         to a concrete id and sends it as 'list-id', not raw as 'list'."""
         mock_applescript_manager.execute_url_scheme.return_value = {"success": True, "url": "things:///add"}
-        mock_applescript_manager.execute_applescript.return_value = {"success": True, "output": "todo-checklist-lt"}
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("todo-checklist-lt")
 
         with patch("things_mcp.scheduling.todo_operations.things.projects",
                    return_value=[{"uuid": "PROJ-1", "title": "Website Redesign"}]), \
@@ -350,7 +367,7 @@ class TestListTitleResolutionUrlSchemePath:
         """A list_title that resolves to an area (not a project) is sent as
         'list-id' too - the Things URL scheme accepts an area id there."""
         mock_applescript_manager.execute_url_scheme.return_value = {"success": True, "url": "things:///add"}
-        mock_applescript_manager.execute_applescript.return_value = {"success": True, "output": "todo-area-lt"}
+        mock_applescript_manager.execute_applescript.side_effect = id_lookup_side_effect("todo-area-lt")
 
         with patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.areas",

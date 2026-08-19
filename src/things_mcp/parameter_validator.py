@@ -328,9 +328,16 @@ class ParameterValidator:
 
         # Allow relative dates if enabled
         if allow_relative:
-            relative_dates = ["today", "tomorrow", "yesterday", "someday", "anytime"]
-            if date_str.lower() in relative_dates:
-                return date_str.lower()
+            relative_dates = ["today", "tomorrow", "yesterday", "someday", "anytime", "evening"]
+            lowered = date_str.lower()
+            # 'tonight' is a user-facing alias for Things' 'evening' scheduling
+            # keyword (This Evening) - normalize to the canonical 'evening' so
+            # downstream code (URL-scheme routing, etc.) only has to handle one
+            # spelling.
+            if lowered == "tonight":
+                return "evening"
+            if lowered in relative_dates:
+                return lowered
 
         # Validate YYYY-MM-DD format
         iso_date_pattern = r'^\d{4}-\d{2}-\d{2}$'
@@ -544,6 +551,15 @@ class ParameterValidator:
         Handles both comma-separated strings and lists.
         Filters out empty tags and trims whitespace.
 
+        Individual tag names containing a literal comma are rejected: Things'
+        AppleScript tag API represents a todo's tags as a single comma-joined
+        string (`tag names of targetTodo`), so a tag name containing a comma
+        is indistinguishable from two separate tags and cannot round-trip
+        through that API. This can only happen via list input (e.g.
+        `["home, office"]`) - comma-separated string input already splits on
+        `,` before this check runs, so a string-typed tag name can never
+        contain a comma by the time it reaches this branch.
+
         Args:
             tags: Tags as string (comma-separated), list, or None
             field_name: Name of the field for error messages
@@ -552,7 +568,8 @@ class ParameterValidator:
             List of validated tag strings or None if input was None
 
         Raises:
-            ValidationError: If tags format is invalid
+            ValidationError: If tags format is invalid, or if any individual
+                tag name contains a comma
         """
         if tags is None:
             return None
@@ -577,6 +594,16 @@ class ParameterValidator:
 
         if not tag_list:
             return None
+
+        for tag in tag_list:
+            if "," in tag:
+                raise ValidationError(
+                    field_name,
+                    f"tag name {tag!r} contains a comma, which Things' "
+                    "comma-joined AppleScript tag API cannot represent - "
+                    "rename the tag or remove the comma",
+                    tag
+                )
 
         return tag_list
 
@@ -696,6 +723,14 @@ class ParameterValidator:
         - ``when=''`` is rejected with a ValidationError directing callers to
           use ``when='anytime'`` or ``when='someday'`` to unschedule instead -
           there is no "clear" semantics for ``when``.
+        - ``when`` accepts the relative keywords ``today``/``tomorrow``/
+          ``yesterday``/``someday``/``anytime``/``evening`` (``tonight`` is
+          accepted as an alias and normalized to ``evening``), in addition to
+          ``YYYY-MM-DD`` (and ``YYYY-MM-DD@HH:MM``).
+        - ``deadline`` (when non-empty) must be ``YYYY-MM-DD`` -
+          relative keywords like ``today`` are rejected with a
+          ValidationError, identically to the pre-validation server.py
+          already performs for add_todo/update_todo/bulk_update_todos.
 
         Args:
             **kwargs: Update parameters
@@ -755,7 +790,13 @@ class ParameterValidator:
                 # from "deadline not provided".
                 validated['deadline'] = ''
             else:
-                validated['deadline'] = cls.validate_date_format(kwargs['deadline'], 'deadline', allow_relative=True)
+                # allow_relative=False: deadline must be YYYY-MM-DD - this
+                # matches the pre-validation server.py already performs for
+                # add_todo/update_todo/bulk_update_todos (allow_relative=False),
+                # so a relative keyword like 'today' is rejected identically
+                # at both layers instead of silently reaching AppleScript/URL
+                # scheme code that has no relative-date handling for deadline.
+                validated['deadline'] = cls.validate_date_format(kwargs['deadline'], 'deadline', allow_relative=False)
 
         if 'completed' in kwargs and kwargs['completed'] is not None:
             validated['completed'] = cls.validate_boolean(kwargs['completed'], 'completed')

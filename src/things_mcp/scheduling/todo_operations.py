@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Dict, Any, List, Optional
 
 from ..locale_aware_dates import locale_handler
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 class TodoOperations:
     """Handles todo and project creation/update operations."""
+
+    # How long to keep polling for the new todo's id after a URL-scheme
+    # create before giving up (see _add_todo_via_url_scheme / hq-nxu.12).
+    _URL_SCHEME_LOOKUP_DEADLINE_SECS = 3.0
+    _URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS = 0.25
 
     def __init__(self, applescript_manager, scheduler):
         """Initialize with AppleScript manager and scheduler.
@@ -234,7 +240,15 @@ class TodoOperations:
         return {"kind": kind, "id": matched_id}
 
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
-        """Add a new todo using AppleScript, or URL scheme if heading and/or checklist items are provided."""
+        """Add a new todo using AppleScript, or URL scheme if heading, checklist items,
+        and/or when='evening' are provided.
+
+        when='evening' (alias 'tonight', normalized to 'evening' by
+        ParameterValidator) is routed via the Things URL scheme's 'add'
+        action - AppleScript's 'schedule' command has no way to set the
+        "This Evening" flag. Unlike heading/update, the URL scheme 'add'
+        action does not require the Things auth token.
+        """
         try:
             # Extract parameters
             notes = kwargs.get('notes', '')
@@ -256,10 +270,18 @@ class TodoOperations:
                     "message": "Failed to add todo"
                 }
 
-            # If a heading or checklist items are provided, use the Things URL scheme -
-            # it is the only way to create checklists, and the only way to place a
-            # new to-do directly under a heading.
-            if heading or checklist:
+            # Things 3's AppleScript 'schedule' command only accepts a date
+            # object - it has no way to set the "This Evening" flag (verified
+            # against the AppleScript dictionary: 'schedule ... for <date>'
+            # only, no evening/tonight parameter). The Things URL scheme's
+            # 'add' action DOES accept when=evening, so route there.
+            when_is_evening = isinstance(when, str) and when.strip().lower() == 'evening'
+
+            # If a heading, checklist items, or an evening schedule are
+            # provided, use the Things URL scheme - it is the only way to
+            # create checklists, the only way to place a new to-do directly
+            # under a heading, and the only way to set "This Evening".
+            if heading or checklist or when_is_evening:
                 return await self._add_todo_via_url_scheme(
                     title=title,
                     notes=notes,
@@ -397,6 +419,95 @@ class TodoOperations:
             "place it under this heading."
         )
 
+    async def _find_todo_ids_by_title(self, title: str) -> List[str]:
+        """Return the ids of all (non-trashed) to-dos with the exact title.
+
+        Used by _add_todo_via_url_scheme to snapshot existing ids before a
+        URL-scheme create and poll for new ones afterward, since the URL
+        scheme itself does not return the created todo's id. Uses
+        AppleScript (rather than the things.py proxy) so the match is an
+        exact, live-database title comparison consistent with what Things
+        itself just did, and so it works even when the local things.py
+        SQLite snapshot lags a fresh write.
+
+        Returns an empty list (rather than raising) on any AppleScript
+        failure, so a lookup glitch degrades to "no ids found" instead of
+        crashing the create.
+        """
+        script = f'''
+        tell application "Things3"
+            try
+                set foundTodos to to dos whose name is {AppleScriptTemplates.escape_string(title)}
+                set idList to {{}}
+                repeat with aTodo in foundTodos
+                    set end of idList to (id of aTodo)
+                end repeat
+                set AppleScript's text item delimiters to "\\n"
+                set idText to idList as text
+                set AppleScript's text item delimiters to ""
+                return idText
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if not result.get('success'):
+            logger.debug(f"Failed to look up todo ids for title {title!r}: {result.get('error')}")
+            return []
+
+        output = (result.get('output') or '').strip()
+        if not output or output.startswith('error:'):
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error looking up todo ids for title {title!r}: {output}")
+            return []
+
+        return [line.strip() for line in output.split('\n') if line.strip()]
+
+    async def _newest_todo_id(self, ids: List[str]) -> str:
+        """Given several candidate todo ids, return the most recently created one.
+
+        Used as the tie-breaker when more than one new todo with the same
+        title appears between the pre-create snapshot and a post-create
+        poll in _add_todo_via_url_scheme. Falls back to the last id in
+        `ids` if the creation-date lookup itself fails, so a lookup
+        glitch still returns *some* id rather than raising.
+        """
+        id_list_literal = ", ".join(AppleScriptTemplates.escape_string(i) for i in ids)
+        script = f'''
+        tell application "Things3"
+            try
+                set candidateIds to {{{id_list_literal}}}
+                set newestId to ""
+                set newestDate to missing value
+                repeat with anId in candidateIds
+                    -- `anId` from `repeat...in list` is a reference into
+                    -- the list, not a plain string; coerce to text before
+                    -- using it as an id or returning it, otherwise it
+                    -- stringifies as "item N of {list}" instead of the id.
+                    set anIdText to anId as text
+                    set aTodo to to do id anIdText
+                    set aDate to creation date of aTodo
+                    if newestDate is missing value or aDate > newestDate then
+                        set newestId to anIdText
+                        set newestDate to aDate
+                    end if
+                end repeat
+                return newestId
+            on error errMsg
+                return "error: " & errMsg
+            end try
+        end tell
+        '''
+        result = await self.applescript.execute_applescript(script)
+        if result.get('success'):
+            output = (result.get('output') or '').strip()
+            if output and not output.startswith('error:'):
+                return output
+            if output.startswith('error:'):
+                logger.debug(f"AppleScript error resolving newest todo id: {output}")
+        return ids[-1]
+
     async def _add_todo_via_url_scheme(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a todo using the Things URL scheme.
 
@@ -492,6 +603,15 @@ class TodoOperations:
                 logger.debug(f"Final checklist-items param: {repr(params['checklist-items'])}")
 
             # Execute URL scheme
+            # Snapshot the set of existing todo uuids with this exact title
+            # *before* issuing the URL-scheme create, so the post-create
+            # lookup below can identify the new todo by set difference
+            # (after - before) instead of relying solely on "most recent
+            # creation date", which is ambiguous when two todos with the
+            # same title are created within the same 1s AppleScript
+            # creation-date granularity (see hq-nxu.12).
+            before_ids = await self._find_todo_ids_by_title(title)
+
             logger.debug(f"Creating todo via URL scheme: {params}")
             result = await self.applescript.execute_url_scheme('add', params)
 
@@ -501,38 +621,6 @@ class TodoOperations:
                     "error": result.get('error', 'Unknown error'),
                     "message": "Failed to create todo via URL scheme"
                 }
-
-            # URL scheme doesn't return the todo ID, so we need to find it
-            # Wait a moment for Things to process the URL
-            await asyncio.sleep(0.5)
-
-            # Search for the newly created todo by title
-            # Use AppleScript to find it
-            search_script = f'''
-            tell application "Things3"
-                try
-                    set foundTodos to to dos whose name is {AppleScriptTemplates.escape_string(title)}
-                    if (count of foundTodos) > 0 then
-                        -- Get the most recently created one
-                        set newestTodo to item 1 of foundTodos
-                        set newestDate to creation date of newestTodo
-                        repeat with aTodo in foundTodos
-                            if creation date of aTodo > newestDate then
-                                set newestTodo to aTodo
-                                set newestDate to creation date of aTodo
-                            end if
-                        end repeat
-                        return id of newestTodo
-                    else
-                        return "error: Todo not found after creation"
-                    end if
-                on error errMsg
-                    return "error: " & errMsg
-                end try
-            end tell
-            '''
-
-            search_result = await self.applescript.execute_applescript(search_script)
 
             # Calculate checklist count correctly
             checklist_items = kwargs.get('checklist_items', [])
@@ -545,40 +633,67 @@ class TodoOperations:
 
             message_suffix = f" with {item_count} checklist items" if item_count else ""
 
-            if search_result.get('success'):
-                todo_id = search_result.get('output', '').strip()
-                if todo_id and not todo_id.startswith('error:'):
-                    response = {
-                        "success": True,
-                        "todo_id": todo_id,
-                        "message": f"Todo created{message_suffix}",
-                        "checklist_count": item_count
-                    }
-                    if warnings:
-                        response["warnings"] = warnings
-                    return response
-                else:
-                    # Todo was created but we couldn't find it
-                    response = {
-                        "success": True,
-                        "message": f"Todo created{message_suffix} but ID could not be retrieved",
-                        "warning": "Todo ID not available",
-                        "checklist_count": item_count
-                    }
-                    if warnings:
-                        response["warnings"] = warnings
-                    return response
-            else:
-                # Todo was likely created but we couldn't find it
+            # URL scheme doesn't return the todo ID, so poll for it. Things
+            # processes the URL asynchronously, so give it up to
+            # _URL_SCHEME_LOOKUP_DEADLINE_SECS in
+            # _URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS steps, comparing the
+            # post-create id set against the pre-create snapshot on each
+            # poll rather than sleeping a fixed amount and hoping the todo
+            # has appeared by then.
+            new_ids: List[str] = []
+            deadline = time.monotonic() + self._URL_SCHEME_LOOKUP_DEADLINE_SECS
+            while True:
+                await asyncio.sleep(self._URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS)
+                after_ids = await self._find_todo_ids_by_title(title)
+                new_ids = [tid for tid in after_ids if tid not in before_ids]
+                if new_ids or time.monotonic() >= deadline:
+                    break
+
+            if len(new_ids) == 1:
                 response = {
                     "success": True,
-                    "message": f"Todo created{message_suffix} but ID could not be retrieved",
-                    "warning": "Todo ID not available",
+                    "todo_id": new_ids[0],
+                    "message": f"Todo created{message_suffix}",
                     "checklist_count": item_count
                 }
                 if warnings:
                     response["warnings"] = warnings
                 return response
+            elif len(new_ids) > 1:
+                # Several todos with this title appeared since the
+                # snapshot (e.g. a concurrent create with the same
+                # title) - return the newest one via creation date, but
+                # warn that the match is ambiguous.
+                newest_id = await self._newest_todo_id(new_ids)
+                response = {
+                    "success": True,
+                    "todo_id": newest_id,
+                    "message": f"Todo created{message_suffix}",
+                    "checklist_count": item_count,
+                    "warnings": warnings + [
+                        "Multiple new to-dos with this title were found; "
+                        "returned the most recently created one."
+                    ]
+                }
+                return response
+            else:
+                # No new todo with this title showed up within the
+                # deadline. The URL scheme call reported success, so the
+                # create may still have gone through in Things after our
+                # deadline expired - we just couldn't confirm its id.
+                return {
+                    "success": False,
+                    "error": (
+                        "Todo could not be confirmed created within "
+                        f"{self._URL_SCHEME_LOOKUP_DEADLINE_SECS}s of the "
+                        "URL scheme call; the to-do may still have been "
+                        "created in Things - check manually before "
+                        "retrying to avoid a duplicate."
+                    ),
+                    "message": f"Todo creation{message_suffix} could not be confirmed",
+                    "checklist_count": item_count,
+                    **({"warnings": warnings} if warnings else {})
+                }
 
         except Exception as e:
             logger.error(f"Error adding todo via URL scheme: {e}")
@@ -843,6 +958,45 @@ class TodoOperations:
         (an explicit empty list) clears all tags. title='' is rejected
         upstream (ParameterValidator.validate_update_params) and should
         never reach here.
+
+        heading (Optional[str]): moves the to-do under that heading within
+        its current project via the Things URL scheme (things:///update)
+        - AppleScript has no way to move a to-do under a heading. The URL
+        scheme requires the Things auth token; that check happens BEFORE
+        any AppleScript write so a missing token never results in a
+        partially-applied update. heading='' (or whitespace-only) is
+        rejected outright (Things' URL scheme has no documented way to
+        clear a to-do out of a heading via update - passing heading=''
+        would either be ignored or produce undefined behavior, so we
+        surface a structured error instead of guessing). If list_id is
+        also given, the to-do is moved to that project via 'list-id' in
+        the same URL, with 'heading' resolved within the destination
+        project; if list_id resolves to an area rather than a project, a
+        warning is added since Things ignores 'heading' for area targets.
+        A to-do whose current parent is itself a heading reports
+        project=None from things.py (the project only appears on the
+        heading record) - the current-project fallback for the
+        heading-exists check/warning resolves that via the to-do's
+        heading record.
+
+        when='evening' (alias 'tonight', normalized to 'evening' by
+        ParameterValidator): Things 3's AppleScript 'schedule' command has
+        no way to set the "This Evening" flag (verified against the
+        AppleScript dictionary - 'schedule ... for <date>' only). The
+        Things URL scheme's 'update' action DOES accept when=evening, so
+        this is routed there instead of schedule_todo_reliable(). Like
+        heading, this requires the Things auth token, checked BEFORE any
+        AppleScript write; without one this returns a structured error
+        with a hint instead of silently falling back to a plain "Today"
+        schedule. Note the auth-token check only protects against a
+        partially-applied update when the token itself is missing: if the
+        token IS configured and when='evening' is combined with
+        AppleScript-only fields (title/notes/tags/deadline/etc.) in the
+        same call, the AppleScript write is issued and applied FIRST
+        (same ordering as heading), then the URL-scheme call is made
+        second - if that URL-scheme call itself fails (e.g. a transient
+        `open` failure), the already-applied AppleScript fields are NOT
+        rolled back.
         """
         try:
             # Extract parameters. title/area/project default to '' (falsy
@@ -856,6 +1010,47 @@ class TodoOperations:
             deadline = kwargs.get('deadline', None)
             area = kwargs.get('area', '')
             project = kwargs.get('project', '')
+            heading = kwargs.get('heading', None)
+            list_id = kwargs.get('list_id', '')
+
+            # Things 3's AppleScript 'schedule' command only accepts a date
+            # object - there is no AppleScript way to set the "This Evening"
+            # flag (verified against the AppleScript dictionary: 'schedule
+            # ... for <date>' only). The Things URL scheme's 'update' action
+            # DOES accept when=evening, so route there instead of
+            # schedule_todo_reliable() when when='evening'.
+            when_is_evening = isinstance(when, str) and when.strip().lower() == 'evening'
+
+            # heading has no "clear" semantics via the URL scheme - reject an
+            # explicit empty (or whitespace-only) string rather than silently
+            # ignoring it or sending an ambiguous request to Things. This
+            # check runs before any AppleScript write so nothing is
+            # partially applied.
+            if heading is not None and heading.strip() == '':
+                return {
+                    "success": False,
+                    "error": (
+                        "heading cannot be empty; Things' URL scheme has no "
+                        "documented way to clear a to-do out of a heading via "
+                        "update - to move it out, use move_record() to move "
+                        "it directly into the project instead"
+                    ),
+                    "message": "Failed to update todo"
+                }
+
+            # heading and when='evening' are only honoured via the Things URL
+            # scheme's 'update' action, which requires the auth token. Fail
+            # fast BEFORE any AppleScript write so other fields are never
+            # partially applied.
+            if heading or when_is_evening:
+                if not self.applescript.auth_token:
+                    from ..services.applescript_manager import AUTH_TOKEN_HINT
+                    return {
+                        "success": False,
+                        "error": "Things URL-scheme auth token not configured",
+                        "hint": AUTH_TOKEN_HINT,
+                        "message": "Failed to update todo"
+                    }
 
             # Convert status parameters
             completed = kwargs.get('completed', None)
@@ -873,36 +1068,148 @@ class TodoOperations:
                     "message": "Invalid boolean value for status parameter"
                 }
 
-            # Build and execute script
-            script = self._build_update_script(todo_id, title, notes, tags, deadline,
-                                              area, project, completed, canceled)
-            result = await self.applescript.execute_applescript(script)
+            warnings: List[str] = []
 
-            if result.get("success"):
-                output = result.get("output", "").strip()
-                if output == "updated":
-                    # Schedule if when date provided
-                    if when:
-                        schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
+            # Apply the AppleScript-only fields first (title, notes, tags,
+            # deadline, area, project, completed, canceled). This mirrors the
+            # pre-existing unconditional behavior (the AppleScript write is
+            # always issued, even as a no-op "updated" round trip) EXCEPT
+            # when heading and/or when='evening' are the only field(s)
+            # requested - in that case skip the AppleScript step entirely and
+            # rely solely on the URL-scheme update below, since there is
+            # nothing else to write.
+            skip_applescript = (heading or when_is_evening) and not any([
+                title, notes is not None, tags is not None, deadline is not None,
+                area, project, completed is not None, canceled is not None
+            ])
+
+            if not skip_applescript:
+                script = self._build_update_script(todo_id, title, notes, tags, deadline,
+                                                  area, project, completed, canceled)
+                result = await self.applescript.execute_applescript(script)
+
+                if result.get("success"):
+                    output = result.get("output", "").strip()
+                    if output != "updated":
                         return {
-                            "success": True,
-                            "message": "Todo updated and scheduled successfully",
-                            "scheduling": schedule_result
+                            "success": False,
+                            "error": output,
+                            "message": "Failed to update todo"
                         }
+                else:
                     return {
-                        "success": True,
-                        "message": "Todo updated successfully"
+                        "success": False,
+                        "error": result.get("output", "AppleScript execution failed"),
+                        "message": "Failed to update todo"
                     }
-                return {
-                    "success": False,
-                    "error": output,
-                    "message": "Failed to update todo"
+
+            if heading or when_is_evening:
+                url_params: Dict[str, Any] = {'id': todo_id}
+                if heading:
+                    url_params['heading'] = heading
+                if when_is_evening:
+                    url_params['when'] = 'evening'
+                if list_id:
+                    url_params['list-id'] = list_id
+
+                # The remaining lookups and warnings in this block are all
+                # heading-placement concerns - skip them entirely when only
+                # when_is_evening triggered this branch (no heading requested).
+                if heading:
+                    try:
+                        todo_record = things.get(todo_id)
+                    except Exception as e:
+                        logger.debug(f"Error looking up todo {todo_id} for project check: {e}")
+                        todo_record = None
+
+                    # Resolve which project the heading check/warning should be
+                    # scoped to: the explicitly-requested list_id, or (if none
+                    # given) the to-do's current project. things.py reports
+                    # project=None for a to-do whose parent is a heading (the
+                    # PROJECT join is on TASK.project, which is NULL for heading
+                    # children - the parent project only shows up on the
+                    # heading record itself), so fall back to looking up the
+                    # to-do's heading record's project in that case.
+                    effective_project_id = list_id
+                    list_id_resolution = None
+                    if not effective_project_id and todo_record:
+                        effective_project_id = todo_record.get('project')
+                        if not effective_project_id and todo_record.get('heading'):
+                            try:
+                                heading_record = things.get(todo_record['heading'])
+                            except Exception as e:
+                                logger.debug(
+                                    f"Error looking up heading {todo_record['heading']} "
+                                    f"for project fallback: {e}"
+                                )
+                                heading_record = None
+                            if heading_record:
+                                effective_project_id = heading_record.get('project')
+
+                    if list_id:
+                        list_id_resolution = self._resolve_list_id(list_id)
+
+                    if list_id_resolution and list_id_resolution.get("kind") == "area":
+                        warnings.append(
+                            f"list_id '{list_id}' resolves to an area, not a project; "
+                            "Things' URL scheme ignores 'heading' for area targets - "
+                            "the to-do will move into the area but not be placed under "
+                            "any heading."
+                        )
+                    elif effective_project_id:
+                        heading_warning = self._check_heading_exists(heading, list_id=effective_project_id)
+                        if heading_warning:
+                            warnings.append(heading_warning)
+                    else:
+                        warnings.append(
+                            "This to-do does not appear to belong to a project; Things' "
+                            "URL scheme silently ignores 'heading' for to-dos outside a "
+                            "project. Pass list_id to move it into a project with this "
+                            "heading."
+                        )
+
+                url_result = await self.applescript.execute_url_scheme('update', url_params)
+
+                if not url_result.get('success'):
+                    response = {
+                        "success": False,
+                        "error": url_result.get('error', 'Unknown error'),
+                        "message": "Failed to update todo heading" if heading else "Failed to schedule todo for evening"
+                    }
+                    if url_result.get('hint'):
+                        response['hint'] = url_result['hint']
+                    return response
+
+            # Schedule if when date provided (evening was already applied via
+            # the URL scheme above - schedule_todo_reliable has no AppleScript
+            # mechanism for it).
+            if when and not when_is_evening:
+                schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
+                response = {
+                    "success": True,
+                    "message": "Todo updated and scheduled successfully",
+                    "scheduling": schedule_result
                 }
-            return {
-                "success": False,
-                "error": result.get("output", "AppleScript execution failed"),
-                "message": "Failed to update todo"
+                if warnings:
+                    response["warnings"] = warnings
+                return response
+
+            response = {
+                "success": True,
+                "message": (
+                    "Todo updated and scheduled for This Evening successfully"
+                    if when_is_evening else "Todo updated successfully"
+                )
             }
+            if when_is_evening:
+                response["scheduling"] = {
+                    "success": True,
+                    "method": "url_scheme",
+                    "date_set": "evening"
+                }
+            if warnings:
+                response["warnings"] = warnings
+            return response
 
         except Exception as e:
             logger.error(f"Error updating todo: {e}")
@@ -986,13 +1293,32 @@ class TodoOperations:
         return script
 
     async def add_project(self, title: str, **kwargs) -> Dict[str, Any]:
-        """Add a new project using AppleScript."""
+        """Add a new project using AppleScript.
+
+        when='evening'/'tonight' is rejected: Things has no "This Evening"
+        concept for projects (only to-dos can be scheduled for This
+        Evening in the Things UI), and silently falling back to a plain
+        "Today" schedule (as schedule_todo_reliable's list-fallback would
+        otherwise do for an unrecognized when value) would misrepresent
+        what was actually applied.
+        """
         try:
             # Extract parameters
             notes = kwargs.get('notes', '')
             tags = kwargs.get('tags', [])
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', '')
+
+            if isinstance(when, str) and when.strip().lower() == 'evening':
+                return {
+                    "success": False,
+                    "error": (
+                        "when='evening' is not supported for projects; Things has "
+                        "no \"This Evening\" concept for projects (only to-dos can "
+                        "be scheduled for This Evening) - use when='today' instead"
+                    ),
+                    "message": "Failed to add project"
+                }
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
@@ -1057,6 +1383,13 @@ class TodoOperations:
         list) clears all tags. title='' is rejected upstream
         (ParameterValidator.validate_update_params) and should never
         reach here.
+
+        when='evening'/'tonight' is rejected: Things has no "This Evening"
+        concept for projects (only to-dos can be scheduled for This
+        Evening in the Things UI), and silently falling back to a plain
+        "Today" schedule (as schedule_todo_reliable's list-fallback would
+        otherwise do for an unrecognized when value) would misrepresent
+        what was actually applied.
         """
         try:
             # Extract parameters. title/area default to '' (falsy
@@ -1068,6 +1401,17 @@ class TodoOperations:
             tags = kwargs.get('tags', None)
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', None)
+
+            if isinstance(when, str) and when.strip().lower() == 'evening':
+                return {
+                    "success": False,
+                    "error": (
+                        "when='evening' is not supported for projects; Things has "
+                        "no \"This Evening\" concept for projects (only to-dos can "
+                        "be scheduled for This Evening) - use when='today' instead"
+                    ),
+                    "message": "Failed to update project"
+                }
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')

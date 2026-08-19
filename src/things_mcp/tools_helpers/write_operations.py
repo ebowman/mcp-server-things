@@ -549,6 +549,7 @@ class WriteOperations:
             current_tags = [t.strip() for t in current_tags_str.split(',') if t.strip()] if current_tags_str else []
 
             all_tags = list(dict.fromkeys(current_tags + valid_tags))
+            added_count = len(all_tags) - len(current_tags)
 
             escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(all_tags))
 
@@ -566,7 +567,7 @@ class WriteOperations:
             result = await self.applescript.execute_applescript(script)
             return {
                 "success": result.get('success', False),
-                "message": f"Added {len(valid_tags)} tags successfully" if result.get('success') else result.get('error', 'Failed to add tags'),
+                "message": f"Added {added_count} tags successfully" if result.get('success') else result.get('error', 'Failed to add tags'),
                 "tag_info": tag_info
             }
         except Exception as e:
@@ -614,7 +615,15 @@ class WriteOperations:
             }
 
     async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
-        """Remove tags from a todo using AppleScript."""
+        """Remove tags from a todo using AppleScript.
+
+        Note: unlike add_tags, this does NOT apply the configured
+        tag_creation_policy. Removal is inherently non-creating - a tag name
+        that isn't currently on the todo (whether or not it exists anywhere
+        in Things) is simply not present in `remaining_tags` and is reported
+        via `not_present`; there is nothing for the policy to filter or
+        create.
+        """
         try:
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(",")] if tags else []
@@ -633,8 +642,14 @@ class WriteOperations:
 
             tags_to_remove_set = set(tags)
             remaining_tags = [tag for tag in current_tags if tag not in tags_to_remove_set]
+            removed_count = len(current_tags) - len(remaining_tags)
+            not_present = [tag for tag in tags if tag not in current_tags]
 
-            logger.debug(f"remove_tags: current={current_tags}, removing={tags}, remaining={remaining_tags}")
+            logger.debug(
+                f"remove_tags: current={current_tags}, removing={tags}, "
+                f"remaining={remaining_tags}, removed_count={removed_count}, "
+                f"not_present={not_present}"
+            )
 
             if remaining_tags:
                 escaped_tags_string = ToolsHelpers.escape_applescript_string(', '.join(remaining_tags))
@@ -655,14 +670,22 @@ class WriteOperations:
                 '''
 
             result = await self.applescript.execute_applescript(script)
+            write_succeeded = result.get('success', False)
+            # removed_count/not_present describe the write that was attempted;
+            # if the AppleScript write itself failed, nothing was actually
+            # applied, so report 0 removed rather than the would-be count.
+            effective_removed_count = removed_count if write_succeeded else 0
             return {
-                "success": result.get('success', False),
-                "message": f"Removed {len(tags)} tags successfully" if result.get('success') else result.get('error', 'Failed to remove tags')
+                "success": write_succeeded,
+                "message": f"Removed {removed_count} tags successfully" if write_succeeded else result.get('error', 'Failed to remove tags'),
+                "removed_count": effective_removed_count,
+                "not_present": not_present
             }
         except Exception as e:
             logger.error(f"Error removing tags: {e}")
             return {
                 "success": False,
                 "error": str(e),
-                "message": "Failed to remove tags"
+                "message": "Failed to remove tags",
+                "removed_count": 0
             }

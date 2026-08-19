@@ -23,6 +23,7 @@ from . import __version__
 from .boot_trace import boot_marker
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
+from .tools_helpers.read_operations import read_error as _tools_read_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
@@ -255,11 +256,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -267,11 +267,10 @@ class ThingsMCPServer:
 
                 # Validate status parameter
                 if status is not None and status not in ["incomplete", "completed", "canceled"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid status",
-                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
-                    }
+                    return self._read_error(
+                        "invalid_status",
+                        f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}",
+                    )
 
                 # Convert and validate limit parameter
                 actual_limit = None
@@ -287,17 +286,15 @@ class ThingsMCPServer:
 
                         # Validate range
                         if actual_limit < 1 or actual_limit > 500:
-                            return {
-                                "success": False,
-                                "error": "Invalid limit value",
-                                "message": f"Limit must be between 1 and 500, got {actual_limit}"
-                            }
+                            return self._read_error(
+                                "invalid_limit",
+                                f"Limit must be between 1 and 500, got {actual_limit}",
+                            )
                     except (ValueError, TypeError) as e:
-                        return {
-                            "success": False,
-                            "error": "Invalid limit parameter",
-                            "message": f"Limit must be a number between 1 and 500, got '{limit}'"
-                        }
+                        return self._read_error(
+                            "invalid_limit",
+                            f"Limit must be a number between 1 and 500, got '{limit}'",
+                        )
 
                 # Prepare request parameters
                 request_params = {
@@ -323,6 +320,14 @@ class ThingsMCPServer:
                     include_items=final_include_items,
                     status=final_status
                 )
+
+                # Defense in depth: _get_todos_sync also validates status and
+                # returns a structured error dict for values that somehow slip
+                # past the pre-validation above (e.g. a direct/non-MCP caller
+                # of the tools layer). Surface it as-is, same pattern as
+                # search_todos's "Invalid status" short-circuit.
+                if isinstance(raw_data, dict):
+                    return raw_data
 
                 # Track pre-limit total, then apply limit if specified
                 pre_limit_total = len(raw_data)
@@ -402,8 +407,8 @@ class ThingsMCPServer:
             title: str = Field(..., min_length=1, description="Title of the todo"),
             notes: Optional[str] = Field(None, description="Notes for the todo"),
             tags: Optional[str] = Field(None, description="Comma-separated tags (only existing tags applied)"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="Deadline for the todo (YYYY-MM-DD)"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening), 'someday', 'anytime', or a date (e.g., '2024-12-25', '2024-12-25@14:30')"),
+            deadline: Optional[str] = Field(None, description="Deadline for the todo. Must be YYYY-MM-DD - relative keywords like 'today' are rejected"),
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
@@ -415,7 +420,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -472,10 +477,12 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening; requires the Things URL-scheme auth token, see hint below), 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
-            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
+            canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)"),
+            heading: Optional[str] = Field(None, description="Move the to-do under this heading (within its current project, or list_id's project if also given). Requires the Things URL-scheme auth token (see README/CLAUDE.md 'Things URL-scheme auth token') - fails fast with a structured error and hint if not configured. Cannot be cleared with ''; '' is rejected"),
+            list_id: Optional[str] = Field(None, description="Project/area ID to move the to-do into when combined with heading (Things URL scheme supports moving + placing under a heading in one call). Only consulted when heading is also given")
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
@@ -485,6 +492,31 @@ class ThingsMCPServer:
             tags='' clears all tags. title='' is rejected with a validation
             error (titles cannot be cleared). when='' is also rejected -
             use when='anytime' or when='someday' to unschedule instead.
+
+            heading moves the to-do under that heading via the Things URL
+            scheme (things:///update) - AppleScript cannot do this. It
+            requires the Things auth token to be configured; without one
+            this returns {"success": False, "error": "...", "hint": "..."}
+            and no field (including title/notes/tags/etc. in the same call)
+            is applied. heading='' is rejected (no way to clear a heading
+            via update). The heading must already exist in the target
+            project or Things silently ignores it (ends up in the project,
+            not under the heading) - a warning is returned when the heading
+            could not be confirmed to exist. If the to-do has no project and
+            list_id is not also given, a warning is returned (URL-scheme
+            'heading' has no effect without a project).
+
+            when='evening' (alias 'tonight') schedules the to-do for This
+            Evening. Like heading, this is only possible via the Things URL
+            scheme (things:///update) and requires the Things auth token to
+            be configured; without one this returns {"success": False,
+            "error": "...", "hint": "..."} and no field in the same call is
+            applied. If the token IS configured and when='evening' is
+            combined with other fields (title/notes/tags/deadline/etc.) in
+            the same call, those AppleScript-only fields are applied FIRST,
+            then the URL-scheme evening schedule is applied second - if
+            that second URL-scheme call itself fails, the already-applied
+            fields are NOT rolled back (same ordering/caveat as heading).
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -493,7 +525,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -533,11 +565,13 @@ class ThingsMCPServer:
                     when=when,
                     deadline=deadline,
                     completed=completed_bool,
-                    canceled=canceled_bool
+                    canceled=canceled_bool,
+                    heading=heading,
+                    list_id=list_id
                 )
-                
+
                 # Enhance response with tag validation feedback if available
-                if (tag_list and self.tools.tag_validation_service and 
+                if (tag_list and self.tools.tag_validation_service and
                     hasattr(result, 'get') and result.get('success')):
                     # Get tag validation info from the result
                     if 'tag_info' in result:
@@ -548,7 +582,7 @@ class ThingsMCPServer:
                             result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
-                
+
                 return result
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
@@ -560,8 +594,8 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title for all todos. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes for all todos. Omit to leave unchanged; pass '' to clear notes on all todos"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to all todos (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags on all todos"),
-            when: Optional[str] = Field(None, description="Schedule date (e.g., 'today', '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline for all todos (YYYY-MM-DD). Omit to leave unchanged; pass '' to clear the deadline on all todos"),
+            when: Optional[str] = Field(None, description="Schedule date: 'today', 'tomorrow', 'evening' (alias 'tonight', schedules for This Evening; requires the Things URL-scheme auth token), 'someday', 'anytime', or a date (e.g., '2024-12-25'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline for all todos. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the deadline on all todos"),
             completed: Optional[str] = Field(None, description="Mark all as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark all as canceled (true/false)")
         ) -> Dict[str, Any]:
@@ -574,6 +608,16 @@ class ThingsMCPServer:
             tags. title='' is rejected with a validation error (titles
             cannot be cleared). when='' is also rejected - use
             when='anytime' or when='someday' to unschedule instead.
+            when='evening' (alias 'tonight') schedules every todo for This
+            Evening via the Things URL scheme and requires the Things auth
+            token to be configured; without one this returns
+            {"success": False, "error": "...", "hint": "..."} and no field
+            is applied to any todo. If the token IS configured, other
+            fields (title/notes/tags/deadline/etc.) are applied to each
+            todo via AppleScript FIRST, then the URL-scheme evening
+            schedule is applied second per todo - if the evening
+            scheduling call fails for a given todo, the other fields
+            already applied to that todo are NOT rolled back.
             """
             try:
                 # Validate date parameters. Empty strings ('') are clear/reject
@@ -582,7 +626,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -808,11 +852,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -849,8 +892,8 @@ class ThingsMCPServer:
             title: str = Field(..., min_length=1, description="Title of the project"),
             notes: Optional[str] = Field(None, description="Notes for the project"),
             tags: Optional[str] = Field(None, description="Comma-separated tags to apply to the project"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30')"),
-            deadline: Optional[str] = Field(None, description="Deadline for the project"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). 'evening'/'tonight' is not supported for projects - Things has no This Evening concept for projects"),
+            deadline: Optional[str] = Field(None, description="Deadline for the project. Must be YYYY-MM-DD - relative keywords like 'today' are rejected"),
             area_id: Optional[str] = Field(None, description="ID of area to add to"),
             area_title: Optional[str] = Field(None, description="Title of area to add to"),
             todos: Optional[str] = Field(None, description="Newline-separated initial todos to create in the project")
@@ -861,7 +904,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -904,8 +947,8 @@ class ThingsMCPServer:
             title: Optional[str] = Field(None, description="New title. Omit to leave unchanged; '' is rejected (titles cannot be cleared)"),
             notes: Optional[str] = Field(None, description="New notes. Omit to leave unchanged; pass '' to clear existing notes"),
             tags: Optional[str] = Field(None, description="Comma-separated new tags (replaces existing tags). Omit to leave unchanged; pass '' to clear all tags"),
-            when: Optional[str] = Field(None, description="Schedule date/time (e.g., 'today', '2024-12-25@14:30'). Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
-            deadline: Optional[str] = Field(None, description="New deadline. Omit to leave unchanged; pass '' to clear the existing deadline"),
+            when: Optional[str] = Field(None, description="Schedule date/time: 'today', 'tomorrow', 'someday', 'anytime', or a date (e.g., '2024-12-25@14:30'). 'evening'/'tonight' is not supported for projects - Things has no This Evening concept for projects. Omit to leave unchanged; '' is rejected - use 'anytime' or 'someday' to unschedule"),
+            deadline: Optional[str] = Field(None, description="New deadline. Must be YYYY-MM-DD - relative keywords like 'today' are rejected. Omit to leave unchanged; pass '' to clear the existing deadline"),
             area_id: Optional[str] = Field(None, description="ID of area to move to"),
             area_title: Optional[str] = Field(None, description="Title of area to move to"),
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
@@ -932,7 +975,7 @@ class ThingsMCPServer:
                 if when:
                     try:
                         from things_mcp.parameter_validator import ParameterValidator
-                        ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
+                        when = ParameterValidator.validate_date_format(when, 'when', allow_relative=True)
                     except Exception as e:
                         return {
                             "success": False,
@@ -990,11 +1033,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -1073,8 +1115,12 @@ class ThingsMCPServer:
             Inbox in any case, since Inbox items cannot belong to a project.
             """
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_inbox(limit=limit)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_inbox(limit=None)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1082,9 +1128,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 raise
@@ -1097,8 +1143,12 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_today(limit=limit, include_projects=include_projects)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_today(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1106,9 +1156,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 raise
@@ -1149,8 +1199,12 @@ class ThingsMCPServer:
                         result['days'] = days
                         return result
 
-                # Original behavior: get items from Things 3's Upcoming list
-                raw_data = await self.tools.get_upcoming(limit=limit, include_projects=include_projects)
+                # Original behavior: get items from Things 3's Upcoming list.
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`.
+                full_data = await self.tools.get_upcoming(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1158,9 +1212,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 raise
@@ -1173,8 +1227,12 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_anytime(limit=limit, include_projects=include_projects)
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_anytime(limit=None, include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1182,9 +1240,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 raise
@@ -1198,10 +1256,14 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
-                # Get raw data with optional limit
-                raw_data = await self.tools.get_someday(
-                    limit=limit, include_project_tasks=include_project_tasks,
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors the existing get_upcoming(days=...) pattern.
+                full_data = await self.tools.get_someday(
+                    limit=None, include_project_tasks=include_project_tasks,
                     include_projects=include_projects)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
 
                 # Apply context-aware optimization if mode is specified
                 if mode:
@@ -1209,9 +1271,9 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
-                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=len(raw_data))
+                    return self._read_result(optimized_response, mode=response_mode.value, limit=limit, total=pre_limit_total)
 
-                return self._read_result(raw_data, limit=limit)
+                return self._read_result(raw_data, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 raise
@@ -1219,12 +1281,14 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_logbook(
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50", ge=1, le=100),
-            period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$")
+            period: str = Field("7d", description="Time period to look back (e.g., '3d', '1w', '2m', '1y'). Defaults to '7d'", pattern=r"^\d+[dwmy]$"),
+            offset: int = Field(0, description="Number of matching entries to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Get completed todos from Logbook. Supports limit (max 100) and period filters (e.g., '7d', '1w')."""
+            """Get completed todos from Logbook. Supports limit (max 100), offset, and period filters (e.g., '7d', '1w')."""
             try:
-                logbook_data = await self.tools.get_logbook(limit=limit, period=period)
-                result = self._read_result(logbook_data, mode='standard', limit=limit)
+                logbook_data = await self.tools.get_logbook(limit=limit, period=period, offset=offset)
+                total = getattr(logbook_data, 'total_count', None)
+                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -1280,7 +1344,10 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
-                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
+                return self._read_error(
+                    "internal_error", str(e),
+                    todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
+                )
 
         @self.mcp.tool()
         async def get_activating_in_days(
@@ -1294,7 +1361,10 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
-                return {"error": str(e), "todos": [], "items": [], "count": 0, "total": 0, "mode": None, "limit": None, "offset": None}
+                return self._read_error(
+                    "internal_error", str(e),
+                    todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
+                )
         
         # Tag management tools
         @self.mcp.tool()
@@ -1333,6 +1403,66 @@ class ThingsMCPServer:
                 raise
 
         @self.mcp.tool()
+        async def get_project_headings(
+            project_id: str = Field(..., description="UUID of the project to read headings from"),
+            mode: Optional[str] = Field(None, description="Response mode (auto/summary/minimal/standard/detailed/raw)")
+        ) -> Dict[str, Any]:
+            """Get the heading structure of a project, in Things' own display order.
+
+            Each item has: uuid, title, index (Things' internal ordering value,
+            lower sorts first), and todoCount (number of open to-dos directly
+            under that heading, via things.todos(heading=uuid, status='incomplete')).
+
+            Read-only by design: headings cannot be created, renamed, or deleted
+            via any public Things 3 API. There is no AppleScript heading class,
+            and the URL scheme can only place to-dos under headings that already
+            exist, or seed headings at project-creation time via add-project's
+            ``##`` lines. This tool exists purely to read the heading structure
+            that already exists in a project.
+
+            Args:
+                project_id: UUID of the project. Must resolve to an item of
+                    type 'project' - ids for to-dos, areas, or headings, and
+                    unknown ids, return a structured error instead of raising.
+                mode: Response mode for the items list - 'auto' (default,
+                    resolves to a concrete mode based on data size), 'summary',
+                    'minimal', 'standard', 'detailed', or 'raw'.
+            """
+            try:
+                # Validate mode parameter
+                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
+
+                headings_result = await self.tools.get_project_headings(project_id=project_id)
+                if isinstance(headings_result, dict) and headings_result.get('error'):
+                    return headings_result
+                raw_data = headings_result.get('items', []) if isinstance(headings_result, dict) else headings_result
+
+                # Apply smart defaults and optimization
+                request_params = {'mode': mode}
+                optimized_params, was_modified = self.context_manager.optimize_request(
+                    'get_project_headings', request_params
+                )
+                response_mode = ResponseMode(optimized_params.get('mode', 'standard'))
+
+                # Apply context-aware response optimization
+                optimized_response = self.context_manager.optimize_response(
+                    raw_data, 'get_project_headings', response_mode, optimized_params
+                )
+
+                return self._read_result(
+                    optimized_response,
+                    mode=response_mode.value,
+                    total=len(raw_data),
+                )
+            except Exception as e:
+                logger.error(f"Error getting project headings: {e}")
+                raise
+
+        @self.mcp.tool()
         async def get_tag_usage(
             only_unused: bool = Field(False, description="If true, only return tags with zero items (cleanup candidates)"),
             mode: str = Field("standard", description="Response mode: summary, minimal, standard, or detailed")
@@ -1360,11 +1490,10 @@ class ThingsMCPServer:
             """
             try:
                 if mode not in ("summary", "minimal", "standard", "detailed"):
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: summary, minimal, standard, detailed. Got: {mode}",
+                    )
                 usage_data = await self.tools.get_tag_usage(only_unused=only_unused, mode=mode)
                 return self._read_result(usage_data, mode=mode)
             except Exception as e:
@@ -1377,9 +1506,10 @@ class ThingsMCPServer:
             query: str = Field(..., description="Search term to look for in todo titles and notes"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
             mode: Optional[str] = None,
-            status: Optional[str] = 'incomplete'
+            status: Optional[str] = 'incomplete',
+            offset: int = Field(0, description="Number of matching results to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Search todos by query term. Supports limit (1-500) and response modes for context optimization.
+            """Search todos by query term. Supports limit (1-500), offset, and response modes for context optimization.
 
             Args:
                 query: Search term to look for in todo titles and notes (case-insensitive
@@ -1390,6 +1520,7 @@ class ThingsMCPServer:
                     'completed', 'canceled', or None to search all statuses. Note the default
                     means a completed or canceled todo will NOT match unless you pass
                     status='completed'/'canceled'/None explicitly.
+                offset: Number of matching results to skip before applying limit (default 0).
 
             Note: filter_someday_project_tasks is NOT applied to search - todos inside a
             Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can still
@@ -1398,11 +1529,10 @@ class ThingsMCPServer:
             try:
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}"
-                    }
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                    )
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -1410,20 +1540,18 @@ class ThingsMCPServer:
 
                 # Validate status parameter
                 if status is not None and status not in ["incomplete", "completed", "canceled"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid status",
-                        "message": f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}"
-                    }
+                    return self._read_error(
+                        "invalid_status",
+                        f"Status must be one of: 'incomplete', 'completed', 'canceled', or None for all. Got: {status}",
+                    )
 
                 # Reject empty/whitespace-only query - an empty substring matches
                 # every todo's title/notes, which is never a useful search result.
                 if not query or not query.strip():
-                    return {
-                        "success": False,
-                        "error": "Invalid query",
-                        "message": "query must not be empty or whitespace-only"
-                    }
+                    return self._read_error(
+                        "invalid_query",
+                        "query must not be empty or whitespace-only",
+                    )
 
                 # Prepare request parameters
                 request_params = {
@@ -1441,7 +1569,10 @@ class ThingsMCPServer:
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
 
                 # Get raw data from tools layer
-                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status)
+                raw_data = await self.tools.search_todos(query=query, limit=final_limit, status=status, offset=offset)
+                pre_limit_total = getattr(raw_data, 'total_count', None)
+                if pre_limit_total is None:
+                    pre_limit_total = len(raw_data)
 
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
@@ -1456,7 +1587,8 @@ class ThingsMCPServer:
                     optimized_response,
                     mode=response_mode.value,
                     limit=final_limit,
-                    total=len(raw_data),
+                    offset=offset,
+                    total=pre_limit_total,
                 )
 
             except Exception as e:
@@ -1472,9 +1604,10 @@ class ThingsMCPServer:
             start_date: Optional[str] = Field(None, description="Filter by start date (YYYY-MM-DD)"),
             deadline: Optional[str] = Field(None, description="Filter by deadline (YYYY-MM-DD)"),
             limit: int = Field(50, description="Maximum number of results to return (1-500)", ge=1, le=500),
-            mode: Optional[str] = None
+            mode: Optional[str] = None,
+            offset: int = Field(0, description="Number of matching results to skip before applying limit (default: 0)", ge=0)
         ) -> Dict[str, Any]:
-            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes and limit (1-500) for efficient retrieval.
+            """Advanced search with multiple filters: status, type, tag, area, start_date, deadline. Supports response modes, limit (1-500), and offset for efficient retrieval.
 
             Note: the tag filter is case-sensitive. An unknown tag (including a
             wrong-case variant of a real tag, e.g. 'work' vs 'Work') returns a
@@ -1496,35 +1629,32 @@ class ThingsMCPServer:
                 
                 # Validate mode parameter
                 if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return {
-                        "success": False,
-                        "error": "Invalid mode",
-                        "message": f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                        "valid_modes": ["auto", "summary", "minimal", "standard", "detailed", "raw"]
-                    }
-                
+                    return self._read_error(
+                        "invalid_mode",
+                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
+                        valid_modes=["auto", "summary", "minimal", "standard", "detailed", "raw"],
+                    )
+
                 # Validate date formats
                 if start_date:
                     try:
                         datetime.strptime(start_date, '%Y-%m-%d')
                     except ValueError:
-                        return {
-                            "success": False,
-                            "error": "Invalid start_date format",
-                            "message": f"start_date must be in YYYY-MM-DD format. Got: {start_date}",
-                            "example": "2024-12-25"
-                        }
-                
+                        return self._read_error(
+                            "invalid_start_date_format",
+                            f"start_date must be in YYYY-MM-DD format. Got: {start_date}",
+                            example="2024-12-25",
+                        )
+
                 if deadline:
                     try:
                         datetime.strptime(deadline, '%Y-%m-%d')
                     except ValueError:
-                        return {
-                            "success": False,
-                            "error": "Invalid deadline format",
-                            "message": f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
-                            "example": "2024-12-31"
-                        }
+                        return self._read_error(
+                            "invalid_deadline_format",
+                            f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
+                            example="2024-12-31",
+                        )
                 
                 # Prepare request parameters
                 request_params = {
@@ -1537,14 +1667,14 @@ class ThingsMCPServer:
                     'limit': limit,
                     'mode': mode
                 }
-                
+
                 # Apply smart defaults and optimization
                 optimized_params, was_modified = self.context_manager.optimize_request('search_advanced', request_params)
-                
+
                 # Extract optimized parameters
                 final_limit = optimized_params.get('limit', 50)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
-                
+
                 # Get raw data from tools layer
                 raw_data = await self.tools.search_advanced(
                     status=status,
@@ -1553,7 +1683,8 @@ class ThingsMCPServer:
                     area=area,
                     start_date=start_date,
                     deadline=deadline,
-                    limit=final_limit
+                    limit=final_limit,
+                    offset=offset
                 )
 
                 # A structured error (e.g. unknown_tag) comes back as a
@@ -1568,6 +1699,10 @@ class ThingsMCPServer:
                 ):
                     return raw_data[0]
 
+                pre_limit_total = getattr(raw_data, 'total_count', None)
+                if pre_limit_total is None:
+                    pre_limit_total = len(raw_data)
+
                 # Apply context-aware response optimization
                 optimized_response = self.context_manager.optimize_response(
                     raw_data, 'search_advanced', response_mode, optimized_params
@@ -1581,7 +1716,8 @@ class ThingsMCPServer:
                     optimized_response,
                     mode=response_mode.value,
                     limit=final_limit,
-                    total=len(raw_data),
+                    offset=offset,
+                    total=pre_limit_total,
                 )
 
             except Exception as e:
@@ -1622,7 +1758,16 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo"),
             tags: str = Field(..., description="Comma-separated tags to add")
         ) -> Dict[str, Any]:
-            """Add tags to a todo. Only existing tags can be applied."""
+            """Add tags to a todo. Only existing tags can be applied.
+
+            The response `message` reports how many tags were newly attached
+            (tags already present on the todo are not double-counted). The
+            `tags` parameter is comma-separated, and the comma is the tag
+            separator - tag names cannot contain a comma. "a,b" is always
+            treated as two tags ("a" and "b"), never as one tag named "a,b";
+            there is no way to pass a literal comma in a tag name through
+            this string-based parameter.
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags) or []
@@ -1658,7 +1803,16 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo"),
             tags: str = Field(..., description="Comma-separated tags to remove")
         ) -> Dict[str, Any]:
-            """Remove tags from a todo."""
+            """Remove tags from a todo.
+
+            Removing a tag the todo doesn't currently have is a no-op, not an
+            error - it does not go through the configured tag_creation_policy
+            (there is nothing to create or filter when removing). The
+            response includes `removed_count` (the number of tags actually
+            removed - a set difference against the todo's current tags, not
+            the number requested) and `not_present` (any requested tags that
+            were not on the todo).
+            """
             try:
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags) or []
@@ -2039,7 +2193,32 @@ class ThingsMCPServer:
         # get_upcoming(), get_logbook() instead for specific time-based queries.
 
         logger.info("All MCP tools registered successfully")
-    
+
+    @staticmethod
+    def _read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+        """Build the canonical structured-error shape for a read tool.
+
+        Every read tool's structured (non-raising) error path should return
+        this shape so MCP clients can rely on a single contract:
+        ``{"success": False, "error": "<snake_case_code>", "message": "<human text>", ...}``.
+
+        Delegates to ``tools_helpers.read_operations.read_error`` - the
+        single shared implementation used by both this server-tool layer and
+        the tools layer (``ReadOperations``), so the two can never diverge.
+
+        Args:
+            code: Short, stable, machine-readable snake_case error code (e.g.
+                'invalid_mode', 'unknown_tag', 'not_found'). Stable across
+                releases - clients may switch on this value.
+            message: Human-readable explanation of the error.
+            **extra: Additional fields to merge into the result (e.g. 'tag',
+                'suggestions', 'valid_modes', 'example').
+
+        Returns:
+            A dict with 'success', 'error', 'message', plus any extra fields.
+        """
+        return _tools_read_error(code, message, **extra)
+
     def _read_result(
         self,
         response: Union[Dict[str, Any], List[Dict[str, Any]]],

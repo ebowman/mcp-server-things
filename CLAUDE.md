@@ -67,6 +67,7 @@ result = self.applescript_manager.execute_script(script)
 2. **Large data timeouts**: Use response modes (summary, minimal) and pagination
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
+5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
 
 ### Boot Diagnostics (v1.5.0+)
 
@@ -198,6 +199,7 @@ explicitly cleared" by using the empty string (or an empty tag list for `tags`):
 | `deadline` | unchanged | clears the deadline (todo, project) |
 | `tags` | unchanged | clears all tags (todo, project, area) |
 | `when` | unchanged | **rejected** - use `when='anytime'` or `when='someday'` to unschedule instead |
+| `heading` (`update_todo` only) | unchanged | **rejected** - Things has no documented way to clear a heading via `update`; use `move_record()` instead |
 
 ```python
 # Clear notes and deadline, leave everything else (including tags) unchanged
@@ -241,6 +243,22 @@ Both bugs were discovered through comprehensive edge case testing:
 **Important**: Tags must be created in Things 3 before they can be used via the API. The AI assistant cannot create tags programmatically.
 
 The configured `tag_creation_policy` (allow_all / filter_silent / filter_warn / fail_on_unknown) applies uniformly to todos, projects, and areas - tags are validated and filtered before any write, not just for todos.
+
+**Tag names cannot contain a comma - the comma is always the tag separator.**
+Things' AppleScript tag API represents a todo's tags as a single comma-joined
+string (`tag names of targetTodo`), so a tag name containing a literal comma
+is indistinguishable from two separate tags and cannot round-trip through
+that API. Every tool that takes `tags` (`add_tags`, `remove_tags`, `add_todo`,
+`update_todo`, `update_project`, `update_area`, `bulk_update_todos`) accepts
+it as a comma-separated **string**, so `tags="a,b"` is always parsed into two
+tags ("a" and "b") before any validation runs - there is no way to pass a
+literal comma in a tag name through these tools, and no error is raised for
+it. `ParameterValidator.validate_tag_list` additionally rejects a comma
+*inside* an individual tag name with a structured `ValidationError` naming
+the offending tag, but this only matters for direct Python/API callers that
+pass a list (e.g. `["home, office"]`) - it is not reachable from any of the
+MCP tools above, since their string parameters are always split on `,`
+first.
 
 ```python
 # Get all available tags
@@ -287,6 +305,21 @@ remove_tags(todo_id="abc123", tags="urgent,review,old-tag")
 # Tag names are case-sensitive
 remove_tags(todo_id="abc123", tags="Work")   # Removes "Work"
 remove_tags(todo_id="abc123", tags="work")   # Removes "work" (different tag)
+```
+
+**Removing a tag the todo doesn't have is a no-op, not an error.**
+`remove_tags` does *not* apply the configured `tag_creation_policy` - there is
+nothing to create or filter when removing, so a requested tag that isn't
+currently on the todo (whether or not it exists elsewhere in Things) is
+simply absent from the result. The response reports `removed_count` (the
+actual number of tags removed - a set difference against the todo's current
+tags, not the number requested) and `not_present` (any requested tags that
+weren't on the todo):
+
+```python
+# Todo currently has tags "urgent, work"
+remove_tags(todo_id="abc123", tags="urgent,nonexistent")
+# -> {"success": True, "removed_count": 1, "not_present": ["nonexistent"], ...}
 ```
 
 ### Tag Usage Report (Cleanup)
@@ -359,11 +392,30 @@ The structured shape is consistent across list-returning tools:
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
 - `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`
 
+`total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
+
+`offset: int = 0` (paired with `limit`, same semantics as `get_trash`) is supported on `search_todos`, `search_advanced`, and `get_logbook` in addition to `get_trash`, so results past the first page are reachable: call again with `offset += limit` to fetch the next window. `offset` windows over an unchanged underlying dataset are disjoint and, taken together, cover the full matching set exactly once.
+
 Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 `get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.
 
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
+
+#### Structured error contract
+
+When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-range `limit`, an unknown tag, an id that doesn't resolve to the expected type, etc.) it returns a structured error **instead of** the items envelope above, in one canonical shape:
+
+```json
+{"success": false, "error": "invalid_mode", "message": "Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: bogus"}
+```
+
+- `success` - always `false` on a structured error.
+- `error` - a short, stable, machine-readable snake_case code (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`, `unknown_tag`, `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`). Safe to switch on; does not change wording across releases.
+- `message` - a human-readable explanation, safe to display but not safe to pattern-match on (wording may change).
+- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`).
+
+This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items` - reports errors identically, and the two layers cannot drift apart. `get_todo_by_id` is the one exception: it raises (surfaced by FastMCP as a `ToolError`, no `structured_content`) rather than returning a structured error, because it has no natural "envelope" shape to fall back to.
 
 ### Someday: opt-in project-task inheritance
 
@@ -456,19 +508,44 @@ isn't under a heading/project respectively); other fields are omitted when `null
   and where it lives) without pulling notes or checklist detail
 - **`standard`**: `uuid`, `title`, `status`, `type`, `notes`, `dueDate`,
   `modificationDate`, `creationDate`, `tags`, `project`, `projectTitle`,
-  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`
+  `heading`, `headingTitle`, `start`, `startDate`, `inheritedSomeday`,
+  `reminderTime`
 - **`detailed`** / **`raw`**: all fields, including `hasChecklist` (bool - only a
   real `checklist` list of items when `include_items=true` was requested),
   `completionDate`/`cancellationDate` (derived from things.py's single
-  `stop_date` field by `status`), `index`, `todayIndex`
+  `stop_date` field by `status`), `index`, `todayIndex`, `reminderTime`
 
 Note: `area` was removed from the todo field sets (a to-do row from things.py
 never actually carries an `area` key - only projects do; the field was always
-absent in practice). Heading info (`heading`/`headingTitle`) comes directly from
-the Things database via things.py; when a read is served by the AppleScript path
-(`get_todos(project_uuid=...)`), these fields are filled in best-effort by a
-secondary things.py lookup after the AppleScript fetch and are omitted/`null` if
-that lookup fails.
+absent in practice). `heading`/`headingTitle`/`start` come directly from
+things.py on every read path, including `get_todos(project_uuid=...)` (the
+former AppleScript-backed project read path was removed in favor of things.py
+- see CHANGELOG). `project`/`projectTitle` also come directly from things.py
+for todos filed directly in a project - but things.py never stamps a
+heading-child to-do row with `project`/`project_title` (only the heading's own
+row carries them; live: 0/40 heading-children have a populated `project`
+field), so every read tool now backfills `project`/`projectTitle` for
+heading-children in a post-conversion pass (`_fill_project_from_heading` in
+`read_operations.py`, hq-f0w.24) that resolves the heading's parent project -
+`get_todo_by_id('WMVVPmqvWnmbMXsZ8GPdER')` (a to-do under a heading) reports
+`project`/`projectTitle` populated, not `null`. The heading lookup covers
+headings under every project status, not just open ones - it fetches
+`things.tasks(type='heading', status=None)` rather than relying on
+`things.tasks()`'s own `status='incomplete'` default, so completed to-dos
+filed under a heading that belongs to a completed (or finished
+repeating-instance) project also resolve correctly, e.g. via
+`get_todos(status='completed')` or `get_logbook`.
+`reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
+is only present on the small subset of to-dos/projects that actually carry a
+reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
+
+`ToolsHelpers.convert_project` emits the same STANDARD/DETAILED-mode field set
+as convert_todo where the concepts overlap - `start`, `startDate`, `index`,
+`todayIndex`, and `reminderTime` are all emitted on projects the same way they
+are on todos (hq-f0w.29), in addition to the project-specific `area`/
+`areaTitle` fields. Because context_manager.py's mode field-filtering is shared
+across todo/project/area rows, the `standard`/`detailed` field lists above
+apply to projects too.
 
 ### Performance Tips
 
@@ -622,10 +699,96 @@ AppleScript alone (matching pre-1.7.0 behavior) rather than refusing the
 write - only a *successful* lookup that reports the id as unknown, or not a
 project/area, returns a structured error.
 
+**Moving an *existing* to-do under a heading**: `update_todo(id=..., heading=...)`
+moves an existing to-do under a heading. AppleScript has no way to do this -
+`update_todo` uses the Things URL scheme (`things:///update`) for the
+heading move, same as `add_todo`/checklist item management.
+
+```python
+# Move an existing to-do under a heading in its current project
+update_todo(id="abc123", heading="Research")
+
+# Move it into a different project AND place it under a heading there
+# (list-id + heading together in a single URL-scheme update)
+update_todo(id="abc123", heading="Research", list_id="project456")
+
+# Combine with ordinary AppleScript fields in the same call - both are applied
+update_todo(id="abc123", heading="Research", title="Renamed", notes="Updated notes")
+```
+
+**Auth token required**: unlike `add_todo`, `things:///update` requires the
+Things auth token (see "Auth token required" under Checklist Support below
+for how to configure one). Without one configured, `update_todo(heading=...)`
+returns `{"success": false, "error": "Things URL-scheme auth token not
+configured", "hint": ...}` and - because the auth check runs *before* any
+AppleScript write - none of the other fields passed in the same call (title,
+notes, tags, etc.) are applied either, so a failed heading move never
+partially updates the to-do.
+
+**`heading=''` (or whitespace-only) is rejected**: Things' URL scheme has no
+documented way to clear a to-do out of a heading via `update`, so
+`update_todo(id=..., heading="")` returns a structured error explaining that
+instead of guessing at behavior. To move a to-do out from under a heading,
+use `move_record()` to move it directly into the project (or another
+destination) instead.
+
+**Heading must already exist**: same as `add_todo`, if the named heading
+doesn't exist in the target project, Things silently ignores it - the to-do
+stays where it is (not moved under the heading), with no error from Things.
+`update_todo` pre-checks the heading against the target project's known
+headings and adds a `warnings` entry to the response when it can't confirm
+the heading exists. This check also correctly handles **re-filing a to-do
+that is already under a different heading**: `things.py` reports
+`project: None` for a to-do whose current parent is a heading (the project
+only appears on the heading record, not the to-do), so `update_todo` falls
+back to resolving the current project via the to-do's existing heading
+record rather than wrongly treating it as project-less.
+
+**`list_id` resolving to an area**: if `list_id` resolves to an area rather
+than a project, `update_todo` adds a `warnings` entry - Things' URL scheme
+ignores `heading` for area targets (the to-do moves into the area but is
+not placed under any heading).
+
+**No project**: if the to-do doesn't belong to a project (directly or via a
+parent heading) and `list_id` isn't also given, `heading` has no effect
+(Things' URL scheme silently ignores it) - `update_todo` adds a `warnings`
+entry in this case rather than failing outright, since Things itself
+doesn't surface an error either.
+
 **Status semantics (`completed`/`canceled`):**
 - `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
 - Passing `completed="false"` or `canceled="false"` alone reopens the project.
 - Omitting both parameters leaves the project's status unchanged.
+
+### Reading Project Headings
+
+`get_project_headings(project_id, mode?)` returns the heading structure of a project, in
+Things' own display order - useful for understanding how a project is organized before
+adding or moving todos into a specific heading. Like other list tools, `mode` defaults to
+`'auto'`, which resolves to a concrete mode (`summary`/`minimal`/`standard`/`detailed`)
+based on data size - `structured_content['mode']` always reports that concrete mode, never
+the literal string `'auto'`:
+
+```python
+get_project_headings(project_id="abc123")
+# {"items": [
+#   {"uuid": "...", "title": "Research", "index": -515, "todoCount": 2},
+#   {"uuid": "...", "title": "Design", "index": -341, "todoCount": 1},
+# ], "count": 2, "total": 2, "mode": "detailed", "requested_mode": "auto", ...}
+```
+
+Each item's `todoCount` is the number of **open** to-dos directly under that heading
+(`things.todos(heading=uuid, status='incomplete')`). Passing an id that doesn't resolve, or
+that resolves to something other than a project (an area, a to-do, or a heading), returns a
+structured error (`{"error": true, "error_type": ..., "message": ...}`) instead of raising.
+An invalid `mode` value returns `{"success": false, "error": "Invalid mode", "message": ...}`,
+matching `get_projects`/`get_areas`.
+
+**This tool is read-only by design.** Headings cannot be created, renamed, or deleted via
+any public Things 3 API - there is no AppleScript heading class, and the URL scheme can
+only place to-dos under headings that already exist, or seed headings at project-creation
+time via `add_project(todos=...)`'s `##` lines. To add a todo under an existing heading,
+use `add_todo(title=..., list_id=project_id, heading="Existing Heading Title")`.
 
 ### Moving Todos Between Projects
 
@@ -762,7 +925,11 @@ replace_checklist_items(
 **Implementation Details:**
 - Checklists use Things URL scheme API (not AppleScript)
 - URL scheme is automatically used when `checklist_items` parameter is provided
-- Todo ID is retrieved after creation by searching for the newly created todo
+- Todo ID is retrieved after creation by snapshotting existing to-do ids with
+  that title before the URL call and polling (up to 3s, every 250ms) for a
+  new id afterward, so two same-titled to-dos created within a second still
+  resolve to distinct correct ids (see CHANGELOG hq-nxu.12); a lookup that
+  times out returns `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
 - The auth token is loaded once at server startup; a token file added or
   edited afterwards requires a server restart to take effect. An
@@ -797,7 +964,8 @@ replace_checklist_items(
    - Use comma-separated format: `"tag1,tag2"` not `"tag1, tag2"`
 
 2. **Date formats** - Use consistent formats:
-   - Dates: `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`
+   - `when` (scheduling): `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`, `'anytime'`, `'evening'` (alias `'tonight'` - schedules for This Evening; on `update_todo`/`bulk_update_todos` this requires the Things auth token, since only the Things URL scheme, not AppleScript, can set the Evening flag; not supported for projects)
+   - `deadline`: always `YYYY-MM-DD` - relative keywords like `'today'` are rejected on every tool (add/update/bulk)
 
 3. **Limits** - Respect parameter limits:
    - Search results: max 500

@@ -134,6 +134,10 @@
       "description": "Get completed todos from Logbook."
     },
     {
+      "name": "get_project_headings",
+      "description": "Get the heading structure of a project, in Things' own display order."
+    },
+    {
       "name": "get_projects",
       "description": "Get all projects with optional task inclusion."
     },
