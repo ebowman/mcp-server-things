@@ -841,7 +841,13 @@ class ThingsMCPServer:
             completed: Optional[str] = Field(None, description="Mark as completed (true/false)"),
             canceled: Optional[str] = Field(None, description="Mark as canceled (true/false)")
         ) -> Dict[str, Any]:
-            """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content."""
+            """Update an existing project. Supports partial updates to any field including status, scheduling, tags, and content.
+
+            Status semantics for completed/canceled: canceled takes precedence when both are
+            given (e.g. completed='false', canceled='true' results in canceled). Passing
+            completed='false' or canceled='false' alone (with the other omitted) reopens the
+            project. Omitting both leaves status unchanged.
+            """
             try:
                 # Validate date parameters
                 if when:

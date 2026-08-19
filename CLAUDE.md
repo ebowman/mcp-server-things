@@ -469,11 +469,25 @@ update_project(
     tags="urgent,design,review-needed"
 )
 
+# Mark a project completed (moves it to the Logbook)
+update_project(id=project_id, completed="true")
+
+# Mark a project canceled
+update_project(id=project_id, canceled="true")
+
+# Reopen a completed/canceled project
+update_project(id=project_id, completed="false")
+
 # Get projects
 get_projects(mode='summary')  # Count and preview
 get_projects(mode='minimal')  # IDs and names only
 get_projects(mode='standard')  # Full details
 ```
+
+**Status semantics (`completed`/`canceled`):**
+- `canceled` takes precedence over `completed` when both are given in the same call - e.g. `completed="false", canceled="true"` results in the project being canceled.
+- Passing `completed="false"` or `canceled="false"` alone reopens the project.
+- Omitting both parameters leaves the project's status unchanged.
 
 ### Moving Todos Between Projects
 

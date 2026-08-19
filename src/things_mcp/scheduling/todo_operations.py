@@ -800,6 +800,7 @@ class TodoOperations:
             area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
 
             completed = kwargs.get('completed', None)
+            canceled = kwargs.get('canceled', None)
 
             # Start building the AppleScript
             script = f'''
@@ -848,12 +849,20 @@ class TodoOperations:
                     set due date of targetProject to deadlineDate
                     '''
 
-            # Update completion status if provided
-            if completed is not None:
+            # Update status if provided (canceled takes precedence over completed,
+            # matching _build_update_script's todo-path precedence). Unlike the todo
+            # path, canceled=False alone also reopens the project (no completed given)
+            # so that update_project(canceled='false') reliably returns the project to
+            # 'incomplete' rather than being a silent no-op.
+            if canceled is not None and canceled:
+                script += 'set status of targetProject to canceled\n                    '
+            elif completed is not None:
                 if completed:
-                    script += 'set completion date of targetProject to (current date)\n                    '
+                    script += 'set status of targetProject to completed\n                    '
                 else:
-                    script += 'set completion date of targetProject to missing value\n                    '
+                    script += 'set status of targetProject to open\n                    '
+            elif canceled is not None and not canceled:
+                script += 'set status of targetProject to open\n                    '
 
             script += '''
                     return "updated"
