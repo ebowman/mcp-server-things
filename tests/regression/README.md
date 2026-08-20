@@ -102,7 +102,12 @@ debugging a suspected guard false-positive).
   raised a `ToolError`).
 - `server_tools` (session): `live_server.tools`, for the rare case that
   needs to bypass the MCP tool boundary entirely.
-- `sandbox` (session): see above.
+- `sandbox` (session): see above. `sandbox.track(id)`/`track_many(ids)`
+  track extra to-dos/projects; `sandbox.track_area(area_id)` tracks an
+  extra area (e.g. a second area used as an `update_project(area_id=...)`
+  move target) - teardown sweeps its contained projects/todos the same way
+  as the main sandbox area, deletes it, and verifies it's gone via
+  `things.areas()`.
 
 ## Helpers (`helpers.py`)
 

@@ -299,6 +299,7 @@ class Sandbox:
 
         self.tracked_todo_ids: List[str] = []
         self.tracked_project_ids: List[str] = []
+        self.tracked_area_ids: List[str] = []
 
     def track(self, item_id: Optional[str]) -> Optional[str]:
         if item_id:
@@ -308,6 +309,16 @@ class Sandbox:
     def track_many(self, ids) -> None:
         for item_id in ids:
             self.track(item_id)
+
+    def track_area(self, area_id: Optional[str]) -> Optional[str]:
+        """Track an extra area (beyond the main sandbox area) created by a
+        test - e.g. a second area used as an update_project(area_id=...)
+        move target. Swept and deleted by the sandbox teardown, after its
+        contained projects/todos are handled, the same way the main
+        sandbox area is."""
+        if area_id:
+            self.tracked_area_ids.append(area_id)
+        return area_id
 
 
 @pytest.fixture(scope="session")
@@ -448,16 +459,39 @@ def _teardown_sandbox(session: Sandbox) -> None:
     treats a heading as cleaned up once its parent project is itself
     trashed/gone - matching _trash_and_verify's own heading handling - so
     this must not false-fail future headed-project sandboxes.
+
+    Extra areas (`session.tracked_area_ids`, e.g. a second area used as an
+    update_project(area_id=...) move target): any project things.py
+    reports as living inside one of these tracked areas is added to the
+    same project sweep (so its to-dos/headings/project are handled by the
+    same steps 2-3 below, before the area itself is deleted), then each
+    tracked extra area is deleted the same way as the main sandbox area
+    (step 4) and independently verified gone via things.areas().
     """
     import things
 
+    # Extra areas: pull in any project things.py reports as belonging to a
+    # tracked extra area, so its to-dos/headings are swept the same way as
+    # the main sandbox area's projects, before the area itself is deleted.
+    extra_area_project_ids: List[str] = []
+    if session.tracked_area_ids:
+        for area_id in session.tracked_area_ids:
+            if not area_id:
+                continue
+            for p in things.projects(area=area_id, status=None, trashed=None) or []:
+                extra_area_project_ids.append(p["uuid"])
+
     # Sweep every current child (any type/status/trashed) of every sandbox
-    # project - catches anything created but not explicitly tracked.
+    # project (main sandbox projects plus any project living in a tracked
+    # extra area) - catches anything created but not explicitly tracked.
     # Headings are collected separately (see docstring) since there is no
     # AppleScript verb to delete/move one directly.
     child_todo_ids: List[str] = []
     child_heading_ids: List[str] = []
-    for project_id in session.tracked_project_ids:
+    all_project_ids = list(
+        dict.fromkeys(session.tracked_project_ids + extra_area_project_ids)
+    )
+    for project_id in all_project_ids:
         if not project_id:
             continue
         for t in things.tasks(project=project_id, type=None, status=None, trashed=None) or []:
@@ -499,14 +533,20 @@ def _teardown_sandbox(session: Sandbox) -> None:
 
     # 3. Trash every project directly (in case the area-delete cascade
     #    below doesn't run, e.g. area creation itself failed earlier).
-    for project_id in session.tracked_project_ids:
+    #    Includes projects swept from tracked extra areas above.
+    for project_id in all_project_ids:
         if project_id:
             _delete_via_applescript(project_id)
 
-    # 4. Delete the area last - purges the area itself and trashes any
+    # 4. Delete the area(s) last - purges each area itself and trashes any
     #    projects still inside it (to-dos were already swept in step 2).
+    #    Extra tracked areas are handled the same way as the main sandbox
+    #    area, after their contained projects/todos above.
     if session.area_id:
         _delete_area_via_applescript(session.area_id)
+    for area_id in session.tracked_area_ids:
+        if area_id:
+            _delete_area_via_applescript(area_id)
 
     # Give Things a moment to process the deletes before verifying.
     time.sleep(1)
@@ -547,6 +587,15 @@ def _teardown_sandbox(session: Sandbox) -> None:
         still_listed = any(a["uuid"] == session.area_id for a in things.areas() or [])
         if area_record is not None or still_listed:
             leftovers.append(f"area {session.area_id} still present: {session.area_title!r}")
+
+    # Verify tracked extra areas the same way as the main sandbox area.
+    for area_id in session.tracked_area_ids:
+        if not area_id:
+            continue
+        area_record = things.get(area_id)
+        still_listed = any(a["uuid"] == area_id for a in things.areas() or [])
+        if area_record is not None or still_listed:
+            leftovers.append(f"extra area {area_id} still present")
 
     # Verify tag: same bare-get quirk; must be gone from things.tags().
     if session.tag_id:
