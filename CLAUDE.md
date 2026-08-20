@@ -38,11 +38,13 @@ pytest tests/integration/       # Integration tests (mostly mock-based;
                                  # test_search_performance.py, all require THINGS_MCP_LIVE_TESTS=1)
 pytest --cov=src/things_mcp     # With coverage
 THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q   # Opt-in live Things 3 smoke suite (make test-live)
+THINGS_MCP_LIVE_TESTS=1 pytest tests/regression -q   # Opt-in MCP-boundary regression suite (make test-regression, ~30 min)
 ```
 
 See `docs/TESTING.md` for the full testing policy (write-path assertion
-requirements, parser/fixture contracts, parameter-reach coverage, and the
-live smoke suite).
+requirements, parser/fixture contracts, parameter-reach coverage, the live
+smoke suite, and the "API regression suite" section covering
+`tests/regression/`).
 
 ### File Organization
 ```
@@ -1378,6 +1380,7 @@ python -m twine upload dist/mcp_server_things-X.Y.Z*   # uses ~/.pypirc token
 - [ ] CHANGELOG.md updated with date and changes
 - [ ] `pytest tests/unit` passes
 - [ ] `THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` passes on a machine with Things 3 running
+- [ ] `THINGS_MCP_LIVE_TESTS=1 pytest tests/regression -q` passes on a machine with Things 3 running
 - [ ] Committed, pushed to `main`, tag pushed
 - [ ] GitHub Release created
 - [ ] CI `publish.yml` green through `verify-pypi` (confirms PyPI is live)

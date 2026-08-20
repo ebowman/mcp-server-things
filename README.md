@@ -601,7 +601,9 @@ real, running Things 3 and are gated behind `THINGS_MCP_LIVE_TESTS=1` - without 
 skip with a clear reason rather than writing to your live database. Run the live smoke
 suite with `make test-live` (or
 `THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q`); it creates and cleans up its own
-throwaway project and never touches pre-existing data. See
+throwaway project and never touches pre-existing data. `tests/regression` is a second,
+opt-in live suite (same `THINGS_MCP_LIVE_TESTS=1` gate) that drives the real MCP tool
+boundary end-to-end - run it with `make test-regression`. See
 [docs/TESTING.md](docs/TESTING.md) for the full testing policy.
 
 ## Documentation

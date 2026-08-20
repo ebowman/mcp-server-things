@@ -105,8 +105,104 @@ hq-f0w.14's own testing). `tests/integration/verify_cleanup.py` is a
 standalone `__main__` script (not collected by pytest) that exits with an
 error unless `THINGS_MCP_LIVE_TESTS=1` is set.
 
+## The API regression suite (`tests/regression/`)
+
+`tests/regression/` is a second opt-in, self-cleaning live suite. It
+complements `tests/live/`, not replaces it: `tests/live/` drives
+`ThingsTools` directly, while `tests/regression/` drives the real **MCP
+tool boundary** - a real `fastmcp.Client` against a real
+`ThingsMCPServer().mcp` - so it exercises the exact structured-content and
+structured-error shapes an MCP client actually sees (schema validation,
+tool registration, and all).
+
+- **Opt-in only, same gate as `tests/live/`.** The whole directory is
+  skipped (not failed) unless `THINGS_MCP_LIVE_TESTS=1` is set AND Things 3
+  is actually running (probed the same way as `tests/live`). It is safe to
+  run `pytest tests/regression -q` with no env var set in CI or on a
+  machine without Things 3 - everything collects and skips.
+- **Sandbox objects.** A session-scoped `sandbox` fixture
+  (`tests/regression/conftest.py`) creates, once per session, its own
+  throwaway area, two throwaway projects (one seeded with a real heading
+  and a to-do, one empty as a move target), a throwaway tag, and a
+  throwaway completed project (for `TARGET_COMPLETED` error-path tests) -
+  every object is uniquely named with the prefix `hq-gbl-reg ` (tag names
+  use `hq-gbl-reg-tag-`; see `tests/regression/helpers.py`'s
+  `SANDBOX_PREFIX`/`sandbox_title()`). Tests that need additional objects
+  call `sandbox.track(id)` / `sandbox.track_many(ids)` /
+  `sandbox.track_area(area_id)` so teardown finds and removes them too.
+  Every test in this suite must create only objects inside/derived from
+  this sandbox (or explicitly tracked) - never modify, tag, move into,
+  complete, or delete any pre-existing to-do/project/area/tag. See
+  `tests/regression/README.md` for the exact teardown order (tag, then
+  to-dos, then projects, then area).
+- **The zero-collateral-writes guard.** A session-scoped, autouse fixture
+  (`_collateral_guard`) snapshots the *entire* database (every
+  to-do/project/heading via `things.tasks(type=None, status=None,
+  trashed=None)`, plus `things.areas()` and `things.tags()`) before the
+  sandbox is created, and re-snapshots after teardown completes. It fails
+  the run - listing the offending `type`/`uuid`/`title` - if any
+  pre-existing to-do/project/heading's `modified` key changed (or the
+  object disappeared), or if any pre-existing area/tag's presence or title
+  changed. This is the suite's real safety net against writing into a
+  user's live database by accident. Set
+  `THINGS_MCP_REG_SKIP_COLLATERAL_GUARD=1` to downgrade a failure to a
+  `warnings.warn` instead of a hard failure - only for debugging a
+  suspected guard false-positive, not for routine runs.
+- **How to run:**
+  ```bash
+  make test-regression
+  # equivalent to (the Makefile target uses -v instead of -q):
+  THINGS_MCP_LIVE_TESTS=1 pytest tests/regression -q
+  ```
+  Run from the repo root so the Things URL-scheme auth token file
+  (`.things-auth` / `things-auth.txt`) is found. Never print, log, or
+  commit that token. The suite takes roughly 30 minutes against a real
+  Things 3 - budget accordingly, and never run it concurrently with
+  another live `tests/regression` or `tests/live` run against the same
+  Things database (they share the real DB; a concurrent run will cross-trip
+  the collateral guard with false positives).
+- **When the collateral guard fires:** read the failure message - it lists
+  the `type`/`uuid`/`title` of every object it believes changed
+  unexpectedly. First check whether another live suite (`tests/regression`
+  or `tests/live`) was running concurrently against the same Things
+  database; if so, the failure is very likely a false positive from that
+  second run's writes, not a real bug - re-run alone. If no concurrent run
+  was in play, treat the listed uuids as a real regression: look up each
+  one (`things.get(uuid, trashed=None)`) to see what changed, and trace it
+  back to the test/tool call that caused it.
+- **Strict-xfail convention for known bugs.** Where this suite has already
+  found and documented a real live-behavior bug that isn't being fixed as
+  part of adding the test, the assertion is pinned as
+  `pytest.mark.xfail(strict=True, reason="observed: ... (bead-id)")`
+  instead of skipped or asserted as correct - see
+  `tests/regression/test_update_todo.py`, `test_seed_oracle.py`,
+  `test_projects_areas.py`, and `test_bulk_and_move.py` for examples.
+  `strict=True` means the xfail itself fails the run (XPASS) once the
+  underlying bug is fixed, forcing the xfail marker to be removed rather
+  than silently staying in place after a fix ships.
+- **How to add coverage for a new tool:**
+  1. Add/adjust the tool's declared parameters as normal, then regenerate
+     the golden schema snapshot the new/changed schema will otherwise fail
+     against: `THINGS_MCP_UPDATE_SCHEMA_SNAPSHOT=1 pytest
+     tests/unit/test_tool_schema_snapshot.py`.
+  2. `tests/unit/test_read_input_matrix.py` (for a read tool) or
+     `tests/unit/test_write_input_matrix.py` (for a write tool) each end
+     with a `TestCompleteness` check that introspects every tool's declared
+     parameters via `Client.list_tools()` and fails if any `(tool, param)`
+     pair has fewer than 3 `CASES` entries - so a new tool or a new
+     parameter on an existing tool is forced into these matrices by
+     construction; add the missing `CASES` rows there.
+  3. Add a new regression module under `tests/regression/` (or extend an
+     existing one, e.g. `test_list_tools.py`/`test_tags.py`) that exercises
+     the new tool against a real Things 3 through the `mcp` fixture, and -
+     if the tool reads back state that the seed oracle
+     (`tests/regression/seed.py`/`test_seed_oracle.py`) already covers -
+     add oracle rows/assertions there too rather than duplicating seed
+     setup.
+
 ## Release gate
 
-`THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` must pass on a machine with
-Things 3 installed and running before tagging a release - see the Release
-Checklist in `CLAUDE.md`.
+`THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` and
+`THINGS_MCP_LIVE_TESTS=1 pytest tests/regression -q` must both pass on a
+machine with Things 3 installed and running before tagging a release - see
+the Release Checklist in `CLAUDE.md`.
