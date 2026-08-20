@@ -2,6 +2,19 @@
 
 This directory contains comprehensive tests for the Things 3 MCP Server, covering core functionality, locale handling, move operations, and tag creation control.
 
+## tests/regression
+
+Opt-in, self-cleaning regression suite that drives the real MCP tool boundary
+(a real `fastmcp.Client` against a real `ThingsMCPServer().mcp`) against a
+real, running Things 3, complementing `tests/live/` (which drives
+`ThingsTools` directly). It creates its own throwaway area/projects/tag
+under the `hq-gbl-reg ` prefix, verifies no pre-existing object was touched
+via a session-scoped collateral-writes guard, and tears everything down at
+the end of the session. Skipped unless `THINGS_MCP_LIVE_TESTS=1` is set and
+Things 3 is running (`make test-regression`). See
+`tests/regression/README.md` and `docs/TESTING.md`'s "The API regression
+suite" section for details.
+
 ## Test Structure
 
 ### Core Test Categories

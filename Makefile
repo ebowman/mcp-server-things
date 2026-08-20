@@ -1,6 +1,6 @@
 # Makefile for Things 3 MCP Server
 
-.PHONY: help install test test-unit test-integration test-live test-regression lint clean coverage docs
+.PHONY: help install test test-unit test-integration test-live test-regression lint clean coverage coverage-regression docs
 
 # Default target
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  test-live      Run the opt-in live Things 3 smoke suite (writes to a real Things 3)"
 	@echo "  test-regression Run the opt-in MCP-boundary regression suite (writes to a real Things 3)"
 	@echo "  coverage       Run tests with coverage report"
+	@echo "  coverage-regression Run unit+regression+live branch coverage and write coverage-unit.json/coverage-all.json (see docs/testing/COVERAGE_REPORT.md)"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  lint           Run linting checks"
@@ -56,6 +57,18 @@ test-regression:
 
 coverage:
 	python -m pytest --cov=src/things_mcp --cov-report=html --cov-report=term-missing
+
+# Branch coverage across unit + regression + live suites (hq-gbl.17): unit
+# coverage is written first, then regression+live coverage is appended onto
+# the same data file so coverage-all.json reflects the combined total. See
+# docs/testing/COVERAGE_REPORT.md for the last published numbers and how to
+# interpret them. Requires a running Things 3 (regression/live write to it).
+# --cov-fail-under=0 overrides pyproject's [tool.coverage.report] fail_under=80,
+# which would otherwise abort the recipe after the unit line (current combined
+# coverage is below 80) and the live line would never run.
+coverage-regression:
+	python -m pytest tests/unit --cov=src/things_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage-unit.json --cov-fail-under=0 -q
+	THINGS_MCP_LIVE_TESTS=1 python -m pytest tests/regression tests/live --cov=src/things_mcp --cov-branch --cov-append --cov-report=json:coverage-all.json --cov-fail-under=0 -q
 
 # Code quality
 lint:
