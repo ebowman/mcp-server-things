@@ -56,6 +56,7 @@ build/
 .DS_Store
 .DS_Store
 .coverage
+coverage-*.json
 
 # Backup files
 *.backup
