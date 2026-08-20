@@ -1,0 +1,1463 @@
+{
+  "add_area": {
+    "description_sha256": "2b6a68ee0e71ad7a49f19dcba63d7c9052bd6aaa793908ebc939a4ba0e777e34",
+    "has_output_schema": true,
+    "name": "add_area",
+    "properties": {
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ]
+  },
+  "add_checklist_items": {
+    "description_sha256": "700e8017bf94fc08ce05a8c8c9b1a1884362d2afb636ae832218f9986353c528",
+    "has_output_schema": true,
+    "name": "add_checklist_items",
+    "properties": {
+      "items": {
+        "type": "array"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "items",
+      "todo_id"
+    ]
+  },
+  "add_project": {
+    "description_sha256": "72ca6bedf22fe1c7766b7899b77cce3736124d5f2ac866cad974e99bb5688f06",
+    "has_output_schema": true,
+    "name": "add_project",
+    "properties": {
+      "area_id": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "area_title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "notes": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "todos": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "when": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "title"
+    ]
+  },
+  "add_tags": {
+    "description_sha256": "7fa106236f26a7379a7f453476dbdf4d34c6b7fe4773f21ef866ae35cb09a91f",
+    "has_output_schema": true,
+    "name": "add_tags",
+    "properties": {
+      "tags": {
+        "type": "string"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "tags",
+      "todo_id"
+    ]
+  },
+  "add_todo": {
+    "description_sha256": "d3624257a235ec804f8ac1da5dee3b7611776b9272d505f9bb37c23995a5ed7c",
+    "has_output_schema": true,
+    "name": "add_todo",
+    "properties": {
+      "checklist_items": {
+        "anyOf_members": [
+          {
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "heading": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "list_id": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "list_title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "notes": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "when": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "title"
+    ]
+  },
+  "bulk_move_records": {
+    "description_sha256": "b32e0f294131f75d6bf3fdc504dfe259d39af261a99c9df01dbc56443746b514",
+    "has_output_schema": true,
+    "name": "bulk_move_records",
+    "properties": {
+      "destination": {
+        "type": "string"
+      },
+      "max_concurrent": {
+        "default": 5,
+        "maximum": 10,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "todo_ids": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "destination",
+      "todo_ids"
+    ]
+  },
+  "bulk_update_todos": {
+    "description_sha256": "1a88d14695458bb625b53b477843cfe5e223ff89bbc2cd6607084f2da57a897d",
+    "has_output_schema": true,
+    "name": "bulk_update_todos",
+    "properties": {
+      "canceled": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "completed": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "notes": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "todo_ids": {
+        "type": "string"
+      },
+      "when": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "todo_ids"
+    ]
+  },
+  "context_stats": {
+    "description_sha256": "ed9dc321e703f0ed4e03de942e2103203778546e7af341e03a710062bdb32000",
+    "has_output_schema": true,
+    "name": "context_stats",
+    "properties": {
+      "request": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "create_tag": {
+    "description_sha256": "870b0b114a49bebe245708c0231992ca8f190766b8a14138ddef99086b2bffe1",
+    "has_output_schema": true,
+    "name": "create_tag",
+    "properties": {
+      "tag_name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "tag_name"
+    ]
+  },
+  "delete_todo": {
+    "description_sha256": "0a1327000847aa6b5ffed653ebf1574752de327626b288fab1099f32d51eb6e5",
+    "has_output_schema": true,
+    "name": "delete_todo",
+    "properties": {
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "todo_id"
+    ]
+  },
+  "get_activating_in_days": {
+    "description_sha256": "8a35fd938451e6d0f038113d8898863eac935e79e6602145bb9dc8a8a2e63768",
+    "has_output_schema": true,
+    "name": "get_activating_in_days",
+    "properties": {
+      "days": {
+        "default": 30,
+        "maximum": 365,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": []
+  },
+  "get_anytime": {
+    "description_sha256": "d8617004c429cfcfb930ca14c29ce40a8d9891354c15b1adafcc1b8af662ad42",
+    "has_output_schema": true,
+    "name": "get_anytime",
+    "properties": {
+      "include_projects": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_areas": {
+    "description_sha256": "6aa0b12c4d0d14eef23c6d6ea156d2e0dd44e9b27f67890ec10c73424446405c",
+    "has_output_schema": true,
+    "name": "get_areas",
+    "properties": {
+      "include_items": {
+        "default": false,
+        "type": "boolean"
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_due_in_days": {
+    "description_sha256": "db849968127f0fe31bc5042ffb168cd6bdfc2a8cd87370743ae323145749f46e",
+    "has_output_schema": true,
+    "name": "get_due_in_days",
+    "properties": {
+      "days": {
+        "default": 30,
+        "maximum": 365,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "include_overdue": {
+        "default": true,
+        "type": "boolean"
+      }
+    },
+    "required": []
+  },
+  "get_inbox": {
+    "description_sha256": "2e6f2569476188140604efa5d1e97b48954ab72878663caa5ef6daed342ab9bd",
+    "has_output_schema": true,
+    "name": "get_inbox",
+    "properties": {
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_logbook": {
+    "description_sha256": "fa52af474c021a5d8aa2423f09622be567324f8b310787b4de01540ae4280388",
+    "has_output_schema": true,
+    "name": "get_logbook",
+    "properties": {
+      "include_canceled": {
+        "default": true,
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 50,
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "period": {
+        "default": "7d",
+        "pattern": "^\\d+[dwmy]$",
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  "get_project_headings": {
+    "description_sha256": "e215229c22607263cfc801d0e10f6873a43b35ecab2944bc9baa82836831727f",
+    "has_output_schema": true,
+    "name": "get_project_headings",
+    "properties": {
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "project_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_id"
+    ]
+  },
+  "get_projects": {
+    "description_sha256": "ae29bbe73bfc9e453bd5806ee8e6d361f5639fb93793e5f7fbacb27edfb435d3",
+    "has_output_schema": true,
+    "name": "get_projects",
+    "properties": {
+      "include_items": {
+        "default": false,
+        "type": "boolean"
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_recent": {
+    "description_sha256": "4336bf2c429fe34b9c1340b8b08dce1ac5508aaa55094b0c81c15732c7bb194e",
+    "has_output_schema": true,
+    "name": "get_recent",
+    "properties": {
+      "period": {
+        "pattern": "^\\d+[dwmy]$",
+        "type": "string"
+      },
+      "status": {
+        "anyOf_members": [
+          {
+            "pattern": "^(incomplete|completed|canceled)$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "type": {
+        "anyOf_members": [
+          {
+            "pattern": "^(to-do|project|heading)$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "period"
+    ]
+  },
+  "get_server_capabilities": {
+    "description_sha256": "bc22787b563a708fef5eab8fcae5db9db5cc0d4f435ed74391e88a9cc78f8c8f",
+    "has_output_schema": true,
+    "name": "get_server_capabilities",
+    "properties": {
+      "request": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_someday": {
+    "description_sha256": "1ea02ebae21d01a5a5206d2cf392a5ae8e605b277880eee67b7ae8412936c305",
+    "has_output_schema": true,
+    "name": "get_someday",
+    "properties": {
+      "include_project_tasks": {
+        "default": false,
+        "type": "boolean"
+      },
+      "include_projects": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_tag_usage": {
+    "description_sha256": "e94be724a0b29b1f5af66d5d1e12ff7e881621b9f923a74f3c8c98fa804f7a8a",
+    "has_output_schema": true,
+    "name": "get_tag_usage",
+    "properties": {
+      "mode": {
+        "default": "standard",
+        "type": "string"
+      },
+      "only_unused": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": []
+  },
+  "get_tagged_items": {
+    "description_sha256": "57a2485a3aabc24e2d1c9246365e383a411b8b13ee9a3f24715c2ffe8cd25889",
+    "has_output_schema": true,
+    "name": "get_tagged_items",
+    "properties": {
+      "tag": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "tag"
+    ]
+  },
+  "get_tags": {
+    "description_sha256": "40f7adbf0a98451d44960f6a178d3fea840aaf2a115a018b84ce1ad2ae8060e0",
+    "has_output_schema": true,
+    "name": "get_tags",
+    "properties": {
+      "include_items": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": []
+  },
+  "get_today": {
+    "description_sha256": "64fe7024ffabc2755421ce39f5ba5213168a8ff724de7869923ef363243b2e16",
+    "has_output_schema": true,
+    "name": "get_today",
+    "properties": {
+      "include_projects": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_todo_by_id": {
+    "description_sha256": "f3f7611a8568d2e05690115e55990cea74d4ab66f5a56cbeff1d8a73295f7c9b",
+    "has_output_schema": true,
+    "name": "get_todo_by_id",
+    "properties": {
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "todo_id"
+    ]
+  },
+  "get_todos": {
+    "description_sha256": "2c2dbc70fa72cae2dbf13efcce830b44ff71f2be5c2955b76c47269a83e390ae",
+    "has_output_schema": true,
+    "name": "get_todos",
+    "properties": {
+      "include_items": {
+        "anyOf_members": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "limit": {
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "project_uuid": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "status": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": "incomplete"
+      }
+    },
+    "required": []
+  },
+  "get_trash": {
+    "description_sha256": "f56637d57299baf3797ba76addda6b5e363ba82212ad07f636a04c72fbe9ae33",
+    "has_output_schema": true,
+    "name": "get_trash",
+    "properties": {
+      "include_projects": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 50,
+        "maximum": 100,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": []
+  },
+  "get_upcoming": {
+    "description_sha256": "a24c1ee8db8871c14e6b8de27f9b4c5409c94a7e414ebf6f39d2644a4250adb2",
+    "has_output_schema": true,
+    "name": "get_upcoming",
+    "properties": {
+      "days": {
+        "anyOf_members": [
+          {
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "include_projects": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "get_usage_recommendations": {
+    "description_sha256": "9f0880adbb7e8f37676406158cebeee8c8377b200faed1143e586c9d9d7b652d",
+    "has_output_schema": true,
+    "name": "get_usage_recommendations",
+    "properties": {
+      "operation": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "health_check": {
+    "description_sha256": "dfa6e82b033eff54954634c4eb4c797997aa713906f7acf1faf60018dacd7e30",
+    "has_output_schema": true,
+    "name": "health_check",
+    "properties": {
+      "request": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "move_record": {
+    "description_sha256": "59d07ed7cb7d6f1fddcdd8dec3986b5f66ad03f0b108f41dcf3f46cbd819b73c",
+    "has_output_schema": true,
+    "name": "move_record",
+    "properties": {
+      "destination_list": {
+        "type": "string"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "destination_list",
+      "todo_id"
+    ]
+  },
+  "prepend_checklist_items": {
+    "description_sha256": "4b62e8f193ce2dc0b5665bbbe6695becba296a3e31ab137432f7e0cbbcb216fb",
+    "has_output_schema": true,
+    "name": "prepend_checklist_items",
+    "properties": {
+      "items": {
+        "type": "array"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "items",
+      "todo_id"
+    ]
+  },
+  "queue_status": {
+    "description_sha256": "e6cb0f496b8a70b7aea838b44cf1af4e86e9469ebef66e4388f70d19fec8cfae",
+    "has_output_schema": true,
+    "name": "queue_status",
+    "properties": {
+      "request": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "remove_tags": {
+    "description_sha256": "ca09c9f52a61ff42f2ca2b74b51794f7b4e9c15d022362e516ad932e378733b7",
+    "has_output_schema": true,
+    "name": "remove_tags",
+    "properties": {
+      "tags": {
+        "type": "string"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "tags",
+      "todo_id"
+    ]
+  },
+  "replace_checklist_items": {
+    "description_sha256": "1f82ee1a4a0f815e679f39849ba8c806433875abd269db8054d859a3b1b4099a",
+    "has_output_schema": true,
+    "name": "replace_checklist_items",
+    "properties": {
+      "items": {
+        "type": "array"
+      },
+      "todo_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "items",
+      "todo_id"
+    ]
+  },
+  "search_advanced": {
+    "description_sha256": "9e19ddf89acf2b9e24e5f2138a8e383de5d0616db310a29ec4be4944af9c8b39",
+    "has_output_schema": true,
+    "name": "search_advanced",
+    "properties": {
+      "area": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "limit": {
+        "default": 50,
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "start_date": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "status": {
+        "anyOf_members": [
+          {
+            "pattern": "^(incomplete|completed|canceled)$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "tag": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "type": {
+        "anyOf_members": [
+          {
+            "pattern": "^(to-do|project|heading)$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": []
+  },
+  "search_todos": {
+    "description_sha256": "44a72402dccf3cd09ca316b4c8f46e004c0163bd65e3f5a434c7473066588876",
+    "has_output_schema": true,
+    "name": "search_todos",
+    "properties": {
+      "limit": {
+        "default": 50,
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "query": {
+        "type": "string"
+      },
+      "status": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": "incomplete"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  "update_area": {
+    "description_sha256": "79115f992cbec6ff26187e8bc737fd3d984b66f37cb7f559a987ee8ec2898864",
+    "has_output_schema": true,
+    "name": "update_area",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "update_project": {
+    "description_sha256": "0ab365c1d6dcb15b0eadc589652984034dbdae8dfafb7695f4539e310faed50f",
+    "has_output_schema": true,
+    "name": "update_project",
+    "properties": {
+      "area_id": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "area_title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "canceled": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "completed": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "id": {
+        "type": "string"
+      },
+      "notes": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "when": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "id"
+    ]
+  },
+  "update_todo": {
+    "description_sha256": "5886ed3b412d0d7312f726df13e3bb860cbc4533799be2d123b9689c167245a4",
+    "has_output_schema": true,
+    "name": "update_todo",
+    "properties": {
+      "canceled": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "completed": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "deadline": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "heading": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "id": {
+        "type": "string"
+      },
+      "list_id": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "list_title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "notes": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "tags": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "title": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      },
+      "when": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "id"
+    ]
+  }
+}
