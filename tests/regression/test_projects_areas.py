@@ -659,7 +659,22 @@ class TestGetProjectHeadings:
 
         assert sandbox.heading_id in by_uuid, result
         assert by_uuid[sandbox.heading_id]["title"] == sandbox.heading_title, by_uuid
-        assert by_uuid[sandbox.heading_id]["todoCount"] == 3, by_uuid[sandbox.heading_id]
+        # Other suite files may also file to-dos under the shared sandbox
+        # heading (full-suite order fragility observed in hq-gbl.13's run:
+        # hardcoded ==3 saw 4). Compare against things.py's own live count
+        # of open to-dos under the heading - the todoCount CONTRACT
+        # (open to-dos directly under the heading) - and additionally
+        # require >= 3 so the two we just added are provably included.
+        import things as _things
+
+        expected = len(
+            _things.todos(heading=sandbox.heading_id, status="incomplete") or []
+        )
+        assert by_uuid[sandbox.heading_id]["todoCount"] == expected, (
+            by_uuid[sandbox.heading_id],
+            expected,
+        )
+        assert by_uuid[sandbox.heading_id]["todoCount"] >= 3, by_uuid[sandbox.heading_id]
 
     def test_empty_project_zero_headings(self, mcp, sandbox):
         project_id, _, _ = _new_project(mcp, sandbox)
