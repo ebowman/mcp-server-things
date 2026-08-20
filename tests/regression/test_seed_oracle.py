@@ -15,8 +15,7 @@ hide a seed uuid.
 
 Every entry in XFAILS documents one (tool_key, class_name, direction) pair
 where live Things behavior contradicts the CLAUDE.md-derived expectation
-encoded in ORACLE (see bead hq-z5d for the underlying scheduling bug this
-currently covers). _iter_pairs() emits those pairs as pytest.param(...,
+encoded in ORACLE. _iter_pairs() emits those pairs as pytest.param(...,
 marks=pytest.mark.xfail(strict=True, ...)) so the real assertion still
 runs on every collected pair - an XFAILS entry that stops reproducing the
 observed contradiction now XPASSes loudly (strict=True) instead of being
@@ -219,9 +218,8 @@ ORACLE: Dict[str, Dict[str, Set[str]]] = {
         # Things' own Anytime list contains Today items. That is a product
         # inconsistency (bead hq-x9z), not an oracle fact - 'today' is
         # expected in must and recorded as a strict xfail in XFAILS.
-        # Per CLAUDE.md, when='anytime' should also schedule into the
-        # Anytime list - 'anytime_in_project' is documented here as such,
-        # but see XFAILS (observed: routes to Someday instead).
+        # Per CLAUDE.md, when='anytime' schedules into the Anytime list -
+        # 'anytime_in_project' is documented here as such.
         "must": {
             "anytime_in_project", "under_heading", "in_area", "in_project_b",
             "evening", "today",
@@ -238,8 +236,7 @@ ORACLE: Dict[str, Dict[str, Set[str]]] = {
     "get_someday": {
         # things.someday() = start_date=False, start='Someday' - a pure
         # "someday, no date" item. 'anytime_in_project' (when='anytime')
-        # is documented as NOT belonging here per CLAUDE.md - see XFAILS
-        # (observed: when='anytime' actually routes here instead).
+        # is documented as NOT belonging here per CLAUDE.md.
         "must": {"someday"},
         "must_not": (ALL_CLASSES - {"someday"}) | {HEADING_CLASS},
     },
@@ -377,28 +374,6 @@ ORACLE: Dict[str, Dict[str, Set[str]]] = {
 # ---------------------------------------------------------------------------
 
 XFAILS: Dict[Tuple[str, str, str], str] = {
-    # add_todo(when='anytime') is documented (CLAUDE.md/server.py Field
-    # description) to schedule the to-do into the Anytime list. Live
-    # behavior instead routes it into the Someday list: scheduling/
-    # strategies.py's schedule_todo_reliable falls through to Strategy 4
-    # (_schedule_list_fallback) for the literal string 'anytime' (it is
-    # not a relative-date keyword handled by Strategy 1, and does not
-    # parse as a specific date for Strategy 2/3), and
-    # scheduling/helpers.py's determine_target_list() maps
-    # when_lower in ("someday", "anytime") -> "Someday" - i.e. 'anytime'
-    # is (mis)treated the same as 'someday' by the AppleScript list
-    # fallback. Confirmed via things.get(): the created to-do has
-    # start='Someday', start_date=None - indistinguishable from a native
-    # when='someday' to-do. Filed as discovered work (not fixed here per
-    # task scope) - see bead hq-z5d.
-    ("get_anytime", "anytime_in_project", "must"):
-        "add_todo(when='anytime') sets start='Someday' (Someday list), not "
-        "'Anytime' - scheduling/helpers.py determine_target_list() maps "
-        "'anytime' to the Someday list fallback, same as 'someday'",
-    ("get_someday", "anytime_in_project", "must_not"):
-        "add_todo(when='anytime') sets start='Someday' (Someday list), not "
-        "'Anytime' - scheduling/helpers.py determine_target_list() maps "
-        "'anytime' to the Someday list fallback, same as 'someday'",
     ("get_anytime", "today", "must"):
         "AppleScript `schedule ... for (current date)` path leaves "
         "start='Someday' (unconfirmed) so the to-do is in get_today but "

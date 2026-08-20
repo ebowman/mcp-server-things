@@ -70,9 +70,6 @@ tests/regression/test_update_todo.py's own notes):
     test_when_today_in_things_today_list) - membership in things.today()
     is asserted directly rather than start/start_date, sidestepping the
     quirk entirely.
-  - when='anytime' (bulk_update_todos) lands Someday, not Anytime (bead
-    hq-z5d) - encoded here as xfail(strict=True) mirroring
-    test_update_todo.py's own anytime xfail.
 
 preserve_scheduling: CLAUDE.md documents a `preserve_scheduling` flag on
 bulk_move_records ("preserve_scheduling=true"), but neither the
@@ -289,19 +286,6 @@ class TestBulkUpdateSingleField:
             )
             assert record is not None and record.get("start_date") == today_str, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-z5d): bulk_update_todos(when='anytime') "
-            "shares scheduling.strategies.SchedulingStrategies."
-            "schedule_todo_reliable via the same determine_target_list() "
-            "path as add_todo/update_todo, which maps the literal string "
-            "'anytime' to the Someday-list AppleScript fallback - the "
-            "to-do lands with start='Someday' rather than start='Anytime'. "
-            "This test encodes the documented behavior (should land in "
-            "Anytime) and is expected to fail until hq-z5d is fixed."
-        ),
-    )
     def test_when_anytime_lands_anytime(self, mcp, sandbox):
         todo_ids, _ = _new_todos(mcp, sandbox, 1, prefix="bulk when anytime")
         result = mcp.call_sync(

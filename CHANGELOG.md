@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`when='anytime'` now schedules into the Anytime list, not Someday** (bead hq-z5d). `add_todo`, `update_todo`, `bulk_update_todos`, `add_project`, and `update_project` all share the same AppleScript scheduling fallback (`scheduling/helpers.py`'s `determine_target_list`), which previously mapped the literal string `'anytime'` to the same `"Someday"` list-move target as `'someday'` - a to-do/project scheduled with `when='anytime'` ended up with `start='Someday'`, indistinguishable from a native `when='someday'` item. It now maps to `"Anytime"`, matching CLAUDE.md's documented behavior and Things' own Anytime list (`move theTodo to list "Anytime"`, confirmed live via `things.get()` reporting `start='Anytime'`, `start_date=None`).
+
 ## [1.7.0] - 2026-08-19
 
 This release closes out two user-reported issues: [#9](https://github.com/ebowman/mcp-server-things/issues/9)

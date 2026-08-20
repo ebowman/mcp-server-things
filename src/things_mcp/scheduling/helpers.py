@@ -47,8 +47,10 @@ class SchedulingHelpers:
             return "Today"
         elif when_lower == "tomorrow":
             return "Today"  # Tomorrow items should still appear in Today once activated
-        elif when_lower in ["someday", "anytime"]:
+        elif when_lower == "someday":
             return "Someday"
+        elif when_lower == "anytime":
+            return "Anytime"
 
         # Handle ISO dates
         try:

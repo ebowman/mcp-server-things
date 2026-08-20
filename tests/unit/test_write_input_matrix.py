@@ -450,8 +450,8 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_add")),
     ("tonight", ok(route="url_add")),
     ("2031-01-15", ok(route="applescript")),
@@ -539,8 +539,8 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-02-15", ok(route="applescript")),
@@ -675,8 +675,8 @@ add(
 for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-03-15", ok(route="applescript")),
@@ -747,8 +747,8 @@ add("add_project", {"title": "P", "tags": "a,b"}, ok(route="applescript", contai
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("2031-04-15", ok(route="applescript")),
     ("bogus", write_error("INVALID_WHEN")),
     ("", ok(route="applescript")),
@@ -800,8 +800,8 @@ add("update_project", {"id": "PROJECTID1", "tags": "a,b"}, ok(route="applescript
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", write_error("UNSUPPORTED_FOR_PROJECTS")),  # projects don't support Evening
     ("2031-05-15", ok(route="applescript")),
     ("bogus", write_error("INVALID_WHEN")),

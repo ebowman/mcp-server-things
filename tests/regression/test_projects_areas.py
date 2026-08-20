@@ -35,10 +35,9 @@ Error-code notes (confirmed by reading source, not assumed):
 Known live quirks (documented, not fixed here - see CLAUDE.md /
 tests/regression/test_update_todo.py's own notes): when='today' via the
 AppleScript scheduler leaves start='Someday' with start_date=today rather
-than start='Anytime' (bead hq-x9z); when='anytime' lands start='Someday'
-instead of 'Anytime' (bead hq-z5d). Both apply to update_project's `when`
+than start='Anytime' (bead hq-x9z). This applies to update_project's `when`
 path too (shared scheduler), asserted here as xfail(strict=True) citing the
-same beads where the AppleScript scheduler is used, or verified via
+same bead where the AppleScript scheduler is used, or verified via
 things.py start_date and list-membership predicates matching
 test_update_todo.py's approach.
 """
@@ -555,16 +554,30 @@ class TestUpdateProjectMoves:
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "observed (bead hq-z5d): update_project(when='anytime') shares "
-            "scheduling.helpers.determine_target_list(), which maps the "
-            "literal string 'anytime' to the same Someday-list AppleScript "
-            "fallback as 'someday' - the project ends up with "
-            "start='Someday', indistinguishable from a native "
-            "when='someday' update, so it is a member of "
-            "get_someday(include_project_tasks=...) rather than "
-            "get_anytime(include_projects=True). This test encodes the "
-            "documented behavior (should land in Anytime) and is expected "
-            "to fail until hq-z5d is fixed."
+            "observed (filed as hq-cal.2; not the scheduling bug itself): "
+            "update_project(when='anytime') now correctly schedules the "
+            "project into the Anytime list - confirmed directly via "
+            "things.get()/things.anytime()/things.tasks(start='Anytime'), "
+            "all of which report the project with start='Anytime' and "
+            "include it in the raw result set. The failure is in the "
+            "get_anytime(include_projects=True, mode='detailed') MCP read "
+            "path instead: on this database, things.anytime() currently "
+            "returns 1177 items; ContextAwareResponseManager.optimize_response "
+            "(context_manager.py) estimates the DETAILED-mode payload size "
+            "for that many items, finds it exceeds "
+            "ContextBudget.max_response_size (80KB), and routes through "
+            "_handle_oversized_response's relevance-ranked pagination - "
+            "silently truncating the result to a top page that a freshly "
+            "created, low-relevance test project does not make it into, "
+            "even though get_anytime(include_projects=True) was called with "
+            "no limit= (which CLAUDE.md documents as returning the full set "
+            "before any client-side limit is applied). This is a pagination/"
+            "truncation bug in a shared read-response-shaping module, not a "
+            "scheduling bug - out of scope for this bead. Expected to fail "
+            "until get_anytime's oversized-response handling is fixed to "
+            "either honor an unbounded request or surface truncation "
+            "instead of silently dropping items regardless of when they "
+            "were scheduled."
         ),
     )
     def test_when_anytime_visible_via_get_anytime_include_projects(self, mcp, sandbox):

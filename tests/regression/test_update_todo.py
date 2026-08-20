@@ -8,10 +8,6 @@ state, then exercises update_todo against it.
 Known live quirks (documented, not fixed here - see CLAUDE.md/
 REGRESSION_SPIKE_FINDINGS.md and tests/regression/test_seed_oracle.py's
 XFAILS):
-  - when='anytime' (add_todo AND update_todo - both share
-    scheduling.strategies.SchedulingStrategies.schedule_todo_reliable via
-    scheduling.helpers.determine_target_list()) lands start='Someday'
-    instead of 'Anytime' (bead hq-z5d).
   - when='today' via the AppleScript 'schedule' verb (used by both add_todo
     and update_todo) leaves start='Someday' with start_date=today, rather
     than start='Anytime' (bead hq-x9z) - the URL-scheme when='today' path
@@ -302,20 +298,6 @@ class TestUpdateTodoWhen:
             found = _in_today()
         assert found, "expected todo to be a member of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-z5d): update_todo(when='anytime') shares "
-            "scheduling.helpers.determine_target_list(), which maps the "
-            "literal string 'anytime' to the same Someday-list AppleScript "
-            "fallback as 'someday' - the to-do ends up with "
-            "start='Someday', start_date=None, indistinguishable from a "
-            "native when='someday' update, so it is a member of "
-            "things.someday() rather than things.anytime(). This test "
-            "encodes the documented behavior (should land in Anytime) and "
-            "is expected to fail until hq-z5d is fixed."
-        ),
-    )
     def test_when_anytime_in_things_anytime_list(self, mcp, sandbox):
         import things
 
