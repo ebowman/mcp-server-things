@@ -27,10 +27,18 @@ self.tools mocked out, matching the test_when_tonight_server_normalization.py
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from fastmcp import Client
+from fastmcp import Client as FastMCPClient
 
 from things_mcp.server import ThingsMCPServer
 from things_mcp.parameter_validator import ParameterValidator, ValidationError
+
+
+class Client(FastMCPClient):
+    """Keep structured write errors inspectable instead of raising them."""
+
+    async def call_tool(self, *args, **kwargs):
+        kwargs.setdefault("raise_on_error", False)
+        return await super().call_tool(*args, **kwargs)
 
 
 def _make_server_with_mock_tools(**overrides):

@@ -30,11 +30,19 @@ reopen an item that was supposed to stay completed/canceled.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from fastmcp import Client
+from fastmcp import Client as FastMCPClient
 
 from things_mcp.scheduling.todo_operations import TodoOperations
 from things_mcp.tools_helpers.bulk_operations import BulkOperations
 from things_mcp.server import ThingsMCPServer, _parse_strict_bool, _StrictBoolError
+
+
+class Client(FastMCPClient):
+    """Keep structured write errors inspectable instead of raising them."""
+
+    async def call_tool(self, *args, **kwargs):
+        kwargs.setdefault("raise_on_error", False)
+        return await super().call_tool(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
