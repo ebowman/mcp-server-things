@@ -396,6 +396,29 @@ get_tag_usage(mode="summary")
    get_tagged_items(tag="work")
    ```
 
+### search_advanced scope semantics
+
+`search_advanced` is not a full-database, all-kinds search by default - three
+scope facts to know before relying on a filter combination:
+
+1. **Untyped queries return to-dos only.** Without an explicit `type`
+   filter, `search_advanced` queries `things.todos()`, which only ever
+   returns to-do rows. A bare `area=`/`start_date=`/`deadline=` filter (with
+   no `type`) can never surface a project or heading, even if one matches -
+   pass `type='project'` or `type='heading'` explicitly to search those
+   kinds.
+2. **`area=` does not cascade into that area's projects.** It matches only
+   items *directly* assigned to the area (`things.tasks(area=...)`) - not
+   to-dos that live inside a project which itself belongs to the area. To
+   find to-dos inside an area's projects, query each project directly with
+   `get_todos(project_uuid=...)`, or use
+   `get_areas(include_items=true)` to enumerate the area's projects (and
+   their nested todos) first - see the `include_items=true` guidance
+   elsewhere in this file for its own context-size caveats.
+3. **There is no `project=` filter parameter.** `search_advanced` has no way
+   to scope a search to a single project - use `get_todos(project_uuid=...)`
+   instead.
+
 ## 🔧 Tool Usage Best Practices
 
 ### Structured Output

@@ -1048,7 +1048,7 @@
     ]
   },
   "search_advanced": {
-    "description_sha256": "9e19ddf89acf2b9e24e5f2138a8e383de5d0616db310a29ec4be4944af9c8b39",
+    "description_sha256": "d8543e9c5a4584aee613a52be4e8c2d5f4b5f47001cf79590fd120ddce8ae0af",
     "has_output_schema": true,
     "name": "search_advanced",
     "properties": {

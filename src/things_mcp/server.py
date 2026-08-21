@@ -1812,6 +1812,18 @@ class ThingsMCPServer:
             Note: filter_someday_project_tasks is NOT applied here - todos inside a
             Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
             still match search_advanced.
+
+            Scope semantics:
+            1. Without an explicit `type` filter, only to-dos are searched - a bare
+               `area=`/`start_date=`/`deadline=` filter can never return a project
+               or heading. Pass type='project' or type='heading' to search those
+               kinds explicitly.
+            2. `area=` matches only items directly assigned to the area - it does
+               NOT cascade into to-dos living inside that area's projects. To find
+               those, query each project with get_todos(project_uuid=...), or use
+               get_areas(include_items=true) to enumerate the area's projects first.
+            3. There is no `project=` filter parameter - use
+               get_todos(project_uuid=...) to scope a search to one project.
             """
             try:
                 # Import datetime for validation
