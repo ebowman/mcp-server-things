@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Structured write failures now set the MCP `isError` flag.** Canonical write-error payloads remain intact for machine-readable handling while clients can reliably distinguish them from successful tool calls.
+
 ## [1.7.0] - 2026-08-19
 
 This release closes out two user-reported issues: [#9](https://github.com/ebowman/mcp-server-things/issues/9)
