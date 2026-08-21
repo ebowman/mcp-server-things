@@ -274,6 +274,100 @@ class TodoOperations:
         kind, matched_id = matches[0]
         return {"kind": kind, "id": matched_id}
 
+    def _resolve_area(
+        self, area_id: str = '', area_title: str = ''
+    ) -> Dict[str, Any]:
+        """Pre-resolve an add_project/update_project area target via
+        things.py BEFORE any write (hq-rmh).
+
+        Mirrors _resolve_list_id/_resolve_list_title's fallback semantics
+        exactly, applied to the project/area-only 'area_id'/'area_title'
+        parameters: area_id takes precedence over area_title, matching the
+        existing AppleScript-emission precedence in
+        _build_create_project_script/update_project/
+        _add_project_via_url_scheme.
+
+        Without this pre-check, Things 3's AppleScript has no transactional
+        rollback - 'make new project ...' followed by 'set area of
+        newProject to area "<bogus>"' in the same try block creates the
+        project first, then the area-set line throws, leaving a real,
+        un-areaed orphan project behind despite the call reporting
+        success=False/APPLESCRIPT_ERROR (hq-rmh).
+
+        Args:
+            area_id: Area UUID (takes precedence if provided).
+            area_title: Area title (exact match).
+
+        Returns:
+            {} if neither area_id nor area_title was given (nothing to
+            resolve - caller proceeds with no area set).
+            {"area_id": "..."} on a successful resolution - callers should
+            use this resolved id, not the raw input, for the AppleScript/
+            URL-scheme area-id assignment; this normalizes an area_title
+            match to its concrete uuid so downstream code only ever emits
+            'area id "<uuid>"' rather than "area \"<title>\"" once a title
+            has been resolved.
+            A write_error()-shaped dict (code "NOT_FOUND") if area_id
+            doesn't match any known area, or matches something that is not
+            an area; code "AMBIGUOUS_TARGET" (with an "ids" field) if
+            area_title matches more than one area.
+            If the underlying things.py lookup itself raises (e.g. the
+            Things database is unreadable / Full Disk Access is missing),
+            this falls back to {"area_id": area_id} (area_id path) or
+            {} (area_title path, since there's nothing to normalize
+            without a working lookup) - the pre-bead behavior of emitting
+            the raw value unchecked - rather than refusing the write,
+            mirroring _resolve_list_id's documented DB-unreadable fallback
+            (CLAUDE.md "list_id fallback when the Things database is
+            unreadable").
+        """
+        if area_id:
+            try:
+                record = things.get(area_id)
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while resolving area_id "
+                    f"{area_id} (falling back to emitting it unchecked): {e}"
+                )
+                return {"area_id": area_id}
+
+            if not record or record.get('type') != 'area':
+                return _write_error(
+                    "NOT_FOUND",
+                    f"area_id '{area_id}' does not match any known area",
+                )
+            return {"area_id": area_id}
+
+        if area_title:
+            try:
+                matching_areas = [
+                    a for a in (things.areas() or []) if a.get('title') == area_title
+                ]
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while resolving area_title "
+                    f"{area_title!r} (falling back to emitting it "
+                    f"unchecked): {e}"
+                )
+                return {}
+
+            if not matching_areas:
+                return _write_error(
+                    "NOT_FOUND",
+                    f"area_title '{area_title}' does not match any known area",
+                )
+            if len(matching_areas) > 1:
+                ids = [a['uuid'] for a in matching_areas]
+                return _write_error(
+                    "AMBIGUOUS_TARGET",
+                    f"area_title '{area_title}' is ambiguous - matches "
+                    f"multiple areas: {', '.join(ids)}",
+                    ids=ids,
+                )
+            return {"area_id": matching_areas[0]['uuid']}
+
+        return {}
+
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a new todo using AppleScript, or URL scheme if heading, checklist items,
         and/or when='evening'/when with a '@HH:MM' time component are provided.
@@ -1927,6 +2021,21 @@ class TodoOperations:
             area_id = kwargs.get('area_id', '')
             area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
 
+            # Pre-resolve the area target via things.py BEFORE any write
+            # (hq-rmh): AppleScript has no transactional rollback, so
+            # emitting an unresolvable area_id/area_title into the create
+            # script would create a real orphan project when the area-set
+            # line throws. A successful resolution normalizes area_title to
+            # its concrete area_id so both the AppleScript and URL-scheme
+            # create paths below emit a uuid-based area reference.
+            if area_id or area_title:
+                area_resolution = self._resolve_area(area_id=area_id, area_title=area_title)
+                if "error" in area_resolution:
+                    return area_resolution
+                if area_resolution.get("area_id"):
+                    area_id = area_resolution["area_id"]
+                    area_title = ''
+
             # Handle todos parameter - can be string (newline-separated) or list
             todos_param = kwargs.get('todos', [])
             if isinstance(todos_param, str):
@@ -2103,6 +2212,21 @@ class TodoOperations:
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
             area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
+
+            # Pre-resolve the area target via things.py BEFORE any write
+            # (hq-rmh): the whole update below runs in a single AppleScript
+            # try block, so an unresolvable area_id/area_title would throw
+            # partway through and silently discard every other field
+            # (title/notes/tags/deadline/status) requested in the same
+            # call, while still reporting APPLESCRIPT_ERROR. A successful
+            # resolution normalizes area_title to its concrete area_id.
+            if area_id or area_title:
+                area_resolution = self._resolve_area(area_id=area_id, area_title=area_title)
+                if "error" in area_resolution:
+                    return area_resolution
+                if area_resolution.get("area_id"):
+                    area_id = area_resolution["area_id"]
+                    area_title = ''
 
             completed = kwargs.get('completed', None)
             canceled = kwargs.get('canceled', None)

@@ -196,35 +196,21 @@ class TestAddProjectFields:
         )
         assert record is not None and record.get("area") == sandbox.area_id, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed live: scheduling/todo_operations.py's "
-            "_build_create_project_script issues `make new project ...` "
-            "followed by `set area of newProject to area \"<bogus>\"` "
-            "inside the SAME AppleScript try block - Things creates the "
-            "project first, THEN the area-set line throws (no "
-            "transactional rollback in AppleScript), so add_project "
-            "reports success=False/APPLESCRIPT_ERROR even though a real, "
-            "un-areaed project was actually created and persists in "
-            "Things. This test encodes the documented/expected behavior "
-            "(a failed add_project creates nothing) and is expected to "
-            "fail until the AppleScript script separates project creation "
-            "from area assignment (or verifies+deletes on area-set "
-            "failure). The stray project this creates is tracked and "
-            "cleaned up by the sandbox teardown regardless."
-        ),
-    )
     def test_area_title_unknown(self, mcp, sandbox):
+        """hq-rmh (fixed): add_project pre-resolves area_title via
+        things.py BEFORE any AppleScript write
+        (TodoOperations._resolve_area). An unresolvable area_title now
+        returns a structured NOT_FOUND error and creates nothing - no more
+        orphaned, un-areaed project persisting despite a reported failure."""
         title = sandbox_title("proj unknown area " + ts())
         bogus_area = f"hq-gbl-reg-nonexistent-area-{ts()}"
         result = mcp.call_sync("add_project", title=title, area_title=bogus_area)
 
         # Regardless of reported success, track/clean up any project that
         # actually landed with this exact title - this is the safety net
-        # for the observed partial-creation-on-error quirk documented
-        # above, so a leaked live object never survives this test either
-        # way, xfail or not.
+        # for the previously-observed partial-creation-on-error quirk
+        # documented above, so a leaked live object never survives this
+        # test either way.
         import things
 
         def _find_created():
@@ -241,14 +227,64 @@ class TestAddProjectFields:
         for p in matches:
             sandbox.tracked_project_ids.append(p["uuid"])
 
-        # Documents the desired/expected contract (bug hq-rmh): an
-        # add_project whose area_title cannot be resolved must return a
-        # structured write error AND create nothing. Live today it does
-        # the opposite (APPLESCRIPT_ERROR yet the project persists), so
-        # this xfails strictly and will XPASS-signal the fix.
-        assert result.get("success") is False, result
+        assert_write_error(result, "NOT_FOUND")
         assert not matches, (
             "unknown area_title must not create a project; found: "
+            f"{[p['uuid'] for p in matches]}"
+        )
+
+    def test_area_title_ambiguous(self, mcp, sandbox):
+        """hq-rmh: an area_title matching more than one area returns
+        AMBIGUOUS_TARGET and creates nothing."""
+        dup_title = sandbox_title("proj dup area " + ts())
+
+        area_result_1 = mcp.call_sync("add_area", title=dup_title)
+        assert area_result_1.get("success") is True, area_result_1
+        area_id_1 = area_result_1.get("area_id")
+        sandbox.track_area(area_id_1)
+
+        area_result_2 = mcp.call_sync("add_area", title=dup_title)
+        assert area_result_2.get("success") is True, area_result_2
+        area_id_2 = area_result_2.get("area_id")
+        sandbox.track_area(area_id_2)
+
+        title = sandbox_title("proj via ambiguous area " + ts())
+        result = mcp.call_sync("add_project", title=title, area_title=dup_title)
+
+        import things
+
+        matches = [
+            p for p in things.projects(status=None, trashed=None) or []
+            if p.get("title") == title
+        ]
+        for p in matches:
+            sandbox.tracked_project_ids.append(p["uuid"])
+
+        assert_write_error(result, "AMBIGUOUS_TARGET")
+        assert not matches, (
+            "ambiguous area_title must not create a project; found: "
+            f"{[p['uuid'] for p in matches]}"
+        )
+
+    def test_area_id_unknown(self, mcp, sandbox):
+        """hq-rmh: an unresolvable area_id returns NOT_FOUND and creates
+        nothing."""
+        title = sandbox_title("proj unknown area id " + ts())
+        bogus_area_id = f"hq-gbl-reg-nonexistent-areaid-{ts()}"
+        result = mcp.call_sync("add_project", title=title, area_id=bogus_area_id)
+
+        import things
+
+        matches = [
+            p for p in things.projects(status=None, trashed=None) or []
+            if p.get("title") == title
+        ]
+        for p in matches:
+            sandbox.tracked_project_ids.append(p["uuid"])
+
+        assert_write_error(result, "NOT_FOUND")
+        assert not matches, (
+            "unknown area_id must not create a project; found: "
             f"{[p['uuid'] for p in matches]}"
         )
 
@@ -576,6 +612,33 @@ class TestUpdateProjectMoves:
             project_id, lambda r: r is not None and r.get("area") == second_area_id
         )
         assert record is not None and record.get("area") == second_area_id, record
+
+    def test_area_title_unknown_no_partial_update(self, mcp, sandbox):
+        """hq-rmh: update_project pre-resolves area_title via things.py
+        BEFORE the single AppleScript try block that also applies title/
+        notes in the same call runs - an unresolvable area_title returns
+        NOT_FOUND and none of the other fields in the same call are
+        applied either (previously, the area-set line would throw
+        mid-script and silently discard the rest of the update while still
+        reporting APPLESCRIPT_ERROR)."""
+        project_id, _, _ = _new_project(mcp, sandbox)
+        bogus_area = f"hq-gbl-reg-nonexistent-area-{ts()}"
+        new_title = sandbox_title("proj should not rename " + ts())
+
+        result = mcp.call_sync(
+            "update_project",
+            id=project_id,
+            area_title=bogus_area,
+            title=new_title,
+        )
+        assert_write_error(result, "NOT_FOUND")
+
+        record = read_back(project_id, lambda r: r is not None)
+        assert record is not None, record
+        assert record.get("title") != new_title, (
+            "title must not be updated when area_title resolution fails: "
+            f"{record}"
+        )
 
     def test_when_today_start_is_anytime_not_someday(self, mcp, sandbox):
         """hq-x9z fixed: update_project(when='today') shares the

@@ -264,7 +264,14 @@ class TestHeadingLinesRouteToUrlScheme:
         )
         ops = TodoOperations(manager, Mock())
 
-        with patch_things_counts(todos=1, headings=1):
+        # hq-rmh: area_id is now pre-resolved via things.py (_resolve_area)
+        # before the URL-scheme create - things.get("AREA-1") must resolve
+        # as a real area or the call is rejected with NOT_FOUND before any
+        # write.
+        with patch_things_counts(todos=1, headings=1), patch(
+            "things_mcp.scheduling.todo_operations.things.get",
+            return_value={"type": "area", "uuid": "AREA-1"},
+        ):
             result = await ops.add_project(
                 "My Project",
                 todos="##Heading 1\nTodo",
@@ -292,15 +299,22 @@ class TestHeadingLinesRouteToUrlScheme:
         )
         ops = TodoOperations(manager, Mock())
 
-        with patch_things_counts(todos=1, headings=1):
+        # hq-rmh: area_title is now pre-resolved via things.py
+        # (_resolve_area) to its concrete area_id before the URL-scheme
+        # create, so the emitted 'json' payload carries 'area-id', not the
+        # raw title.
+        with patch_things_counts(todos=1, headings=1), patch(
+            "things_mcp.scheduling.todo_operations.things.areas",
+            return_value=[{"uuid": "RESOLVED-PERSONAL-AREA-ID", "title": "Personal"}],
+        ):
             await ops.add_project(
                 "My Project", todos="##Heading 1\nTodo", area_title="Personal"
             )
 
         action, params = manager.execute_url_scheme.call_args.args
         attrs = json.loads(params["data"])[0]["attributes"]
-        assert attrs["area"] == "Personal"
-        assert "area-id" not in attrs
+        assert attrs["area-id"] == "RESOLVED-PERSONAL-AREA-ID"
+        assert "area" not in attrs
 
     @pytest.mark.asyncio
     async def test_json_action_failure_returns_structured_error(self):

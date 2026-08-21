@@ -52,12 +52,6 @@ owning bead):
     exercised by constructing ThingsMCPConfig(tag_creation_policy=...)
     directly (bypassing the dead env path) where the bead explicitly
     contemplates that construction pattern.
-  - hq-rmh: add_project/update_project/add_area area_title is emitted
-    into the script unconditionally with no existence pre-check or
-    rollback - an unknown area_title still produces a normal
-    'set area of ... to area "<title>"' script from this server's
-    perspective (Things itself would fail at runtime, out of scope for a
-    mocked AppleScript manager).
 """
 
 from __future__ import annotations
@@ -93,6 +87,21 @@ SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
 AMBIGUOUS_LIST_TITLE = "AMBIGUOUStitleXYZ"
 UNKNOWN_LIST_TITLE = "UNKNOWNtitleDoesNotExistXYZ"
+
+# hq-rmh: add_project/update_project area_id/area_title pre-resolution
+# sentinels. "Some Area" / AREAID1 / AREAID2 are the pre-existing CASES
+# values used by ok() cases below - they must resolve successfully now
+# that area_id/area_title are pre-checked via things.py before any write.
+KNOWN_AREA_TITLE = "Some Area"
+KNOWN_AREA_ID_1 = "AREAID1"
+KNOWN_AREA_ID_2 = "AREAID2"
+AMBIGUOUS_AREA_TITLE = "AMBIGUOUSareatitleXYZ"
+UNKNOWN_AREA_TITLE = "UNKNOWNareatitleDoesNotExistXYZ"
+UNKNOWN_AREA_ID = "UNKNOWNAREAIDDOESNOTEXIST"
+# things.get() itself raises for this id (simulating an unreadable Things
+# database) - _resolve_area's fallback branch, which emits the raw area_id
+# unchecked rather than refusing the write.
+RAISING_AREA_ID = "RAISINGAREAIDCAUSESLOOKUPERROR"
 
 
 class RecordingAppleScriptManager:
@@ -252,6 +261,13 @@ def _todo_ops_things_get(uuid: str, **kwargs: Any) -> Dict[str, Any]:
         return None
     if uuid == RAISING_LIST_ID:
         raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    # hq-rmh: add_project/update_project area_id pre-resolution (_resolve_area).
+    if uuid in (KNOWN_AREA_ID_1, KNOWN_AREA_ID_2):
+        return {"type": "area", "uuid": uuid}
+    if uuid == UNKNOWN_AREA_ID:
+        return None
+    if uuid == RAISING_AREA_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
     return {"type": "project", "uuid": uuid}
 
 
@@ -292,7 +308,14 @@ def _patched_things_lookups():
                 {"uuid": "AMBIGUOUS-PROJECT-2", "title": AMBIGUOUS_LIST_TITLE},
             ],
         ),
-        patch(THINGS_AREAS_PATCH, return_value=[]),
+        patch(
+            THINGS_AREAS_PATCH,
+            return_value=[
+                {"uuid": "KNOWNAREAUUID-Some-Area", "title": KNOWN_AREA_TITLE},
+                {"uuid": "AMBIGUOUS-AREA-1", "title": AMBIGUOUS_AREA_TITLE},
+                {"uuid": "AMBIGUOUS-AREA-2", "title": AMBIGUOUS_AREA_TITLE},
+            ],
+        ),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
     ]
@@ -795,11 +818,27 @@ for d, exp in [
     add("add_project", {"title": "P", "deadline": d}, exp)
 
 add("add_project", {"title": "P", "area_id": None}, ok(route="applescript"))
-add("add_project", {"title": "P", "area_id": "AREAID1"}, ok(route="applescript", contains=['area id "AREAID1"']))
+add("add_project", {"title": "P", "area_id": KNOWN_AREA_ID_1}, ok(route="applescript", contains=[f'area id "{KNOWN_AREA_ID_1}"']))
 add("add_project", {"title": "P", "area_id": ""}, ok(route="applescript"))
 add("add_project", {"title": "P", "area_title": None}, ok(route="applescript"))
-add("add_project", {"title": "P", "area_title": "Some Area"}, ok(route="applescript", contains=['area "Some Area"']))
-add("add_project", {"title": "P", "area_title": "DoesNotExistArea"}, ok(route="applescript", contains=['area "DoesNotExistArea"']))  # hq-rmh: emitted as-is, no rollback
+# area_title is pre-resolved via things.py to its concrete area_id (hq-rmh)
+# before the script is built, so a resolved title is emitted as
+# 'area id "<uuid>"', not 'area "<title>"'.
+add("add_project", {"title": "P", "area_title": KNOWN_AREA_TITLE}, ok(route="applescript", contains=['area id "KNOWNAREAUUID-Some-Area"']))
+# hq-rmh (fixed): an unresolvable area_title now returns a structured
+# NOT_FOUND error BEFORE any AppleScript write - no orphan project created.
+add("add_project", {"title": "P", "area_title": UNKNOWN_AREA_TITLE}, write_error("NOT_FOUND"))
+add("add_project", {"title": "P", "area_title": AMBIGUOUS_AREA_TITLE}, write_error("AMBIGUOUS_TARGET"))
+add("add_project", {"title": "P", "area_id": UNKNOWN_AREA_ID}, write_error("NOT_FOUND"))
+# things.get() itself raises (simulated unreadable Things DB) -> falls back
+# to emitting the raw area_id unchecked via AppleScript rather than
+# refusing the write (mirrors _resolve_list_id's documented DB-unreadable
+# fallback).
+add(
+    "add_project",
+    {"title": "P", "area_id": RAISING_AREA_ID},
+    ok(route="applescript", contains=[f'area id "{RAISING_AREA_ID}"']),
+)
 
 add("add_project", {"title": "P", "todos": None}, ok(route="applescript"))
 add("add_project", {"title": "P", "todos": ""}, ok(route="applescript"))
@@ -858,11 +897,24 @@ for d, exp in [
     add("update_project", {"id": "PROJECTID1", "deadline": d}, exp)
 
 add("update_project", {"id": "PROJECTID1", "area_id": None}, ok(route="applescript"))
-add("update_project", {"id": "PROJECTID1", "area_id": "AREAID2"}, ok(route="applescript", contains=['area id "AREAID2"']))
+add("update_project", {"id": "PROJECTID1", "area_id": KNOWN_AREA_ID_2}, ok(route="applescript", contains=[f'area id "{KNOWN_AREA_ID_2}"']))
 add("update_project", {"id": "PROJECTID1", "area_id": ""}, ok(route="applescript"))
 add("update_project", {"id": "PROJECTID1", "area_title": None}, ok(route="applescript"))
-add("update_project", {"id": "PROJECTID1", "area_title": "Some Area"}, ok(route="applescript", contains=['area "Some Area"']))
-add("update_project", {"id": "PROJECTID1", "area_title": "DoesNotExistArea"}, ok(route="applescript", contains=['area "DoesNotExistArea"']))  # hq-rmh
+# area_title is pre-resolved via things.py to its concrete area_id (hq-rmh)
+# before the script is built, so a resolved title is emitted as
+# 'area id "<uuid>"', not 'area "<title>"'.
+add("update_project", {"id": "PROJECTID1", "area_title": KNOWN_AREA_TITLE}, ok(route="applescript", contains=['area id "KNOWNAREAUUID-Some-Area"']))
+# hq-rmh (fixed): an unresolvable area_title now returns a structured
+# NOT_FOUND error BEFORE any AppleScript write - no other field in the same
+# call (title/notes/tags/deadline/status) is silently discarded either.
+add("update_project", {"id": "PROJECTID1", "area_title": UNKNOWN_AREA_TITLE}, write_error("NOT_FOUND"))
+add("update_project", {"id": "PROJECTID1", "area_title": AMBIGUOUS_AREA_TITLE}, write_error("AMBIGUOUS_TARGET"))
+add("update_project", {"id": "PROJECTID1", "area_id": UNKNOWN_AREA_ID}, write_error("NOT_FOUND"))
+add(
+    "update_project",
+    {"id": "PROJECTID1", "area_id": RAISING_AREA_ID},
+    ok(route="applescript", contains=[f'area id "{RAISING_AREA_ID}"']),
+)
 
 for completed, canceled, expect_marker in [
     ("true", "true", "status of targetProject to canceled"),
