@@ -53,26 +53,69 @@ class AppleScriptExecutor:
         return await self._execute_script_with_retry(script)
 
     async def _execute_script_with_retry(self, script: str) -> Dict[str, Any]:
-        """Execute script with retry logic."""
+        """Execute script with retry logic.
+
+        Two distinct failure shapes are treated as retryable:
+
+        1. ``result["success"] is False`` - the osascript process itself
+           exited non-zero (or timed out / raised).
+        2. ``result["success"] is True`` but ``result["output"]`` starts
+           with the ``"ERROR:"`` in-script error convention (see
+           move_operations.py's ``_build_project_move_script`` /
+           ``_build_area_move_script`` / ``_get_todo_info``, and
+           tag_service.py's tag-creation script). Things 3's own AppleScript
+           ``on error`` handlers in those scripts catch a failure and
+           `return "ERROR: " & errMsg` - osascript itself still exits 0
+           (it successfully ran the script and got a return value), so
+           this failure shape bypasses case 1 entirely unless we also
+           check the payload here. Only an *exact* ``"ERROR:"`` prefix
+           (checked with ``.strip().startswith(...)``) is treated as
+           retryable - this deliberately does not pattern-match the
+           substring anywhere else in the payload, since a legitimate
+           todo/note body could otherwise contain the word "ERROR".
+        """
         last_error = None
+        last_result: Dict[str, Any] = {}
 
         for attempt in range(self.retry_count):
             result = await self._execute_script(script)
+            last_result = result
 
-            if result.get("success"):
+            if result.get("success") and not self._is_error_stdout(result.get("output")):
                 return result
 
-            last_error = result.get("error")
+            if result.get("success"):
+                # rc=0 but in-script "ERROR:"-prefixed stdout - retryable,
+                # but must NOT be reported as a generic execution failure
+                # if we exhaust retries (see fallthrough below).
+                last_error = result.get("output")
+            else:
+                last_error = result.get("error")
 
             if attempt < self.retry_count - 1:
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Script execution failed, retrying in {wait_time}s: {last_error}")
                 await asyncio.sleep(wait_time)
 
+        if last_result.get("success"):
+            # Exhausted retries on rc=0 "ERROR:"-prefixed stdout - return the
+            # result exactly as produced (same shape callers already parse,
+            # e.g. move_operations.py's `output.startswith("ERROR:")` check)
+            # rather than wrapping it in a different failure envelope.
+            return last_result
+
         return {
             "success": False,
             "error": f"Failed after {self.retry_count} attempts: {last_error}"
         }
+
+    @staticmethod
+    def _is_error_stdout(output: Any) -> bool:
+        """True if a successful (rc=0) script's stdout is the in-script
+        ``"ERROR:"`` convention used by ``on error`` handlers that `return
+        "ERROR: " & errMsg` instead of failing the osascript process.
+        """
+        return isinstance(output, str) and output.strip().startswith("ERROR:")
 
     async def _execute_script(self, script: str) -> Dict[str, Any]:
         """Execute a single AppleScript command with process-level locking.

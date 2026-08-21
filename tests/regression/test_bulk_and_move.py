@@ -148,25 +148,50 @@ def _new_todos(mcp, sandbox, count, prefix="bulk batch"):
 
 
 def _bulk_move_tolerating_concurrency_race(mcp, todo_ids, destination, max_concurrent=None, retries=3):
-    """Call bulk_move_records, retrying any todo ids that failed.
+    """Call bulk_move_records, retrying only todo ids that failed with the
+    specific transient concurrency-race signature (see below) - any other
+    failure is a real bug and is NOT retried, so it surfaces immediately as
+    a failed_moves entry in the returned result for the caller's own
+    assertions to catch.
 
-    Observed live (hq-gbl.9, no prior bead): MoveOperationsTools.bulk_move
-    fans out concurrent AppleScript calls via asyncio.gather (bounded by
-    max_concurrent, default 5) with NO serialization against Things -
-    AppleScriptManager._applescript_lock (services/applescript_manager.py)
-    is defined but never acquired anywhere in the codebase. Under the
-    concurrency this bead's own multi-todo bulk_move tests exercise,
-    individual per-todo AppleScript `osascript` invocations intermittently
-    fail against the live, single-threaded Things app ("N successful, M
-    failed" with M > 0), even though every id is valid and the destination
-    is valid - confirmed reproducible via repeated live runs of
-    destination='today'/'trash'/'project:...' at max_concurrent=5/10.
-    Retrying only the failed ids (typically 0-2 of N) reliably converges
-    within a couple of attempts. This helper isolates that retry so each
-    test's real assertions run against the fully-succeeded end state,
-    without masking the race - it is filed under Discovered rather than
-    fixed here (out of scope: this bead is regression tests, not
-    move_operations.py)."""
+    Originally observed live (hq-gbl.9, no prior bead): MoveOperationsTools.
+    bulk_move fans out concurrent AppleScript calls via asyncio.gather
+    (bounded by max_concurrent, default 5). Under that concurrency,
+    individual per-todo moves intermittently failed ("N successful, M
+    failed" with M > 0) even though every id/destination was valid.
+
+    hq-c7a root-caused and partially fixed the underlying defect: the
+    AppleScript executor (services/applescript/executor.py) now retries
+    rc=0 results whose stdout carries the in-script "ERROR:"-prefixed
+    convention, which used to bypass retry entirely (only rc!=0 triggered
+    retry before). AppleScriptManager._applescript_lock (services/
+    applescript_manager.py) - a duplicate, dead lock that was never
+    acquired anywhere - was also removed; the real serialization has
+    always lived in AppleScriptExecutor._applescript_lock, which IS held
+    around every osascript call.
+
+    Re-measured live post-hq-c7a (two full 59-test live runs, plus a
+    targeted third run of just the destination/max_concurrent tests): the
+    executor fix does NOT fully eliminate the race. A distinct residual
+    failure mode remains at the higher layer - move_record's own
+    _get_todo_info pre-check (move_operations.py) intermittently fails to
+    resolve a just-created, genuinely-valid todo's `to do id "<id>"` under
+    concurrent AppleScript bursts, which move_record reports as
+    error='TODO_NOT_FOUND', message="Todo with ID '<id>' not found". Across
+    all three post-fix live runs, TODO_NOT_FOUND was the ONLY error
+    signature ever observed on a retried-and-then-succeeding id (8 total
+    occurrences, spanning destination='area:...'/'today'/'trash'/
+    'project:...' and max_concurrent=5/10) - this is narrower than "any
+    failure" and is what this helper now matches on specifically. Retrying
+    only ids that failed with exactly this signature (typically 0-2 of N)
+    reliably converges within a couple of attempts. Any id that fails with
+    a different error code is left in failed_moves and NOT retried, so a
+    real regression (e.g. a genuinely invalid id, or a new failure mode)
+    still fails the calling test's assertions instead of being silently
+    masked. Filed under Discovered rather than fixed at the move_record
+    layer (out of scope for hq-c7a: that pre-check would need its own
+    retry/backoff treatment, tracked separately)."""
+    RETRYABLE_ERROR = "TODO_NOT_FOUND"
     remaining = list(todo_ids)
     last_result = None
     for _ in range(retries):
@@ -174,10 +199,16 @@ def _bulk_move_tolerating_concurrency_race(mcp, todo_ids, destination, max_concu
         if max_concurrent is not None:
             kwargs["max_concurrent"] = max_concurrent
         last_result = mcp.call_sync("bulk_move_records", **kwargs)
-        failed_ids = [m["id"] for m in last_result.get("failed_moves") or []]
-        if not failed_ids:
+        failed_moves = last_result.get("failed_moves") or []
+        if not failed_moves:
             return last_result
-        remaining = failed_ids
+        non_retryable = [m for m in failed_moves if m.get("error") != RETRYABLE_ERROR]
+        if non_retryable:
+            # A different failure signature - not the known transient race.
+            # Stop retrying immediately and return as-is so the caller's
+            # assertions see (and fail on) the real problem.
+            return last_result
+        remaining = [m["id"] for m in failed_moves]
         time.sleep(1)
     return last_result
 
