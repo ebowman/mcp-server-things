@@ -1464,7 +1464,7 @@ class ThingsMCPServer:
                 logbook_data = await self.tools.get_logbook(
                     limit=limit, period=period, offset=offset, include_canceled=include_canceled)
                 total = getattr(logbook_data, 'total_count', None)
-                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
+                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total, requested_mode=None)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -1514,7 +1514,7 @@ class ThingsMCPServer:
             """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only."""
             try:
                 due_todos = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
-                result = self._read_result(due_todos, mode='standard')
+                result = self._read_result(due_todos, mode='standard', requested_mode=None)
                 result['days'] = days
                 result['include_overdue'] = include_overdue
                 return result
@@ -1532,7 +1532,7 @@ class ThingsMCPServer:
             """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded."""
             try:
                 activating_todos = await self.tools.get_todos_activating_in_days(days)
-                result = self._read_result(activating_todos, mode='standard')
+                result = self._read_result(activating_todos, mode='standard', requested_mode=None)
                 result['days'] = days
                 return result
             except Exception as e:
@@ -1550,7 +1550,7 @@ class ThingsMCPServer:
             """Get all tags with item counts or full items. Use include_items=true for full item lists."""
             try:
                 tags_data = await self.tools.get_tags(include_items=include_items)
-                return self._read_result(tags_data, mode='standard')
+                return self._read_result(tags_data, mode='standard', requested_mode=None)
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
                 raise
@@ -1573,7 +1573,7 @@ class ThingsMCPServer:
                     # _build_unknown_tag_error (read_operations.py) - no need
                     # to overwrite it here.
                     return tagged_items
-                result = self._read_result(tagged_items, mode='standard')
+                result = self._read_result(tagged_items, mode='standard', requested_mode=None)
                 result['tag'] = tag
                 return result
             except Exception as e:
@@ -1918,7 +1918,7 @@ class ThingsMCPServer:
             """
             try:
                 recent_items = await self.tools.get_recent(period=period, status=status, type=type)
-                result = self._read_result(recent_items, mode='standard')
+                result = self._read_result(recent_items, mode='standard', requested_mode=None)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -2466,6 +2466,7 @@ class ThingsMCPServer:
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         total: Optional[int] = None,
+        requested_mode: Any = "_unset",
     ) -> Dict[str, Any]:
         """Normalize a read-tool response into a consistent structured-content shape.
 
@@ -2504,11 +2505,19 @@ class ThingsMCPServer:
             mode: Requested response mode, if known (e.g. 'auto', 'summary', 'standard').
                 When this is 'auto' or None, the resolved effective mode is reported
                 instead: meta['mode'] if present, else a top-level 'mode' key (summary
-                responses carry no meta), else the requested value.
+                responses carry no meta), else the requested value. For tools with no
+                'mode' parameter at all (e.g. get_logbook, get_tags), callers pass a
+                fixed literal here (e.g. 'standard') purely to report the effective
+                shape of the returned items - see 'requested_mode' below.
             limit: The limit that was applied/requested, if any.
             offset: The offset that was applied/requested, if any.
             total: Total item count before limiting, if known/tracked separately from the
                 returned items (e.g. pagination endpoints like get_trash).
+            requested_mode: What the caller actually asked for, when that differs from
+                `mode` (e.g. a tool with no 'mode' parameter at all should pass
+                ``requested_mode=None`` here, while still passing e.g. mode='standard'
+                to report the effective item shape). Defaults to echoing `mode`, which
+                is correct for every tool that does have a real 'mode' parameter.
 
         Returns:
             A dict containing at least items/count/total/mode/limit/offset, plus any
@@ -2516,11 +2525,13 @@ class ThingsMCPServer:
         """
         if isinstance(response, list):
             items = response
+            effective_requested_mode = mode if requested_mode == "_unset" else requested_mode
             result: Dict[str, Any] = {
                 "items": items,
                 "count": len(items),
                 "total": total if total is not None else len(items),
                 "mode": mode,
+                "requested_mode": effective_requested_mode,
                 "limit": limit,
                 "offset": offset,
             }
@@ -2556,7 +2567,7 @@ class ThingsMCPServer:
         # payload from create_summary_response, which carries no 'meta' at all). Prefer
         # whichever of those is actually present so structured_content reflects what was
         # returned, per docs, instead of echoing back the literal 'auto' request.
-        requested_mode = mode
+        requested_mode = mode if requested_mode == "_unset" else requested_mode
         if mode in (None, "auto"):
             effective_mode = meta.get("mode") or result.get("mode") or mode
         else:

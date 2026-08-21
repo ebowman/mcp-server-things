@@ -54,7 +54,7 @@ def _make_server_with_mock_tools(**overrides):
     return server
 
 
-REQUIRED_LIST_KEYS = {"items", "count", "total", "mode", "limit", "offset"}
+REQUIRED_LIST_KEYS = {"items", "count", "total", "mode", "requested_mode", "limit", "offset"}
 
 
 class TestStructuredContentShape:
@@ -197,6 +197,11 @@ class TestStructuredContentShape:
         assert REQUIRED_LIST_KEYS.issubset(sc.keys())
         assert sc["items"] == tags
         assert sc["count"] == 2
+        # get_tags has no 'mode' parameter, so requested_mode must be None
+        # (nothing was requested), while 'mode' still reports the effective
+        # shape ('standard') of the returned items - hq-lsb.
+        assert sc["requested_mode"] is None
+        assert sc["mode"] == "standard"
 
     @pytest.mark.asyncio
     async def test_get_tag_usage_structured_content(self):

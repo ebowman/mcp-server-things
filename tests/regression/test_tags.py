@@ -514,6 +514,10 @@ class TestGetTags:
     def test_sandbox_tags_present(self, mcp, sandbox, seeded):
         result = mcp.call_sync("get_tags")
         assert result.get("success") is not False, result
+        # get_tags has no 'mode' parameter, so requested_mode must be None
+        # while 'mode' reports the effective ('standard') shape - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         items = result.get("items", [])
         titles = {i.get("title") for i in items}
         assert sandbox.tag_name in titles, titles
@@ -546,6 +550,10 @@ class TestGetTaggedItems:
         }
         result = mcp.call_sync("get_tagged_items", tag=sandbox.tag_name)
         assert result.get("success") is not False, result
+        # get_tagged_items has no 'mode' parameter, so requested_mode must be
+        # None while 'mode' reports the effective ('standard') shape - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         items = result.get("items", [])
         actual_ids = {i.get("uuid") for i in items}
         assert actual_ids == expected_ids, (actual_ids, expected_ids)
