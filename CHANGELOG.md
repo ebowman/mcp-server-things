@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Structured write failures now set the MCP `isError` flag.** Canonical write-error payloads remain intact for machine-readable handling while clients can reliably distinguish them from successful tool calls.
+- **Package metadata now requires Python 3.10+.** This matches FastMCP 3.4's runtime floor and prevents dependency resolution from considering unsupported Python 3.8/3.9 environments.
 
 ## [1.7.0] - 2026-08-19
 
