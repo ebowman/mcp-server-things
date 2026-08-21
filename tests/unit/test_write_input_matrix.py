@@ -340,6 +340,14 @@ async def _call_tool(server: ThingsMCPServer, tool_name: str, kwargs: Dict[str, 
         return await client.call_tool(tool_name, kwargs)
 
 
+async def _call_tool_for_inspection(
+    server: ThingsMCPServer, tool_name: str, kwargs: Dict[str, Any]
+):
+    client = Client(server.mcp)
+    async with client:
+        return await client.call_tool(tool_name, kwargs, raise_on_error=False)
+
+
 def run_tool(
     tool_name: str,
     kwargs: Dict[str, Any],
@@ -354,7 +362,7 @@ def run_tool(
     for p in patches:
         p.start()
     try:
-        result = asyncio.run(_call_tool(server, tool_name, kwargs))
+        result = asyncio.run(_call_tool_for_inspection(server, tool_name, kwargs))
     finally:
         for p in patches:
             p.stop()
