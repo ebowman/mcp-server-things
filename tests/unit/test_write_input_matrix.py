@@ -130,8 +130,11 @@ class RecordingAppleScriptManager:
         # Delimited-string response for TagValidationService._get_existing_tags
         # ("repeat with theTag in tags"). Defaults to "" (no existing tags in
         # Things) - override via a `seed` callback to pre-seed known tags so
-        # a case can exercise the ALLOW_ALL "already-known" path without
-        # tripping the existing/created double-count bug (see Discovered).
+        # a case can exercise the ALLOW_ALL "already-known" path (as
+        # distinct from the "newly-created" path exercised when unseeded).
+        # hq-3bp fixed a double-count bug where both paths' emitted tag
+        # string duplicated every tag; both paths are now covered by
+        # dedicated CASES entries asserting each tag appears exactly once.
         self.existing_tags_output: str = ""
 
     async def execute_applescript(self, script: str, cache_key: Optional[str] = None) -> Dict[str, Any]:
@@ -782,14 +785,29 @@ add("bulk_update_todos", {"todo_ids": "T1,T2", "notes": NEWLINE_TEXT}, ok(route=
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": None}, ok(route="applescript"))
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": ""}, ok(route="applescript", contains=['tag names of targetTodo to ""']))
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": " , "}, ok(route="applescript", contains=['tag names of targetTodo to ""']))
-# Tags pre-seeded as already-existing (via seed) so the ALLOW_ALL policy's
-# existing+created double-count bug (see Discovered) doesn't trigger -
-# this case asserts the plain pass-through property/value, not the bug.
+# hq-3bp: tags pre-seeded as already-existing (via seed) so this case
+# exercises the ALLOW_ALL "already-known" path - each tag must appear
+# exactly once in the emitted AppleScript tag string, not duplicated
+# (TagValidationResult.valid_tags already includes created_tags under
+# ALLOW_ALL; previously concatenating 'existing' + 'created' at the call
+# site double-counted every tag - see CHANGELOG [Unreleased]).
 add(
     "bulk_update_todos",
     {"todo_ids": "T1,T2", "tags": "a,b"},
     ok(route="applescript", contains=['tag names of targetTodo to "a, b"']),
     seed=lambda fake: setattr(fake, "existing_tags_output", "a|DELIMITER|b"),
+)
+
+# hq-3bp: tags NOT pre-seeded (existing_tags_output defaults to "") so both
+# "a" and "b" are unknown and get auto-created under ALLOW_ALL - this is
+# the path that previously double-emitted ('a, b, a, b') because
+# valid_tags = existing (== created, since neither was already-known) +
+# created duplicated every newly-created tag. Each tag must still appear
+# exactly once in the emitted AppleScript tag string.
+add(
+    "bulk_update_todos",
+    {"todo_ids": "T1,T2", "tags": "a,b"},
+    ok(route="applescript", contains=['tag names of targetTodo to "a, b"']),
 )
 
 for w, exp in [
