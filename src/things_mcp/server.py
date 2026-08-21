@@ -308,11 +308,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -983,11 +981,9 @@ class ThingsMCPServer:
             """Get all projects with optional task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Prepare request parameters
                 request_params = {
@@ -1189,11 +1185,9 @@ class ThingsMCPServer:
             """Get all areas with optional project/task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Prepare request parameters
                 request_params = {
@@ -1272,6 +1266,13 @@ class ThingsMCPServer:
             Inbox in any case, since Inbox items cannot belong to a project.
             """
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1298,6 +1299,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1329,6 +1337,13 @@ class ThingsMCPServer:
             Without 'days', returns items from Things 3's built-in Upcoming list.
             """
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # If days is specified, filter todos by date range
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
@@ -1376,6 +1391,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1403,6 +1425,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1580,11 +1609,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 headings_result = await self.tools.get_project_headings(project_id=project_id)
                 if isinstance(headings_result, dict) and headings_result.get('error'):
@@ -1678,11 +1705,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -1778,12 +1803,9 @@ class ThingsMCPServer:
                 from datetime import datetime
                 
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                        valid_modes=["auto", "summary", "minimal", "standard", "detailed", "raw"],
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Validate date formats
                 if start_date:
@@ -2369,6 +2391,44 @@ class ThingsMCPServer:
             A dict with 'success', 'error', 'message', plus any extra fields.
         """
         return _tools_read_error(code, message, **extra)
+
+    _VALID_RESPONSE_MODES = ["auto", "summary", "minimal", "standard", "detailed", "raw"]
+
+    @classmethod
+    def _validate_mode(cls, mode: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Validate a read tool's `mode` parameter.
+
+        Shared by every read tool that accepts a `mode` parameter
+        (get_todos, get_projects, get_areas, get_project_headings,
+        search_todos, search_advanced, get_inbox, get_today, get_upcoming,
+        get_anytime, get_someday) so the invalid-mode check and error
+        shape can never drift between them - see hq-exd (the five list
+        tools used to skip this check entirely and pass a bogus mode
+        straight into ResponseMode(...), raising an unhandled ValueError
+        surfaced by FastMCP as an opaque ToolError instead of the
+        canonical structured read-tool error).
+
+        A falsy `mode` (None or '') is treated as "not provided" and is
+        always valid - callers that need a concrete mode default to 'auto'
+        downstream. Matching is case-sensitive: 'STANDARD' is invalid, only
+        the exact lowercase mode strings are accepted.
+
+        Args:
+            mode: The raw `mode` string as received from the MCP call, or
+                None if omitted.
+
+        Returns:
+            None if `mode` is valid (or not provided); otherwise the
+            canonical `_read_error('invalid_mode', ...)` dict to return
+            directly from the calling tool.
+        """
+        if mode and mode not in cls._VALID_RESPONSE_MODES:
+            return cls._read_error(
+                "invalid_mode",
+                f"Mode must be one of: {', '.join(cls._VALID_RESPONSE_MODES)}. Got: {mode}",
+                valid_modes=cls._VALID_RESPONSE_MODES,
+            )
+        return None
 
     @staticmethod
     def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:

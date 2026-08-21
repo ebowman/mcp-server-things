@@ -33,6 +33,11 @@ assumed):
     contain projects per CLAUDE.md) - passing it is an
     unexpected_keyword_argument schema rejection (tool_error), not a
     runtime/business-logic error.
+  - `mode`, by contrast, IS hand-validated in server.py for all five of
+    these tools (via the shared `_validate_mode` helper, hq-exd) - a bogus
+    mode returns the structured read_error('invalid_mode', ...) shape, same
+    as get_todos/get_projects/get_areas/search_*, never a tool_error. See
+    TestModes.test_bogus_mode_returns_structured_invalid_mode_error.
 """
 import asyncio
 import time
@@ -442,6 +447,27 @@ class TestModes:
             assert "area" in item and "areaTitle" in item, item
         else:  # detailed: unfiltered
             assert "area" in item and "areaTitle" in item, item
+
+    @pytest.mark.parametrize("tool", LIST_TOOLS)
+    def test_bogus_mode_returns_structured_invalid_mode_error(self, mcp, tool):
+        """hq-exd: get_inbox/get_today/get_upcoming/get_anytime/get_someday
+        used to pass a bogus `mode` string straight into ResponseMode(...)
+        unguarded, raising an unhandled ValueError surfaced by FastMCP as an
+        opaque ToolError with no structured_content - unlike get_todos/
+        get_projects/get_areas/search_*, which return the canonical
+        read_error('invalid_mode', ...) shape. This asserts the fix: all
+        five list tools now return the same structured error, never a
+        tool_error. Cheap and data-independent - no seed/sandbox needed."""
+        result = mcp.call_sync(tool, mode="bogus")
+        assert "tool_error" not in result, (
+            f"{tool}(mode='bogus'): expected a structured invalid_mode error, "
+            f"got an opaque tool_error: {result!r}"
+        )
+        assert result.get("success") is False, f"{tool}(mode='bogus'): {result!r}"
+        assert result.get("error") == "invalid_mode", (
+            f"{tool}(mode='bogus'): expected error='invalid_mode', got {result!r}"
+        )
+        assert "message" in result, f"{tool}(mode='bogus'): missing 'message', got {result!r}"
 
 
 # ---------------------------------------------------------------------------
