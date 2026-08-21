@@ -336,6 +336,14 @@ class TestGetTrash:
         assert "tool_error" not in result, result
         assert len(result.get("items", [])) <= 100, result
 
+    def test_requested_mode_is_none(self, mcp):
+        # get_trash has no 'mode' parameter, so requested_mode must be None
+        # (hq-cal.3), while 'mode' still reports the effective shape.
+        result = mcp.call_sync("get_trash", limit=1)
+        assert "tool_error" not in result, result
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
+
     def test_limit_101_is_schema_rejection(self, mcp):
         result = mcp.call_sync("get_trash", limit=101)
         assert "tool_error" in result, result

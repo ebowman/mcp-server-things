@@ -1515,6 +1515,7 @@ class ThingsMCPServer:
                     limit=limit,
                     offset=offset,
                     total=trash_data.get('total_count') if isinstance(trash_data, dict) else None,
+                    requested_mode=None,
                 )
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")

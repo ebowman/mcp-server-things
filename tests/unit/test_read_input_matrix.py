@@ -564,11 +564,12 @@ def _case_id(case: Tuple[str, Dict[str, Any], Any]) -> str:
 
 
 # Tools with no 'mode' parameter at all (get_logbook, get_due_in_days,
-# get_activating_in_days, get_tags, get_tagged_items, get_recent) report
-# requested_mode=None (nothing was requested), while 'mode' still reports
-# the effective/concrete shape of the returned items (hq-lsb fix -
+# get_activating_in_days, get_tags, get_tagged_items, get_recent, get_trash)
+# report requested_mode=None (nothing was requested), while 'mode' still
+# reports the effective/concrete shape of the returned items (hq-lsb fix -
 # ThingsMCPServer._read_result's list branch now always sets
-# 'requested_mode', matching the dict branch).
+# 'requested_mode', matching the dict branch; hq-cal.3 fixed the one dict-
+# branch caller, get_trash, that had been left out).
 NO_MODE_PARAM_TOOLS = {
     "get_logbook",
     "get_due_in_days",
@@ -576,6 +577,7 @@ NO_MODE_PARAM_TOOLS = {
     "get_tags",
     "get_tagged_items",
     "get_recent",
+    "get_trash",
 }
 
 
