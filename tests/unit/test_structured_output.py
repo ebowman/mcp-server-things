@@ -54,7 +54,7 @@ def _make_server_with_mock_tools(**overrides):
     return server
 
 
-REQUIRED_LIST_KEYS = {"items", "count", "total", "mode", "limit", "offset"}
+REQUIRED_LIST_KEYS = {"items", "count", "total", "mode", "requested_mode", "limit", "offset"}
 
 
 class TestStructuredContentShape:
@@ -197,6 +197,11 @@ class TestStructuredContentShape:
         assert REQUIRED_LIST_KEYS.issubset(sc.keys())
         assert sc["items"] == tags
         assert sc["count"] == 2
+        # get_tags has no 'mode' parameter, so requested_mode must be None
+        # (nothing was requested), while 'mode' still reports the effective
+        # shape ('standard') of the returned items - hq-lsb.
+        assert sc["requested_mode"] is None
+        assert sc["mode"] == "standard"
 
     @pytest.mark.asyncio
     async def test_get_tag_usage_structured_content(self):
@@ -488,6 +493,43 @@ class TestGetSomedayIncludeProjectTasks:
         assert uuids == {"native1", "inherited1"}
         inherited_item = next(i for i in sc["items"] if i["uuid"] == "inherited1")
         assert inherited_item.get("inheritedSomeday") is True
+
+
+class TestSearchTodosSummaryModePreview:
+    """hq-cal.4: search_todos(mode='summary')'s structured_content['items'] must
+    be populated from the search summarizer's 'result_preview' key (which
+    _read_result's preview fallback previously did not check, so items was
+    always [] under mode='summary' even though result_preview was populated)."""
+
+    @pytest.mark.asyncio
+    async def test_search_todos_summary_mode_returns_non_empty_preview(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}", title=f"milk {i}") for i in range(10)]
+        server = _make_server_with_mock_tools(search_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "search_todos", {"query": "milk", "mode": "summary"}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+
+        # Previously items was always [] under mode='summary'; must now be
+        # populated from the summarizer's result_preview.
+        assert sc["items"] != []
+        assert sc["count"] == len(sc["items"])
+        assert sc["count"] > 0
+
+        # Preview rows use the documented SUMMARY field set - a subset of
+        # {uuid, title, status, tags, dueDate}, no other keys leak through.
+        allowed_keys = {"uuid", "title", "status", "tags", "dueDate"}
+        for item in sc["items"]:
+            assert set(item.keys()) <= allowed_keys
+
+        # total reflects the full pre-preview match count, not the preview size.
+        assert sc["total"] == 10
 
 
 class TestServerCapabilitiesTotalTools:

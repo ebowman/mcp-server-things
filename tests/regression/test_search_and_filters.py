@@ -262,6 +262,30 @@ class TestSearchTodos:
             extra = set(item.keys()) - allowed
             assert not extra, f"search_todos mode={mode!r}: unexpected keys {extra} in {item!r}"
 
+    def test_summary_mode_returns_non_empty_preview(self, mcp, seeded):
+        """hq-cal.4: search_todos(mode='summary') must return a non-empty
+        items preview (from the summarizer's result_preview), not items=[],
+        even though the summary dict's own count/total is correctly
+        populated. The preview is capped at 3 items (context_manager.py
+        _summarize_search_results), so this does not assert a specific seed
+        is present - only that the preview is non-empty and every row's
+        keys are a subset of the documented SUMMARY field set."""
+        result = mcp.call_sync(
+            "search_todos", query="hq-gbl-reg seed", mode="summary", limit=500,
+        )
+        assert "tool_error" not in result, result
+        assert result.get("mode") == "summary", result
+
+        items = result.get("items", [])
+        assert items, f"search_todos mode='summary' returned empty items: {result!r}"
+        assert result.get("count") == len(items)
+        assert result.get("total", 0) >= len(items)
+
+        allowed = {"uuid", "title", "status", "tags", "dueDate"}
+        for item in items:
+            extra = set(item.keys()) - allowed
+            assert not extra, f"search_todos mode='summary': unexpected keys {extra} in {item!r}"
+
     def test_invalid_mode_is_read_error(self, mcp):
         result = mcp.call_sync("search_todos", query="hq-gbl-reg", mode="bogus")
         assert_read_error(result, "invalid_mode")

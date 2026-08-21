@@ -17,12 +17,35 @@ existing test_update_project_status.py pattern.
 """
 
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
 from things_mcp.scheduling.todo_operations import TodoOperations
 from things_mcp.tools_helpers.bulk_operations import BulkOperations
+
+
+@pytest.fixture(autouse=True)
+def _things_get_resolves_as_todo():
+    """hq-wbm: update_todo/bulk_update_todos now pre-check the primary
+    todo_id via things.get() before any write. This file's todo_id values
+    ("TODO-1" etc.) are fake ids never present in the real Things database,
+    so without this patch every call here would (correctly, per the new
+    behavior) return NOT_FOUND instead of exercising the clear-field
+    AppleScript emission this file is actually testing. Patch all three
+    module-local things.get() proxies (todo_operations, bulk_operations,
+    write_operations) to always resolve as a to-do."""
+    with patch(
+        "things_mcp.scheduling.todo_operations.things.get",
+        return_value={"type": "to-do"},
+    ), patch(
+        "things_mcp.tools_helpers.bulk_operations.things.get",
+        return_value={"type": "to-do"},
+    ), patch(
+        "things_mcp.tools_helpers.write_operations.things.get",
+        return_value={"type": "to-do"},
+    ):
+        yield
 
 
 @pytest.fixture

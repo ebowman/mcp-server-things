@@ -86,10 +86,49 @@ class SchedulingStrategies:
         }
 
     async def _schedule_relative_date(self, todo_id: str, relative_date: str) -> Dict[str, Any]:
-        """Schedule using relative date AppleScript commands (most reliable)."""
+        """Schedule using relative date AppleScript commands (most reliable).
+
+        bead hq-x9z: for `relative_date == "today"`, Things' `schedule ...
+        for (current date)` verb leaves the to-do in its "unconfirmed
+        scheduled" state (things.py start='Someday', start_date=today) -
+        it shows up in things.today()/get_today (which explicitly predicts
+        that state) but NOT in things.anytime()/get_anytime, unlike every
+        other way of landing a to-do in Today (the URL-scheme when='today'
+        path, or Things' own "Today" button) which yields start='Anytime'.
+        Live-probed fix: skip the `schedule` verb entirely for today and
+        use `move theTodo to list "Today"` instead - confirmed live to
+        yield start='Anytime', start_date=today, and membership in both
+        things.today() and things.anytime(). Calling `schedule` before or
+        after the move both revert the to-do back to the Someday/unconfirmed
+        state, so `schedule` must not be used at all for this case.
+        `tomorrow`/`yesterday` are unaffected: Things' own start='Someday'
+        + future/past start_date is the normal, expected representation
+        for those (things.upcoming() explicitly keys off exactly that
+        state), so they keep using the `schedule` verb unchanged.
+        """
+
+        if relative_date == "today":
+            script = f'''
+            tell application "Things3"
+                try
+                    set theTodo to to do id "{todo_id}"
+                    move theTodo to list "Today"
+                    return "scheduled_relative"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success") and "scheduled_relative" in result.get("output", ""):
+                logger.info(f"Successfully scheduled todo {todo_id} for today via AppleScript move-to-Today")
+                return {"success": True}
+            else:
+                logger.debug(f"Today move-to-list scheduling failed: {result.get('output', '')}")
+                return {"success": False, "error": result.get("output", "AppleScript failed")}
 
         date_commands = {
-            "today": "set targetDate to (current date)",
             "tomorrow": "set targetDate to ((current date) + 1 * days)",
             "yesterday": "set targetDate to ((current date) - 1 * days)"
         }
@@ -125,7 +164,39 @@ class SchedulingStrategies:
             return {"success": False, "error": result.get("output", "AppleScript failed")}
 
     async def _schedule_specific_date_objects(self, todo_id: str, target_date: date) -> Dict[str, Any]:
-        """Schedule using AppleScript date object construction (highly reliable)."""
+        """Schedule using AppleScript date object construction (highly reliable).
+
+        bead hq-x9z: an explicit ISO date that resolves to today's date
+        (e.g. update_todo(when='2026-08-21') called on 2026-08-21) hits the
+        same `schedule` verb quirk as the relative-'today' case in
+        `_schedule_relative_date` above - live-probed to leave
+        start='Someday' rather than start='Anytime'. Use the same
+        move-to-Today-list fix here when `target_date` is today; any other
+        date keeps using the `schedule` verb unchanged (that Someday +
+        future/past start_date representation is normal/expected for
+        non-today dates - see `_schedule_relative_date`'s docstring).
+        """
+
+        if target_date == date.today():
+            script = f'''
+            tell application "Things3"
+                try
+                    set theTodo to to do id "{todo_id}"
+                    move theTodo to list "Today"
+                    return "scheduled_objects"
+                on error errMsg
+                    return "error: " & errMsg
+                end try
+            end tell
+            '''
+
+            result = await self.applescript.execute_applescript(script)
+            if result.get("success") and "scheduled_objects" in result.get("output", ""):
+                logger.info(f"Successfully scheduled todo {todo_id} for today via AppleScript move-to-Today (date objects path)")
+                return {"success": True}
+            else:
+                logger.debug(f"Today move-to-list scheduling failed: {result.get('output', '')}")
+                return {"success": False, "error": result.get("output", "AppleScript failed")}
 
         script = f'''
         tell application "Things3"

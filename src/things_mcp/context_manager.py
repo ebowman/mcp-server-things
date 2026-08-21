@@ -262,45 +262,65 @@ class ProgressiveDisclosureEngine:
         
         return summary
     
+    def _build_summary_preview_row(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a single SUMMARY-mode preview row for a todo/project item.
+
+        Uses the same documented SUMMARY field set as ordinary (non-preview)
+        list responses - {uuid, title, status, tags, dueDate} - rather than a
+        hand-built {id, name} shape (hq-9tm: preview rows previously
+        contradicted CLAUDE.md's 'Todo field lists per mode' SUMMARY
+        contract). Dispatches per-row on the item's own 'type' the same way
+        ContextAwareResponseManager._apply_field_filtering does, so a
+        project-typed row (e.g. in a mixed list) still gets filtered against
+        PROJECT_FIELD_SETS - though today PROJECT_FIELD_SETS[SUMMARY] and
+        TODO_FIELD_SETS[SUMMARY] happen to be identical, so this only matters
+        if they diverge in the future. Fields absent/None on the source item
+        are simply not present in the row (existing field-filtering
+        convention - filtering never invents keys).
+        """
+        if item.get('type') == 'project':
+            allowed_fields = ContextAwareResponseManager.PROJECT_FIELD_SETS[ResponseMode.SUMMARY]
+        else:
+            allowed_fields = ContextAwareResponseManager.TODO_FIELD_SETS[ResponseMode.SUMMARY]
+        return {k: v for k, v in item.items() if k in allowed_fields}
+
     def _summarize_todos(self, todos: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create todo-specific summary."""
         status_counts = {}
         overdue_count = 0
         today_count = 0
-        
+
         for todo in todos:
             status = todo.get('status', 'open')
             status_counts[status] = status_counts.get(status, 0) + 1
-            
+
             # Check for overdue (simplified)
             if todo.get('due_date') and todo.get('status') == 'open':
                 overdue_count += 1
-            
+
             # Check for today
             if todo.get('scheduled_date') == 'today':
                 today_count += 1
-        
+
         return {
             "status_breakdown": status_counts,
             "overdue": overdue_count,
             "scheduled_today": today_count,
             "recent_preview": [
-                {"id": t.get("uuid") or t.get("id"), "name": t.get("title") or t.get("name", "")[:50]}
-                for t in todos[:5]
+                self._build_summary_preview_row(t) for t in todos[:5]
             ]
         }
-    
+
     def _summarize_projects(self, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create project-specific summary."""
         active_count = len([p for p in projects if p.get('status') == 'open'])
         completed_count = len([p for p in projects if p.get('status') == 'completed'])
-        
+
         return {
             "active": active_count,
             "completed": completed_count,
             "recent_projects": [
-                {"id": p.get("uuid") or p.get("id"), "name": p.get("title") or p.get("name", "")[:50]}
-                for p in projects[:3]
+                self._build_summary_preview_row(p) for p in projects[:3]
             ]
         }
     
@@ -345,19 +365,15 @@ class ProgressiveDisclosureEngine:
         """Create search-specific summary."""
         status_counts = {}
         recent_items = []
-        
+
         for result in results:
             status = result.get('status', 'open')
             status_counts[status] = status_counts.get(status, 0) + 1
-            
+
             # Add to preview (first 3 items)
             if len(recent_items) < 3:
-                recent_items.append({
-                    "id": result.get("id"),
-                    "name": result.get("name", "")[:60] + ("..." if len(result.get("name", "")) > 60 else ""),
-                    "status": result.get("status", "open")
-                })
-        
+                recent_items.append(self._build_summary_preview_row(result))
+
         return {
             "search_results_breakdown": status_counts,
             "result_preview": recent_items,

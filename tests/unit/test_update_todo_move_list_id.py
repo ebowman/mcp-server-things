@@ -42,11 +42,27 @@ def ops(mock_applescript_manager):
     return TodoOperations(mock_applescript_manager, Mock())
 
 
+def _things_get_router(primary_id: str = "abc123", primary_type: str = "to-do", **overrides):
+    """hq-wbm: build a things.get() side_effect that resolves the primary
+    todo_id ("abc123" in every test in this file) as `primary_type`
+    (normally 'to-do', for update_todo's own pre-check), while any other
+    id (list_id/list_title move targets) resolves per `overrides`
+    (uuid -> record dict), defaulting to None (unknown) for anything not
+    listed."""
+    def _get(record_id, **kwargs):
+        if record_id == primary_id:
+            return {"type": primary_type}
+        if record_id in overrides:
+            return overrides[record_id]
+        return None
+    return _get
+
+
 class TestUpdateTodoMoveByListId:
     @pytest.mark.asyncio
     async def test_list_id_project_emits_project_id_script(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}):
+                   side_effect=_things_get_router(PROJECT1={"type": "project"})):
             result = await ops.update_todo("abc123", list_id="PROJECT1")
 
         assert result["success"] is True
@@ -59,7 +75,7 @@ class TestUpdateTodoMoveByListId:
     @pytest.mark.asyncio
     async def test_list_id_area_emits_area_id_script(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "area"}):
+                   side_effect=_things_get_router(AREA1={"type": "area"})):
             result = await ops.update_todo("abc123", list_id="AREA1")
 
         assert result["success"] is True
@@ -69,7 +85,12 @@ class TestUpdateTodoMoveByListId:
 
     @pytest.mark.asyncio
     async def test_unknown_list_id_returns_structured_error_no_write(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.get", return_value=None):
+        # BOGUS is unmapped -> _things_get_router's default (None), same as
+        # the pre-existing return_value=None behavior for that id; abc123
+        # (the primary todo_id) still resolves as a to-do so the NOT_FOUND
+        # here is _resolve_list_id's (not the pre-check's).
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()):
             result = await ops.update_todo("abc123", list_id="BOGUS")
 
         assert result["success"] is False
@@ -81,7 +102,7 @@ class TestUpdateTodoMoveByListId:
     @pytest.mark.asyncio
     async def test_list_id_wrong_type_returns_structured_error(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "to-do"}):
+                   side_effect=_things_get_router(SOME_TODO={"type": "to-do"})):
             result = await ops.update_todo("abc123", list_id="SOME_TODO")
 
         assert result["success"] is False
@@ -92,7 +113,7 @@ class TestUpdateTodoMoveByListId:
     @pytest.mark.asyncio
     async def test_list_id_combined_with_title_applied_in_same_script(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}):
+                   side_effect=_things_get_router(PROJECT1={"type": "project"})):
             result = await ops.update_todo("abc123", list_id="PROJECT1", title="New Title")
 
         assert result["success"] is True
@@ -105,7 +126,9 @@ class TestUpdateTodoMoveByListId:
 class TestUpdateTodoMoveByListTitle:
     @pytest.mark.asyncio
     async def test_list_title_resolves_to_project(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.projects",
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects",
                    return_value=[{"uuid": "P1", "title": "Work"}]), \
              patch("things_mcp.scheduling.todo_operations.things.areas", return_value=[]):
             result = await ops.update_todo("abc123", list_title="Work")
@@ -116,7 +139,9 @@ class TestUpdateTodoMoveByListTitle:
 
     @pytest.mark.asyncio
     async def test_list_title_resolves_to_area(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.areas",
                    return_value=[{"uuid": "A1", "title": "Personal"}]):
             result = await ops.update_todo("abc123", list_title="Personal")
@@ -127,7 +152,9 @@ class TestUpdateTodoMoveByListTitle:
 
     @pytest.mark.asyncio
     async def test_unknown_list_title_returns_structured_error(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.areas", return_value=[]):
             result = await ops.update_todo("abc123", list_title="Nonexistent")
 
@@ -138,7 +165,9 @@ class TestUpdateTodoMoveByListTitle:
 
     @pytest.mark.asyncio
     async def test_ambiguous_list_title_returns_structured_error(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.projects",
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects",
                    return_value=[{"uuid": "P1", "title": "Dup"}]), \
              patch("things_mcp.scheduling.todo_operations.things.areas",
                    return_value=[{"uuid": "A1", "title": "Dup"}]):
@@ -154,7 +183,7 @@ class TestUpdateTodoMoveByListTitle:
         """When both list_id and list_title are given, list_id wins and
         list_title's own resolution (projects()/areas()) is never consulted."""
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}) as mock_get, \
+                   side_effect=_things_get_router(PROJECT1={"type": "project"})) as mock_get, \
              patch("things_mcp.scheduling.todo_operations.things.projects") as mock_projects, \
              patch("things_mcp.scheduling.todo_operations.things.areas") as mock_areas:
             result = await ops.update_todo("abc123", list_id="PROJECT1", list_title="Ignored Title")
@@ -175,7 +204,7 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
     @pytest.mark.asyncio
     async def test_heading_with_list_id_does_not_trigger_applescript_move(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}), \
+                   side_effect=_things_get_router(PROJECT99={"type": "project"})), \
              patch("things_mcp.scheduling.todo_operations.things.tasks",
                    return_value=[{"title": "Phase 1"}]):
             result = await ops.update_todo("abc123", heading="Phase 1", list_id="PROJECT99")
@@ -211,7 +240,9 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
 
     @pytest.mark.asyncio
     async def test_heading_with_unknown_list_title_returns_structured_error(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.areas", return_value=[]):
             result = await ops.update_todo("abc123", heading="Research", list_title="Nonexistent")
 
@@ -225,7 +256,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
         """Gap 3 fix: an unknown list_id on the heading path is now
         pre-checked via _resolve_list_id (same as the non-heading move
         path) instead of being silently sent to Things as-is."""
-        with patch("things_mcp.scheduling.todo_operations.things.get", return_value=None):
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()):
             result = await ops.update_todo("abc123", heading="Research", list_id="BOGUS")
 
         assert result["success"] is False
@@ -243,7 +275,8 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
         pre-check for the heading path lived inside the `if not
         skip_applescript:` URL block, which runs AFTER the AppleScript
         write, so the title got applied and then the error was returned."""
-        with patch("things_mcp.scheduling.todo_operations.things.get", return_value=None):
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()):
             result = await ops.update_todo(
                 "abc123", heading="Research", list_id="BOGUS", title="New"
             )
@@ -259,7 +292,9 @@ class TestUpdateTodoMoveWithHeadingUnaffected:
         """Same regression as above, via list_title instead of list_id:
         heading + an unknown list_title + title must return the structured
         error before any AppleScript write or URL-scheme call."""
-        with patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   side_effect=_things_get_router()), \
+             patch("things_mcp.scheduling.todo_operations.things.projects", return_value=[]), \
              patch("things_mcp.scheduling.todo_operations.things.areas", return_value=[]):
             result = await ops.update_todo(
                 "abc123", heading="Research", list_title="Nonexistent", title="New"
@@ -280,7 +315,7 @@ class TestUpdateTodoEveningWithListIdNoDoubleMove:
     @pytest.mark.asyncio
     async def test_evening_with_list_id_moves_via_applescript_only(self, ops, mock_applescript_manager):
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}):
+                   side_effect=_things_get_router(PROJECT1={"type": "project"})):
             result = await ops.update_todo("abc123", when="evening", list_id="PROJECT1")
 
         assert result["success"] is True

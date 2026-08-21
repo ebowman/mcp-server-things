@@ -264,7 +264,7 @@ add("get_inbox", {"mode": "minimal"}, ok())
 add("get_inbox", {"mode": "standard"}, ok())
 add("get_inbox", {"mode": "detailed"}, ok())
 add("get_inbox", {"mode": "raw"}, ok())
-add("get_inbox", {"mode": "bogus"}, tool_error())  # unhandled ValueError -> ToolError, see Discovered
+add("get_inbox", {"mode": "bogus"}, read_error("invalid_mode"))  # hq-exd: fixed, was tool_error()
 add("get_inbox", {"limit": 1}, ok())
 add("get_inbox", {"limit": 500}, ok())
 add("get_inbox", {"limit": 501}, tool_error())
@@ -279,7 +279,7 @@ add("get_today", {"mode": "minimal"}, ok())
 add("get_today", {"mode": "standard"}, ok())
 add("get_today", {"mode": "detailed"}, ok())
 add("get_today", {"mode": "raw"}, ok())
-add("get_today", {"mode": "bogus"}, tool_error())  # unhandled ValueError -> ToolError, see Discovered
+add("get_today", {"mode": "bogus"}, read_error("invalid_mode"))  # hq-exd: fixed, was tool_error()
 add("get_today", {"limit": 1}, ok())
 add("get_today", {"limit": 500}, ok())
 add("get_today", {"limit": 501}, tool_error())
@@ -298,7 +298,7 @@ add("get_upcoming", {"mode": "minimal"}, ok())
 add("get_upcoming", {"mode": "standard"}, ok())
 add("get_upcoming", {"mode": "detailed"}, ok())
 add("get_upcoming", {"mode": "raw"}, ok())
-add("get_upcoming", {"mode": "bogus"}, tool_error())  # unhandled ValueError -> ToolError, see Discovered
+add("get_upcoming", {"mode": "bogus"}, read_error("invalid_mode"))  # hq-exd: fixed, was tool_error()
 add("get_upcoming", {"limit": 1}, ok())
 add("get_upcoming", {"limit": 500}, ok())
 add("get_upcoming", {"limit": 501}, tool_error())
@@ -321,7 +321,7 @@ add("get_anytime", {"mode": "minimal"}, ok())
 add("get_anytime", {"mode": "standard"}, ok())
 add("get_anytime", {"mode": "detailed"}, ok())
 add("get_anytime", {"mode": "raw"}, ok())
-add("get_anytime", {"mode": "bogus"}, tool_error())  # unhandled ValueError -> ToolError, see Discovered
+add("get_anytime", {"mode": "bogus"}, read_error("invalid_mode"))  # hq-exd: fixed, was tool_error()
 add("get_anytime", {"limit": 1}, ok())
 add("get_anytime", {"limit": 500}, ok())
 add("get_anytime", {"limit": 501}, tool_error())
@@ -340,7 +340,7 @@ add("get_someday", {"mode": "minimal"}, ok())
 add("get_someday", {"mode": "standard"}, ok())
 add("get_someday", {"mode": "detailed"}, ok())
 add("get_someday", {"mode": "raw"}, ok())
-add("get_someday", {"mode": "bogus"}, tool_error())  # unhandled ValueError -> ToolError, see Discovered
+add("get_someday", {"mode": "bogus"}, read_error("invalid_mode"))  # hq-exd: fixed, was tool_error()
 add("get_someday", {"limit": 1}, ok())
 add("get_someday", {"limit": 500}, ok())
 add("get_someday", {"limit": 501}, tool_error())
@@ -563,14 +563,13 @@ def _case_id(case: Tuple[str, Dict[str, Any], Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-# Tools whose read-tool implementation passes a raw list (ListWithTotal, a
-# list subclass) into ThingsMCPServer._read_result, which only sets
-# items/count/total/mode/limit/offset for a list input - never
-# 'requested_mode' (that key is only added on the dict branch, taken by
-# tools that route through context_manager.optimize_response with a
-# dict-shaped {"data": ..., "meta": ...} payload). This is a real
-# inconsistency in the envelope contract - see Discovered.
-LIST_TOOLS_WITHOUT_REQUESTED_MODE = {
+# Tools with no 'mode' parameter at all (get_logbook, get_due_in_days,
+# get_activating_in_days, get_tags, get_tagged_items, get_recent) report
+# requested_mode=None (nothing was requested), while 'mode' still reports
+# the effective/concrete shape of the returned items (hq-lsb fix -
+# ThingsMCPServer._read_result's list branch now always sets
+# 'requested_mode', matching the dict branch).
+NO_MODE_PARAM_TOOLS = {
     "get_logbook",
     "get_due_in_days",
     "get_activating_in_days",
@@ -588,12 +587,12 @@ def _assert_ok_envelope(sc: Dict[str, Any], tool: str) -> None:
         assert "item" in sc, f"{tool}: expected 'item' key, got {sorted(sc.keys())}"
         return
 
-    required_keys = REQUIRED_LIST_KEYS
-    if tool in LIST_TOOLS_WITHOUT_REQUESTED_MODE:
-        required_keys = REQUIRED_LIST_KEYS - {"requested_mode"}
-
-    assert required_keys.issubset(sc.keys()), f"{tool}: missing envelope keys, got {sorted(sc.keys())}"
+    assert REQUIRED_LIST_KEYS.issubset(sc.keys()), f"{tool}: missing envelope keys, got {sorted(sc.keys())}"
     assert sc["mode"] != "auto", f"{tool}: mode must never be the literal 'auto'"
+    if tool in NO_MODE_PARAM_TOOLS:
+        assert sc["requested_mode"] is None, (
+            f"{tool}: has no 'mode' parameter, so requested_mode must be None, got {sc['requested_mode']!r}"
+        )
 
 
 def _assert_read_error(sc: Dict[str, Any], tool: str, code: str) -> None:

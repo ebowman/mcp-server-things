@@ -65,6 +65,10 @@ THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 # doesn't fall through to the real things.py package against a sentinel id
 # that doesn't exist in the developer's database.
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+# bulk_operations.py holds its own separate LazyThingsProxy instance too -
+# bulk_update_todos' per-id pre-check (hq-wbm) needs its own patch for the
+# same reason as WRITE_OPS_THINGS_GET_PATCH above.
+BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -222,9 +226,28 @@ def _patched_things_lookups():
       delete_todo()'s own type-resolution things.get() call (hq-f0w.40),
       keeping delete_todo(todo_id=<sentinel>) on its `to do id` script path
       instead of hitting the real, unpatched things.py package.
+
+    hq-wbm: things.get() now also backs update_todo's own primary-todo_id
+    pre-check (before any write). This same patch target is shared by both
+    "is this the primary todo_id?" (needs 'to-do') and "is this a
+    list_id/area_id target?" (needs 'project') callers in this file, and
+    both use the same generic per-param sentinel-naming scheme
+    (_sentinel_for), so the two purposes can't be told apart by a fixed
+    allowlist of ids. Instead: default to 'to-do' (covers TODOID1 and the
+    update_todo.id per-param sentinel, SENTINELUPDATETODOIDX), and
+    special-case the known project-target sentinels/literals used by
+    list_id/heading override entries in PARAM_ASSERTIONS below (identified
+    by the substring 'LISTID' in the per-param sentinel, or the two
+    literal PROJHEADTARGET* extra_kwargs ids) to resolve as a project
+    instead, preserving pre-existing list_id/heading-move behavior.
     """
+    def _things_get_side_effect(uuid: str, **kwargs: Any) -> Dict[str, Any]:
+        if "LISTID" in uuid or uuid.startswith("PROJHEADTARGET"):
+            return {"type": "project", "uuid": uuid}
+        return {"type": "to-do", "uuid": uuid}
+
     return [
-        patch(THINGS_GET_PATCH, return_value={"type": "project"}),
+        patch(THINGS_GET_PATCH, side_effect=_things_get_side_effect),
         patch(
             THINGS_PROJECTS_PATCH,
             return_value=[{"uuid": RESOLVED_LIST_TITLE_PROJECT_ID, "title": SENTINEL_LIST_TITLE}],
@@ -232,6 +255,10 @@ def _patched_things_lookups():
         patch(THINGS_AREAS_PATCH, return_value=[]),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
+        # hq-wbm: bulk_update_todos' per-id pre-check - every id used in
+        # this file's bulk_update_todos cases (TODOID1, TODOID2, and the
+        # generic per-param sentinels) must resolve as a to-do.
+        patch(BULK_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
     ]
 
 
@@ -267,16 +294,21 @@ def run_tool(
     tool_name: str,
     kwargs: Dict[str, Any],
     seed: Optional[Callable[[RecordingAppleScriptManager], None]] = None,
+    extra_things_patches: Optional[List[Any]] = None,
 ) -> Tuple[Any, RecordingAppleScriptManager]:
     """Call `tool_name` with `kwargs` against a fresh server+fake, with
     things.py lookups patched. `seed`, if given, is called with the fresh
     fake manager before the tool call (e.g. to pre-populate
-    current_tags_by_todo_id for a remove_tags test). Returns
-    (call_tool_result, fake_manager)."""
+    current_tags_by_todo_id for a remove_tags test). `extra_things_patches`,
+    if given, is a list of already-constructed `unittest.mock.patch(...)`
+    context managers started AFTER (so they take precedence over) the
+    default `_patched_things_lookups()` set - e.g. to make a specific
+    area_id/area_title sentinel resolve as a real area for hq-rmh's
+    _resolve_area pre-check. Returns (call_tool_result, fake_manager)."""
     server, fake = _make_server()
     if seed:
         seed(fake)
-    patches = _patched_things_lookups()
+    patches = _patched_things_lookups() + list(extra_things_patches or [])
     for p in patches:
         p.start()
     try:
@@ -605,10 +637,29 @@ PARAM_ASSERTIONS: Dict[Tuple[str, str], Dict[str, Any]] = {
         "check": _property_value_check("tag names of newProject"),
     },
     ("add_project", "area_id"): {
+        # hq-rmh: area_id is now pre-resolved via things.py (_resolve_area)
+        # before the write - the sentinel must resolve as a real area or
+        # the call is rejected with NOT_FOUND before any AppleScript is
+        # emitted at all.
+        "things_patches": lambda sentinel: [
+            patch(THINGS_GET_PATCH, return_value={"type": "area", "uuid": sentinel}),
+        ],
         "check": _property_value_check("area id"),
     },
     ("add_project", "area_title"): {
-        "check": _property_value_check("set area of newProject to area "),
+        # hq-rmh: area_title is now pre-resolved via things.py
+        # (_resolve_area) to its concrete area_id before the write, so the
+        # emitted script uses 'area id "<uuid>"', not 'area "<title>"' -
+        # assert the resolved uuid (not the raw title sentinel) reaches
+        # the script.
+        "needle": "RESOLVEDADDPROJECTAREATITLEID",
+        "things_patches": lambda sentinel: [
+            patch(
+                THINGS_AREAS_PATCH,
+                return_value=[{"uuid": "RESOLVEDADDPROJECTAREATITLEID", "title": sentinel}],
+            ),
+        ],
+        "check": _property_value_check("area id"),
     },
     ("add_project", "todos"): {
         "build": lambda s: f"{s}\nSecond todo",
@@ -636,10 +687,25 @@ PARAM_ASSERTIONS: Dict[Tuple[str, str], Dict[str, Any]] = {
         "check": _property_value_check("due date of targetProject"),
     },
     ("update_project", "area_id"): {
+        # hq-rmh: area_id is now pre-resolved via things.py (_resolve_area)
+        # before the write - see add_project's area_id entry above.
+        "things_patches": lambda sentinel: [
+            patch(THINGS_GET_PATCH, return_value={"type": "area", "uuid": sentinel}),
+        ],
         "check": _property_value_check("area id"),
     },
     ("update_project", "area_title"): {
-        "check": _property_value_check("set area of targetProject to area "),
+        # hq-rmh: area_title is now pre-resolved via things.py
+        # (_resolve_area) to its concrete area_id before the write - see
+        # add_project's area_title entry above.
+        "needle": "RESOLVEDUPDATEPROJECTAREATITLEID",
+        "things_patches": lambda sentinel: [
+            patch(
+                THINGS_AREAS_PATCH,
+                return_value=[{"uuid": "RESOLVEDUPDATEPROJECTAREATITLEID", "title": sentinel}],
+            ),
+        ],
+        "check": _property_value_check("area id"),
     },
     ("update_project", "completed"): {
         "build": lambda _s: "true",
@@ -876,7 +942,12 @@ def test_parameter_reaches_backend(tool: str, param: str):
     kwargs[param] = value
 
     seed = override.get("seed")
-    _result, fake = run_tool(tool, kwargs, seed=seed(sentinel) if seed else None)
+    things_patches_builder = override.get("things_patches")
+    extra_things_patches = things_patches_builder(sentinel) if things_patches_builder else None
+    _result, fake = run_tool(
+        tool, kwargs, seed=seed(sentinel) if seed else None,
+        extra_things_patches=extra_things_patches,
+    )
 
     check = override.get("check") or (lambda f, n: _default_check(f, n))
     assert check(fake, needle), (

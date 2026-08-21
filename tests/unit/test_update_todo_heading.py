@@ -118,8 +118,16 @@ class TestHeadingWithToken:
 
     @pytest.mark.asyncio
     async def test_heading_with_list_id_includes_list_id_in_url(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project"}), \
+        # hq-wbm: update_todo's own primary todo_id ("abc123") is now also
+        # pre-checked via things.get() before any write, so the mock must
+        # distinguish it (resolves as a to-do) from the list_id target
+        # ("PROJECT99", resolves as a project).
+        def fake_get(record_id):
+            if record_id == "abc123":
+                return {"type": "to-do"}
+            return {"type": "project"}
+
+        with patch("things_mcp.scheduling.todo_operations.things.get", side_effect=fake_get), \
              patch("things_mcp.scheduling.todo_operations.things.tasks",
                    return_value=[{"title": "Phase 1"}]):
             result = await ops.update_todo("abc123", heading="Phase 1", list_id="PROJECT99")
@@ -159,7 +167,13 @@ class TestHeadingWithToken:
 class TestHeadingEmptyStringRejected:
     @pytest.mark.asyncio
     async def test_heading_empty_string_returns_structured_error(self, ops, mock_applescript_manager):
-        result = await ops.update_todo("abc123", heading="")
+        # hq-wbm: the primary todo_id pre-check runs before the
+        # heading-empty check, so "abc123" must resolve as a to-do (via
+        # things.get()) for this test to exercise INVALID_HEADING rather
+        # than NOT_FOUND from the pre-check itself.
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   return_value={"type": "to-do"}):
+            result = await ops.update_todo("abc123", heading="")
 
         assert result["success"] is False
         assert result["error"] == "INVALID_HEADING"
@@ -169,7 +183,9 @@ class TestHeadingEmptyStringRejected:
 
     @pytest.mark.asyncio
     async def test_heading_whitespace_only_returns_structured_error(self, ops, mock_applescript_manager):
-        result = await ops.update_todo("abc123", heading="   ")
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   return_value={"type": "to-do"}):
+            result = await ops.update_todo("abc123", heading="   ")
 
         assert result["success"] is False
         assert result["error"] == "INVALID_HEADING"
@@ -234,8 +250,15 @@ class TestHeadingChildProjectResolution:
 class TestHeadingListIdResolvesToArea:
     @pytest.mark.asyncio
     async def test_list_id_resolving_to_area_adds_warning(self, ops, mock_applescript_manager):
-        with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "area"}):
+        # hq-wbm: distinguish the primary todo_id ("abc123", resolves as a
+        # to-do) from the list_id target ("AREA1", resolves as an area) -
+        # a single return_value can no longer serve both lookups.
+        def fake_get(record_id):
+            if record_id == "abc123":
+                return {"type": "to-do"}
+            return {"type": "area"}
+
+        with patch("things_mcp.scheduling.todo_operations.things.get", side_effect=fake_get):
             result = await ops.update_todo("abc123", heading="Research", list_id="AREA1")
 
         assert result["success"] is True
@@ -253,7 +276,12 @@ class TestHeadingNoAuthToken:
     async def test_heading_without_token_returns_structured_error_with_hint(
         self, ops_no_token, mock_applescript_manager_no_token
     ):
-        result = await ops_no_token.update_todo("abc123", heading="Research")
+        # hq-wbm: the primary todo_id pre-check runs before the auth-token
+        # gate, so "abc123" must resolve as a to-do for this test to
+        # exercise AUTH_TOKEN_NOT_CONFIGURED rather than NOT_FOUND.
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   return_value={"type": "to-do"}):
+            result = await ops_no_token.update_todo("abc123", heading="Research")
 
         assert result["success"] is False
         assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
@@ -269,9 +297,11 @@ class TestHeadingNoAuthToken:
         """Even when title/notes are provided alongside heading, the auth
         check must happen BEFORE any AppleScript write - nothing should be
         partially applied when the token is missing."""
-        result = await ops_no_token.update_todo(
-            "abc123", heading="Research", title="New Title", notes="New notes"
-        )
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   return_value={"type": "to-do"}):
+            result = await ops_no_token.update_todo(
+                "abc123", heading="Research", title="New Title", notes="New notes"
+            )
 
         assert result["success"] is False
         mock_applescript_manager_no_token.execute_applescript.assert_not_awaited()
@@ -303,7 +333,9 @@ class TestUpdateTodoWithoutHeadingUnaffected:
 
     @pytest.mark.asyncio
     async def test_no_heading_only_uses_applescript(self, ops, mock_applescript_manager):
-        result = await ops.update_todo("abc123", title="New Title")
+        with patch("things_mcp.scheduling.todo_operations.things.get",
+                   return_value={"type": "to-do"}):
+            result = await ops.update_todo("abc123", title="New Title")
 
         assert result["success"] is True
         mock_applescript_manager.execute_applescript.assert_awaited_once()

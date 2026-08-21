@@ -43,7 +43,7 @@ class MoveOperationsTools:
         Args:
             todo_id: ID of the todo to move
             destination: Destination list/project/area
-                        Valid values: inbox, today, upcoming, anytime, someday,
+                        Valid values: inbox, today, anytime, someday, logbook, trash,
                         project:[project-id], area:[area-id]
 
         Returns:
@@ -53,13 +53,16 @@ class MoveOperationsTools:
             # Validate inputs
             validation_result = await self._validate_move_inputs(todo_id, destination)
             if not validation_result["valid"]:
-                return {
+                error_response = {
                     "success": False,
                     "error": "VALIDATION_ERROR",
                     "message": validation_result["message"],
                     "todo_id": todo_id,
                     "destination": destination
                 }
+                if "field" in validation_result:
+                    error_response["field"] = validation_result["field"]
+                return error_response
             
             # Get current todo information before moving
             current_todo = await self._get_todo_info(todo_id)
@@ -247,10 +250,11 @@ class MoveOperationsTools:
     
     async def _validate_move_inputs(self, todo_id: str, destination: str) -> Dict[str, Any]:
         """Validate move operation inputs."""
-        if not todo_id or not isinstance(todo_id, str):
+        if not todo_id or not isinstance(todo_id, str) or not todo_id.strip():
             return {
                 "valid": False,
-                "message": "Todo ID must be a non-empty string"
+                "message": "Todo ID must be a non-empty string",
+                "field": "todo_id"
             }
         
         if not destination or not isinstance(destination, str):
@@ -263,12 +267,30 @@ class MoveOperationsTools:
     
     async def _validate_destination(self, destination: str) -> Dict[str, Any]:
         """Validate destination string."""
-        valid_lists = ["inbox", "today", "upcoming", "anytime", "someday", "logbook", "trash"]
-        
+        valid_lists = ["inbox", "today", "anytime", "someday", "logbook", "trash"]
+
+        # 'upcoming' is intentionally rejected, not a valid destination.
+        # Things has no direct 'Upcoming' move target - an item is Upcoming
+        # by having a future start date, and Things' AppleScript move verb
+        # itself rejects `move ... to list "upcoming"` ('Cannot move
+        # to-do'). Rather than guessing an arbitrary future date, steer
+        # callers to update_todo(when=<date>) instead (bead hq-cag).
+        if destination == "upcoming":
+            return {
+                "valid": False,
+                "message": (
+                    "'upcoming' is not a valid move destination - Things has no "
+                    "direct Upcoming move target (an item is Upcoming by having "
+                    "a future start date). Use update_todo(id=..., "
+                    "when='<YYYY-MM-DD>') (or when='tomorrow') to schedule the "
+                    "to-do for a future date instead."
+                ),
+            }
+
         # Check for simple list destinations
         if destination in valid_lists:
             return {"valid": True, "message": "Valid list destination"}
-        
+
         # Check for project destinations
         if destination.startswith("project:"):
             project_part = destination[8:]  # Remove "project:" prefix
@@ -377,9 +399,16 @@ class MoveOperationsTools:
         """Execute the actual move operation using AppleScript."""
         try:
             # Build the move script based on destination type
-            if destination in ["inbox", "today", "upcoming", "anytime", "someday"]:
-                # Moving to a built-in list
+            # ('upcoming' is rejected at _validate_destination and never
+            # reaches here - see bead hq-cag)
+            if destination in ["inbox", "today", "anytime", "someday", "trash"]:
+                # Moving to a built-in list (including Trash - same `move ... to
+                # list` verb Things exposes for Trash as for the other lists)
                 script = await self._build_list_move_script(todo_id, destination)
+            elif destination == "logbook":
+                # Things has no `move ... to list "logbook"` target - the only
+                # documented way an item reaches the Logbook is completion.
+                script = await self._build_complete_move_script(todo_id)
             elif destination.startswith("project:"):
                 # Moving to a project
                 project_id = destination[8:]  # Remove "project:" prefix
@@ -448,6 +477,34 @@ class MoveOperationsTools:
             f"        set theTodo to to do id \"{todo_id}\"",
             f"        move theTodo to list \"{list_name}\"",
             f"        return \"MOVED to {list_name}\"",
+            "    on error errMsg",
+            "        return \"ERROR: \" & errMsg",
+            "    end try",
+            "end tell"
+        ]
+
+        return "\n".join(lines)
+
+    async def _build_complete_move_script(
+        self,
+        todo_id: str
+    ) -> str:
+        """Build AppleScript for moving a todo to the Logbook.
+
+        Things has no `move ... to list "logbook"` target - the only
+        documented way an item reaches the Logbook is completion (Things
+        moves completed to-dos there automatically). This sets the to-do's
+        status to completed, which is what actually produces Logbook
+        membership; it is not a true "move" but is exposed as the
+        'logbook' destination for symmetry with the other built-in lists.
+        """
+
+        lines = [
+            "tell application \"Things3\"",
+            "    try",
+            f"        set theTodo to to do id \"{todo_id}\"",
+            "        set status of theTodo to completed",
+            "        return \"MOVED to logbook\"",
             "    on error errMsg",
             "        return \"ERROR: \" & errMsg",
             "    end try",

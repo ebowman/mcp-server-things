@@ -809,6 +809,21 @@ class TestRemoveTags:
 class TestBulkUpdateTodos:
     """Test bulk update functionality - Bug Fix: Multi-field updates failed."""
 
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: bulk_update_todos now pre-checks each id via things.get()
+        before building the AppleScript script. The fake todo ids used
+        throughout this class ("todo-1" etc.) are never present in the
+        real Things database, so without this patch every call here would
+        (correctly, per the new behavior) report those ids as not_found
+        instead of exercising the multi-field bulk-update behavior this
+        class is actually testing."""
+        with patch(
+            "things_mcp.tools_helpers.bulk_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
+
     @pytest.fixture
     def tools_with_mock(self, mock_applescript_manager):
         """Fixture providing tools with mocked AppleScript manager."""

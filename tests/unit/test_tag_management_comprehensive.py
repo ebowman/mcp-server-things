@@ -835,6 +835,20 @@ class TestTagValidationAndCreation:
 class TestTagsInBulkOperations:
     """Test tag operations in bulk updates."""
 
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: bulk_update_todos now pre-checks each id via things.get()
+        before building the AppleScript script. The fake ids used in this
+        class ('id1'/'id2'/'id3') are never present in the real Things
+        database, so without this patch every call here would report them
+        as not_found instead of exercising the tag/multi-field behavior
+        this class is actually testing."""
+        with patch(
+            "things_mcp.tools_helpers.bulk_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_bulk_update_with_tags(self, things_tools, mock_applescript_manager):
         """Test that tags work correctly in bulk_update_todos."""

@@ -21,12 +21,16 @@ bulk_move_records wrappers):
     the batch is touched (verified below by reading every todo back
     unchanged).
   - bulk_update_todos: an unknown id inside an otherwise-valid todo_ids
-    list is NOT reported per-id - BulkOperations._build_bulk_update_script
-    wraps each id's AppleScript block in its own try/on error, so unknown
-    ids silently fail (counted in errorMessages, not itemized by id) while
-    known ids still succeed; _parse_bulk_results reports only aggregate
-    updated_count/failed_count/total_requested - there is no per-id result
-    list in the response shape at all.
+    list IS now pre-checked via things.py BEFORE the AppleScript script is
+    built (hq-wbm) - unresolvable ids (unknown, or resolving to something
+    other than a to-do, e.g. a project) are excluded from the script and
+    reported in a 'not_found' list field, while known ids still go through
+    the existing per-id try/on-error AppleScript block and succeed.
+    updated_count/failed_count/total_requested still reflect the full
+    ORIGINAL request (pre-check rejections count as failures). There is
+    still no per-id result list for AppleScript-level failures (a
+    known-good id whose AppleScript write itself errors) - only the
+    pre-check's 'not_found' list is itemized by id.
   - move_record: destination is not one of the fixed valid_lists /
     'project:'-or-'area:'-prefixed forms -> VALIDATION_ERROR (from
     MoveOperationsTools._validate_move_inputs/_validate_destination,
@@ -56,23 +60,19 @@ bulk_move_records wrappers):
     the tool body ever runs (a FastMCP ToolError, surfaced by the `mcp`
     helper as {"tool_error": ...}, not a structured error dict).
 
-Known live quirks (documented, not fixed here - see CLAUDE.md/
-tests/regression/test_update_todo.py's own notes):
-  - when='today' via the AppleScript scheduler (bulk_update_todos'
-    reliable_scheduler.schedule_todo_reliable, same underlying path as
-    add_todo/update_todo's 'today' case) leaves start='Someday' with
-    start_date=today rather than start='Anytime' (bead hq-x9z) - asserted
-    here on start_date, not start, per the brief.
-  - move_record destination='today' shares the same underlying quirk via
-    Things' own `move ... to list "today"` verb producing an
-    'unconfirmed_scheduled' state that things.today() explicitly predicts
-    as a same-day member (see test_update_todo.py's
-    test_when_today_in_things_today_list) - membership in things.today()
-    is asserted directly rather than start/start_date, sidestepping the
-    quirk entirely.
-  - when='anytime' (bulk_update_todos) lands Someday, not Anytime (bead
-    hq-z5d) - encoded here as xfail(strict=True) mirroring
-    test_update_todo.py's own anytime xfail.
+bead hq-x9z (fixed): when='today' via the AppleScript scheduler
+(bulk_update_todos' reliable_scheduler.schedule_todo_reliable, same
+underlying path as add_todo/update_todo's 'today' case) used to leave
+start='Someday' with start_date=today rather than start='Anytime'. Fixed
+by routing the today-path through `move theTodo to list "Today"` instead
+of the `schedule` verb - see test_when_today_start_date below, which now
+asserts start='Anytime' directly.
+
+move_record destination='today' was never affected by hq-x9z - it always
+used Things' own `move ... to list "today"` verb (not the `schedule`
+scheduler path), producing the same 'unconfirmed_scheduled'-turned-Anytime
+state confirmed live for the scheduler fix above; membership in
+things.today() is asserted directly (see test_move_to_today below).
 
 preserve_scheduling: CLAUDE.md documents a `preserve_scheduling` flag on
 bulk_move_records ("preserve_scheduling=true"), but neither the
@@ -272,9 +272,9 @@ class TestBulkUpdateSingleField:
             assert record is not None and record.get("deadline") == deadline, record
 
     def test_when_today_start_date(self, mcp, sandbox):
-        """Documents hq-x9z: bulk_update_todos(when='today') leaves
-        start='Someday' with start_date=today - asserted on start_date
-        (unambiguous), not start, per the brief."""
+        """hq-x9z fixed: bulk_update_todos(when='today') now yields
+        start='Anytime' with start_date=today (previously start='Someday'
+        due to the AppleScript `schedule` verb quirk)."""
         from datetime import date
 
         todo_ids, _ = _new_todos(mcp, sandbox, 2, prefix="bulk when today")
@@ -288,20 +288,8 @@ class TestBulkUpdateSingleField:
                 todo_id, lambda r: r is not None and r.get("start_date") == today_str
             )
             assert record is not None and record.get("start_date") == today_str, record
+            assert record.get("start") == "Anytime", record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-z5d): bulk_update_todos(when='anytime') "
-            "shares scheduling.strategies.SchedulingStrategies."
-            "schedule_todo_reliable via the same determine_target_list() "
-            "path as add_todo/update_todo, which maps the literal string "
-            "'anytime' to the Someday-list AppleScript fallback - the "
-            "to-do lands with start='Someday' rather than start='Anytime'. "
-            "This test encodes the documented behavior (should land in "
-            "Anytime) and is expected to fail until hq-z5d is fixed."
-        ),
-    )
     def test_when_anytime_lands_anytime(self, mcp, sandbox):
         todo_ids, _ = _new_todos(mcp, sandbox, 1, prefix="bulk when anytime")
         result = mcp.call_sync(
@@ -422,9 +410,11 @@ class TestBulkUpdateNoTodoIds:
 
 class TestBulkUpdateMixedValidUnknown:
     def test_mixed_valid_and_unknown_ids(self, mcp, sandbox):
-        """Response shape has no per-id result list (see module docstring) -
-        only aggregate updated_count/failed_count/total_requested. Asserts
-        that shape exactly, and that the valid id WAS updated."""
+        """hq-wbm: unknown ids are now pre-checked via things.py and
+        reported in a 'not_found' list field (see module docstring), while
+        the valid id is still updated via AppleScript as before. There is
+        still no per-id AppleScript-failure breakdown ('results'/'per_id'
+        keys), only the pre-check's itemized 'not_found' list."""
         todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("bulk mixed valid " + ts()))
         unknown_id = "bogus-bulk-update-id-does-not-exist"
         new_title = sandbox_title("bulk mixed applied " + ts())
@@ -440,12 +430,32 @@ class TestBulkUpdateMixedValidUnknown:
         assert result.get("total_requested") == 2, result
         assert result.get("updated_count") == 1, result
         assert result.get("failed_count") == 1, result
-        # No per-id breakdown field exists in the response.
+        assert result.get("not_found") == [unknown_id], result
+        # No per-id AppleScript-failure breakdown field exists in the response.
         assert "results" not in result, result
         assert "per_id" not in result, result
 
         record = read_back(todo_id, lambda r: r is not None and r.get("title") == new_title)
         assert record is not None and record.get("title") == new_title, record
+
+    def test_all_unknown_ids_not_found(self, mcp, sandbox):
+        """When every id fails the pre-check, bulk_update_todos returns a
+        structured NOT_FOUND error without ever building/running the
+        AppleScript script."""
+        unknown_ids = [
+            "bogus-bulk-update-id-does-not-exist-1",
+            "bogus-bulk-update-id-does-not-exist-2",
+        ]
+        result = mcp.call_sync(
+            "bulk_update_todos",
+            todo_ids=",".join(unknown_ids),
+            title="should not be applied",
+        )
+        assert_write_error(result, "NOT_FOUND")
+        assert result.get("updated_count") == 0, result
+        assert result.get("failed_count") == 2, result
+        assert result.get("total_requested") == 2, result
+        assert result.get("not_found") == unknown_ids, result
 
 
 class TestBulkUpdateEvening:
@@ -513,6 +523,66 @@ class TestBulkUpdateEvening:
             assert record.get("start") != "Anytime" or record.get("start_date") is None, record
 
 
+class TestBulkUpdateWhenWithTime:
+    """hq-4gn: bulk_update_todos(when='YYYY-MM-DD@HH:MM') is routed via the
+    Things URL scheme's per-todo 'update' action (same pattern as
+    when='evening'), which sets each todo's reminder natively - the
+    AppleScript scheduling path used to silently drop the '@HH:MM'
+    component."""
+
+    def test_when_time_with_token_sets_reminder(self, mcp, sandbox, live_server):
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
+        todo_ids, _ = _new_todos(mcp, sandbox, 2, prefix="bulk when time")
+        result = mcp.call_sync(
+            "bulk_update_todos", todo_ids=",".join(todo_ids), when=f"{when_date}@13:15"
+        )
+        assert result.get("success") is True, result
+
+        for todo_id in todo_ids:
+            record = read_back(
+                todo_id,
+                lambda r: r is not None and r.get("reminder_time") is not None,
+            )
+            assert record is not None
+            assert record.get("reminder_time") == "13:15", record
+            assert record.get("start_date") == when_date, record
+
+    def test_when_time_without_token_nothing_touched(self, mcp, sandbox, live_server):
+        """Monkeypatches the shared live AppleScriptManager's auth_token to
+        None for the duration of this test only, restoring it in a finally
+        block. Todos are created BEFORE the patch is applied."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk when time no token")
+        when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
+            result = mcp.call_sync(
+                "bulk_update_todos",
+                todo_ids=",".join(todo_ids),
+                when=f"{when_date}@13:15",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+            assert result.get("updated_count") == 0, result
+        finally:
+            manager.auth_token = original_token
+
+        for todo_id, original_title in zip(todo_ids, original_titles):
+            record = read_back(todo_id, lambda r: r is not None)
+            assert record is not None and record.get("title") == original_title, record
+            assert record.get("reminder_time") is None, record
+
+
 class TestBulkUpdateTiming:
     def test_25_id_batch_timing(self, mcp, sandbox):
         """25-id batch timing, recorded for reference only - no assertion
@@ -558,11 +628,11 @@ class TestMoveRecordDestinations:
         assert found, "expected todo to be a member of things.inbox()"
 
     def test_move_to_today(self, mcp, sandbox):
-        """Membership in things.today() is asserted directly rather than
-        start/start_date, sidestepping the same 'unconfirmed_scheduled'
-        quirk documented for update_todo/bulk_update_todos when='today'
-        (hq-x9z) - things.today() explicitly predicts this exact state as
-        a same-day member, so this is not an xfail."""
+        """move_record's `move ... to list "today"` verb was never
+        affected by the hq-x9z `schedule`-verb quirk (it doesn't use
+        `schedule` at all) - it yields start='Anytime', start_date=today,
+        same as the scheduler's now-fixed when='today' path. Membership in
+        things.today() is asserted directly."""
         import things
 
         todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move today " + ts()))
@@ -579,38 +649,27 @@ class TestMoveRecordDestinations:
             found = _in_today()
         assert found, "expected todo to be a member of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): "
-            "move_record(destination_list='upcoming') is accepted by "
-            "MoveOperationsTools._validate_destination (which lists "
-            "'upcoming' in valid_lists) and reaches "
-            "_build_list_move_script's `move theTodo to list \"upcoming\"`, "
-            "but Things' AppleScript dictionary itself rejects this move "
-            "with 'Cannot move to-do' (Upcoming is a computed/virtual list "
-            "with no direct move target) - surfaced as APPLESCRIPT_ERROR. "
-            "This test encodes the documented behavior (destination "
-            "'upcoming' should succeed per CLAUDE.md's Destination Formats "
-            "table, which lists it as valid) and is expected to fail until "
-            "the AppleScript move verb (or the destination validator) is "
-            "fixed to handle 'upcoming' consistently."
-        ),
-    )
     def test_move_to_upcoming(self, mcp, sandbox):
-        """'upcoming' as a bare destination has no natural date attached -
-        Things' `move ... to list "upcoming"` is exercised for its
-        AppleScript success/failure shape; membership in things.upcoming()
-        (which requires a future start_date) is not asserted since moving
-        to the bare Upcoming list without a date does not guarantee one is
-        set. Read-back only confirms the todo still exists and the move
-        call itself reported success."""
-        todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move upcoming " + ts()))
+        """'upcoming' is not a valid move destination (bead hq-cag): Things
+        has no direct Upcoming move target - an item is Upcoming by having
+        a future start date, and Things' AppleScript move verb itself
+        rejects `move ... to list "upcoming"`. move_record now rejects it
+        at validation with a structured error steering callers to
+        update_todo(when=<date>) instead of guessing an arbitrary future
+        date. The to-do must remain untouched (still in its original
+        project)."""
+        todo_id, original_title = _new_todo(mcp, sandbox, title=sandbox_title("move upcoming " + ts()))
         result = mcp.call_sync("move_record", todo_id=todo_id, destination_list="upcoming")
-        assert result.get("success") is True, result
+        assert_write_error(result, "VALIDATION_ERROR")
+        message = result.get("message", "")
+        assert "when=" in message or "update_todo" in message, result
 
-        record = read_back(todo_id, lambda r: r is not None)
+        record = read_back(
+            todo_id, lambda r: r is not None and r.get("project") == sandbox.project_id
+        )
         assert record is not None, record
+        assert record.get("title") == original_title, record
+        assert record.get("project") == sandbox.project_id, record
 
     def test_move_to_anytime(self, mcp, sandbox):
         import things
@@ -646,24 +705,6 @@ class TestMoveRecordDestinations:
             found = _in_someday()
         assert found, "expected todo to be a member of things.someday()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): "
-            "move_record(destination_list='logbook') passes "
-            "_validate_destination (which lists 'logbook' in valid_lists) "
-            "but MoveOperationsTools._execute_move's destination-routing "
-            "if/elif chain only recognizes "
-            "['inbox','today','upcoming','anytime','someday'] as built-in "
-            "list moves - 'logbook' (and 'trash', see test_move_to_trash) "
-            "fall through to the else branch and return INVALID_DESTINATION "
-            "even though validation accepted them. This test encodes the "
-            "documented behavior (CLAUDE.md's Destination Formats table "
-            "lists 'logbook' as valid) and is expected to fail until "
-            "_execute_move's routing is extended to cover logbook/trash "
-            "(or validation is narrowed to match what's actually routed)."
-        ),
-    )
     def test_move_to_logbook(self, mcp, sandbox):
         """Moving to 'logbook' changes status/trashed - read back via
         things.get(uuid, trashed=None) and things.logbook() membership."""
@@ -686,21 +727,6 @@ class TestMoveRecordDestinations:
         record = things.get(todo_id, trashed=None)
         assert record is not None and record.get("status") in ("completed", "canceled"), record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): same "
-            "_execute_move routing gap as test_move_to_logbook above - "
-            "'trash' passes _validate_destination but is not one of the "
-            "five destinations _execute_move actually routes to "
-            "_build_list_move_script, so it falls through to "
-            "INVALID_DESTINATION instead of moving the to-do to the Trash. "
-            "This test encodes the documented behavior (CLAUDE.md's "
-            "Destination Formats table lists 'trash' implicitly via "
-            "move_record's own tool description) and is expected to fail "
-            "until _execute_move's routing is fixed."
-        ),
-    )
     def test_move_to_trash(self, mcp, sandbox):
         """Moving to 'trash' sets trashed=True - read back via
         things.get(uuid, trashed=None). Already tracked (via _new_todo
@@ -783,6 +809,18 @@ class TestMoveRecordErrors:
         )
         assert_write_error(result, "TODO_NOT_FOUND")
 
+    def test_whitespace_only_todo_id(self, mcp, sandbox):
+        """hq-a5j: move_record's todo_id validation now rejects a
+        whitespace-only id the same as an empty one (previously only a
+        falsy/empty string was rejected; '   ' passed _validate_move_inputs
+        and proceeded to the AppleScript move against a literal `to do id
+        "   "`)."""
+        result = mcp.call_sync(
+            "move_record", todo_id="   ", destination_list="today"
+        )
+        assert_write_error(result, "VALIDATION_ERROR")
+        assert result.get("field") == "todo_id", result
+
 
 # ---------------------------------------------------------------------------
 # 3. bulk_move_records
@@ -846,30 +884,18 @@ class TestBulkMoveRecordsDestinations:
             found = _all_in_today()
         assert found, "expected all todos to be members of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): same "
-            "_execute_move routing gap as move_record's own "
-            "test_move_to_trash - bulk_move_records delegates each id to "
-            "move_record, so every one of the 3 ids deterministically "
-            "fails with INVALID_DESTINATION ('trash' passes "
-            "_validate_destination but is not routed by _execute_move's "
-            "if/elif chain). Not a concurrency race (unlike test_to_area/"
-            "test_to_today/max_concurrent_10) - 100% reproducible, so no "
-            "retry helper is used here. Expected to fail until "
-            "_execute_move's routing is fixed to cover 'trash'."
-        ),
-    )
     def test_to_trash(self, mcp, sandbox):
+        """Uses _bulk_move_tolerating_concurrency_race - see its docstring
+        and module docstring for the observed unserialized-AppleScript-call
+        race in MoveOperationsTools.bulk_move (Discovered, not fixed here;
+        the docstring explicitly names 'trash' as one of the destinations
+        this race was reproduced against).
+        """
         import things
 
         todo_ids, _ = _new_todos(mcp, sandbox, 3, prefix="bulk move trash")
-        result = mcp.call_sync(
-            "bulk_move_records", todo_ids=",".join(todo_ids), destination="trash"
-        )
-        assert result.get("success") is True, result
-        assert result.get("total_successful") == 3, result
+        result = _bulk_move_tolerating_concurrency_race(mcp, todo_ids, "trash")
+        assert not (result.get("failed_moves") or []), result
 
         def _all_trashed():
             for todo_id in todo_ids:

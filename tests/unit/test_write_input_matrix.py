@@ -45,19 +45,14 @@ owning bead):
     count - 101 items is accepted (ok), not rejected.
   - hq-r87: a whitespace-only tag name (e.g. "  spacey  ") is accepted
     as a distinct tag after stripping - not rejected.
-  - hq-nb1: the granular TagCreationPolicy env knobs
-    (filter_silent/filter_warn) are dead - THINGS_MCP_AI_CAN_CREATE_TAGS
-    only toggles the ALLOW_ALL/FAIL_ON_UNKNOWN 2-state switch. This file
-    covers those two reachable states only; FILTER_SILENT/FILTER_WARN are
-    exercised by constructing ThingsMCPConfig(tag_creation_policy=...)
-    directly (bypassing the dead env path) where the bead explicitly
-    contemplates that construction pattern.
-  - hq-rmh: add_project/update_project/add_area area_title is emitted
-    into the script unconditionally with no existence pre-check or
-    rollback - an unknown area_title still produces a normal
-    'set area of ... to area "<title>"' script from this server's
-    perspective (Things itself would fail at runtime, out of scope for a
-    mocked AppleScript manager).
+  - hq-nb1 (FIXED): all four TagCreationPolicy states are now reachable
+    both via THINGS_MCP_TAG_CREATION_POLICY (env) and via
+    ThingsMCPConfig(tag_creation_policy=...) (constructor) - see
+    config.py's model_validator(mode='after') reconciliation. This file's
+    CASES continue to construct servers via
+    ThingsMCPConfig(tag_creation_policy=...) (through `_make_server`'s
+    `tag_policy` kwarg) since that's the simplest in-process path; the env
+    var path is covered separately in tests/unit/test_config_tag_policy.py.
 """
 
 from __future__ import annotations
@@ -88,11 +83,29 @@ THINGS_PROJECTS_PATCH = "things_mcp.scheduling.todo_operations.things.projects"
 THINGS_AREAS_PATCH = "things_mcp.scheduling.todo_operations.things.areas"
 THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+# hq-wbm: bulk_update_todos' per-id pre-check patch target (BulkOperations'
+# own module-local things proxy - see tools_helpers/bulk_operations.py).
+BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
 
 SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
 AMBIGUOUS_LIST_TITLE = "AMBIGUOUStitleXYZ"
 UNKNOWN_LIST_TITLE = "UNKNOWNtitleDoesNotExistXYZ"
+
+# hq-rmh: add_project/update_project area_id/area_title pre-resolution
+# sentinels. "Some Area" / AREAID1 / AREAID2 are the pre-existing CASES
+# values used by ok() cases below - they must resolve successfully now
+# that area_id/area_title are pre-checked via things.py before any write.
+KNOWN_AREA_TITLE = "Some Area"
+KNOWN_AREA_ID_1 = "AREAID1"
+KNOWN_AREA_ID_2 = "AREAID2"
+AMBIGUOUS_AREA_TITLE = "AMBIGUOUSareatitleXYZ"
+UNKNOWN_AREA_TITLE = "UNKNOWNareatitleDoesNotExistXYZ"
+UNKNOWN_AREA_ID = "UNKNOWNAREAIDDOESNOTEXIST"
+# things.get() itself raises for this id (simulating an unreadable Things
+# database) - _resolve_area's fallback branch, which emits the raw area_id
+# unchecked rather than refusing the write.
+RAISING_AREA_ID = "RAISINGAREAIDCAUSESLOOKUPERROR"
 
 
 class RecordingAppleScriptManager:
@@ -166,11 +179,23 @@ class RecordingAppleScriptManager:
                 "output": "id123, Some title, some notes, open, inbox",
             }
 
-        if "move theTodo to list" in script or "set project of theTodo to" in script or "set area of theTodo to" in script:
+        if (
+            "move theTodo to list" in script
+            or "set project of theTodo to" in script
+            or "set area of theTodo to" in script
+            or "set status of theTodo to completed" in script
+        ):
             return {"success": True, "output": "MOVED to destination"}
 
         if "successCount" in script:
-            return {"success": True, "output": "successCount:2, errors:{}"}
+            # hq-wbm: count actual `to do id "..."` blocks in the script
+            # rather than hardcoding 2 - bulk_update_todos' per-id
+            # pre-check can now send fewer ids than were originally
+            # requested (unresolvable ids are excluded before the script
+            # is built), so a fixed canned count would misreport success
+            # for those cases.
+            actual_count = len(re.findall(r'to do id "', script))
+            return {"success": True, "output": f"successCount:{actual_count}, errors:{{}}"}
 
         if 'return "updated"' in script:
             return {"success": True, "output": "updated"}
@@ -237,6 +262,25 @@ UNKNOWN_LIST_ID = "UNKNOWNLISTIDDOESNOTEXIST"
 # database is unreadable").
 RAISING_LIST_ID = "RAISINGLISTIDCAUSESLOOKUPERROR"
 
+# hq-wbm: update_todo's primary todo_id pre-check sentinels. PRIMARY_TODO_ID
+# is the same value as the pre-existing "TODOID1" literal used throughout
+# the update_todo matrix below (kept as a named constant here so the
+# things.get() router and the `add(...)` cases stay in sync by
+# construction rather than by string-literal coincidence).
+PRIMARY_TODO_ID = "TODOID1"
+# things.get() resolves cleanly but reports nothing -> definitively unknown
+# primary todo_id, rejected before any write (NOT_FOUND).
+UNKNOWN_PRIMARY_TODO_ID = "UNKNOWNPRIMARYTODOIDDOESNOTEXIST"
+# things.get() itself raises for this id (simulating an unreadable Things
+# database / missing Full Disk Access) - falls back to proceeding with the
+# write unchecked, same fallback pattern as RAISING_LIST_ID/RAISING_AREA_ID.
+RAISING_PRIMARY_TODO_ID = "RAISINGPRIMARYTODOIDCAUSESLOOKUPERROR"
+# things.get() resolves cleanly to a PROJECT (not a to-do) - AppleScript's
+# `to do id "..."` unexpectedly also resolves a project uuid (verified
+# live against the real Things dictionary), so this must be rejected with
+# VALIDATION_ERROR rather than silently modifying the project.
+PROJECT_ID_AS_PRIMARY_TARGET = "PROJECTIDUSEDASPRIMARYTARGET"
+
 
 class _SimulatedThingsLookupError(Exception):
     """Raised by _todo_ops_things_get for RAISING_LIST_ID to simulate an
@@ -244,6 +288,21 @@ class _SimulatedThingsLookupError(Exception):
 
 
 def _todo_ops_things_get(uuid: str, **kwargs: Any) -> Dict[str, Any]:
+    # hq-wbm: update_todo's primary todo_id pre-check calls this same
+    # things.get() patch target. TODOID1/SPECIAL_CHARS/UNICODE_EMOJI are the
+    # sentinel ids used as the primary `id` throughout the update_todo
+    # matrix below (list_id/list_title/area_id targets use distinct
+    # sentinel ids and must keep resolving via the pre-existing branches/
+    # default below), so they must resolve as a to-do here or every
+    # existing update_todo case would spuriously fail the new pre-check.
+    if uuid in (PRIMARY_TODO_ID, SPECIAL_CHARS, UNICODE_EMOJI):
+        return {"type": "to-do", "uuid": uuid}
+    if uuid == UNKNOWN_PRIMARY_TODO_ID:
+        return None
+    if uuid == RAISING_PRIMARY_TODO_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    if uuid == PROJECT_ID_AS_PRIMARY_TARGET:
+        return {"type": "project", "uuid": uuid}
     if uuid == AREA_TARGET_ID:
         return {"type": "area", "uuid": uuid}
     if uuid == COMPLETED_PROJECT_ID:
@@ -251,6 +310,13 @@ def _todo_ops_things_get(uuid: str, **kwargs: Any) -> Dict[str, Any]:
     if uuid == UNKNOWN_LIST_ID:
         return None
     if uuid == RAISING_LIST_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    # hq-rmh: add_project/update_project area_id pre-resolution (_resolve_area).
+    if uuid in (KNOWN_AREA_ID_1, KNOWN_AREA_ID_2):
+        return {"type": "area", "uuid": uuid}
+    if uuid == UNKNOWN_AREA_ID:
+        return None
+    if uuid == RAISING_AREA_ID:
         raise _SimulatedThingsLookupError("simulated things.py lookup failure")
     return {"type": "project", "uuid": uuid}
 
@@ -292,9 +358,17 @@ def _patched_things_lookups():
                 {"uuid": "AMBIGUOUS-PROJECT-2", "title": AMBIGUOUS_LIST_TITLE},
             ],
         ),
-        patch(THINGS_AREAS_PATCH, return_value=[]),
+        patch(
+            THINGS_AREAS_PATCH,
+            return_value=[
+                {"uuid": "KNOWNAREAUUID-Some-Area", "title": KNOWN_AREA_TITLE},
+                {"uuid": "AMBIGUOUS-AREA-1", "title": AMBIGUOUS_AREA_TITLE},
+                {"uuid": "AMBIGUOUS-AREA-2", "title": AMBIGUOUS_AREA_TITLE},
+            ],
+        ),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
+        patch(BULK_OPS_THINGS_GET_PATCH, side_effect=_bulk_ops_things_get),
     ]
 
 
@@ -304,29 +378,17 @@ def _make_server(auth_token: Optional[str] = "SENTINELauthtokenABC", tag_policy:
     ai_can_create_tags=True by default (ALLOW_ALL) so ordinary write cases
     aren't incidentally blocked by tag policy - tag-policy-specific CASES
     below construct their own server with a different config. `tag_policy`,
-    if given, constructs ThingsMCPConfig(tag_creation_policy=...) directly
-    (hq-nb1: the granular FILTER_SILENT/FILTER_WARN env knobs are dead, so
-    this is the only way to reach those states in-process).
+    if given, constructs ThingsMCPConfig(tag_creation_policy=...) directly -
+    an explicitly-set tag_creation_policy now takes precedence over the
+    ai_can_create_tags default and reaches all four policy states (hq-nb1
+    fix: config.py's model_validator(mode='after') reconciles the two
+    fields with explicit-value precedence instead of declaration-order
+    precedence).
     """
     server = ThingsMCPServer()
     fake = RecordingAppleScriptManager(auth_token=auth_token)
     if tag_policy is not None:
-        # ThingsMCPConfig's ai_can_create_tags/tag_creation_policy
-        # field_validators are coupled by construction-time cross-field
-        # logic (ai_can_create_tags declared first): passing
-        # tag_creation_policy=X at construction, however it's combined with
-        # ai_can_create_tags, only ever lands on ALLOW_ALL (if
-        # ai_can_create_tags=True) or FILTER_WARN (if False/omitted) -
-        # FAIL_ON_UNKNOWN/FILTER_SILENT are unreachable via the constructor
-        # at all (a real config-coupling gap beyond hq-nb1's dead-env-knob
-        # note - filed separately, see Discovered). Constructing with
-        # ai_can_create_tags=True and then overwriting tag_creation_policy
-        # via plain attribute assignment (pydantic v2 does not re-run
-        # field_validators on assignment) is the only way to reach every
-        # policy state directly.
-        config = ThingsMCPConfig(ai_can_create_tags=True)
-        config.tag_creation_policy = tag_policy
-        config.ai_can_create_tags = (tag_policy == TagCreationPolicy.ALLOW_ALL)
+        config = ThingsMCPConfig(tag_creation_policy=tag_policy)
     else:
         config = ThingsMCPConfig(ai_can_create_tags=True)
     server.tools = ThingsTools(fake, config)
@@ -450,12 +512,17 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_add")),
     ("tonight", ok(route="url_add")),
     ("2031-01-15", ok(route="applescript")),
-    ("2031-01-15@14:30", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # 'add' action natively - the AppleScript scheduling path
+    # (locale_aware_dates.normalize_date_input) silently drops the time
+    # component, so this is routed to url_add instead (same as evening/tonight).
+    ("2031-01-15@14:30", ok(route="url_add", url_contains={"when": "2031-01-15@14:30"})),
+    ("2031-01-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", ok(route="applescript")),  # falsy -> no when applied at all, still AppleScript create
     (" ", write_error("VALIDATION_ERROR")),
@@ -515,6 +582,29 @@ add("update_todo", {"id": "TODOID1"}, ok(route="applescript", contains=['to do i
 add("update_todo", {"id": ""}, write_error("VALIDATION_ERROR"))
 add("update_todo", {"id": "   "}, write_error("VALIDATION_ERROR"))
 add("update_todo", {"id": SPECIAL_CHARS}, ok(route="applescript"))
+# hq-wbm: primary todo_id pre-check via things.get(), before any write.
+# things.get() resolves cleanly but reports nothing -> definitively unknown
+# primary todo_id (NOT_FOUND), consistent with list_id/list_title
+# resolution elsewhere in this matrix.
+add("update_todo", {"id": UNKNOWN_PRIMARY_TODO_ID, "title": "New Title"}, write_error("NOT_FOUND"))
+# things.get() itself raises (simulated unreadable Things DB) -> falls back
+# to proceeding with the write unchecked, same fallback pattern as
+# RAISING_LIST_ID/RAISING_AREA_ID (CLAUDE.md "list_id fallback when the
+# Things database is unreadable").
+add(
+    "update_todo",
+    {"id": RAISING_PRIMARY_TODO_ID, "title": "New Title"},
+    ok(route="applescript", contains=[f'to do id "{RAISING_PRIMARY_TODO_ID}"']),
+)
+# things.get() resolves cleanly to a PROJECT (not a to-do) -> rejected with
+# VALIDATION_ERROR rather than silently modifying the project (AppleScript's
+# `to do id "..."` unexpectedly also resolves a project uuid - verified
+# live against the real Things dictionary).
+add(
+    "update_todo",
+    {"id": PROJECT_ID_AS_PRIMARY_TARGET, "title": "New Title"},
+    write_error("VALIDATION_ERROR"),
+)
 
 add("update_todo", {"id": "TODOID1", "title": None}, ok(route="applescript"))
 add("update_todo", {"id": "TODOID1", "title": ""}, write_error("VALIDATION_ERROR"))
@@ -539,12 +629,19 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-02-15", ok(route="applescript")),
-    ("2031-02-15@09:00", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # 'update' action natively - the AppleScript scheduling path
+    # (locale_aware_dates.normalize_date_input) silently drops the time
+    # component, so this is routed to url_update instead (same as evening/tonight,
+    # including the auth-token requirement - see the AUTH_TOKEN_NOT_CONFIGURED
+    # case below).
+    ("2031-02-15@09:00", ok(route="url_update", url_contains={"when": "2031-02-15@09:00"})),
+    ("2031-02-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
     (" ", write_error("VALIDATION_ERROR")),
@@ -626,10 +723,11 @@ add("update_todo", {"id": "TODOID1", "list_title": SENTINEL_LIST_TITLE}, ok(rout
 add("update_todo", {"id": "TODOID1", "list_title": AMBIGUOUS_LIST_TITLE}, write_error("AMBIGUOUS_TARGET"))
 add("update_todo", {"id": "TODOID1", "list_title": UNKNOWN_LIST_TITLE}, write_error("NOT_FOUND"))
 
-# auth gate: heading/evening require the URL-scheme auth token
+# auth gate: heading/evening/when-with-time require the URL-scheme auth token
 add("update_todo", {"id": "TODOID1", "heading": "H", "list_id": "PROJHEAD1"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 add("update_todo", {"id": "TODOID1", "when": "evening"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 add("update_todo", {"id": "TODOID1", "when": "tonight"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+add("update_todo", {"id": "TODOID1", "when": "2031-02-15@09:00"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 # no-partial-update-on-failed-gate: title in the same call must not apply either
 add(
     "update_todo",
@@ -642,6 +740,28 @@ add(
 # ===========================================================================
 # bulk_update_todos
 # ===========================================================================
+
+# hq-wbm: bulk_update_todos' per-id pre-check sentinels (BULK_OPS_THINGS_GET_PATCH).
+# Ids used as definitively-unknown / DB-unreadable-simulation / wrong-type
+# targets for the pre-check test cases below.
+BULK_UNKNOWN_ID = "BULKUNKNOWNIDDOESNOTEXIST"
+BULK_RAISING_ID = "BULKRAISINGIDCAUSESLOOKUPERROR"
+BULK_PROJECT_ID_AS_TARGET = "BULKPROJECTIDUSEDASTARGET"
+
+
+def _bulk_ops_things_get(uuid: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """Router for BULK_OPS_THINGS_GET_PATCH. Every pre-existing
+    bulk_update_todos case uses plain sentinel ids (T1/T2/T3/a/b/c/etc.)
+    that must resolve as a to-do (the default branch below) so the new
+    per-id pre-check (hq-wbm) doesn't spuriously reject them."""
+    if uuid == BULK_UNKNOWN_ID:
+        return None
+    if uuid == BULK_RAISING_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    if uuid == BULK_PROJECT_ID_AS_TARGET:
+        return {"type": "project", "uuid": uuid}
+    return {"type": "to-do", "uuid": uuid}
+
 
 add("bulk_update_todos", {"todo_ids": "T1,T2,T3"}, ok(route="applescript", contains=["T1", "T2", "T3"]))
 add("bulk_update_todos", {"todo_ids": ""}, write_error("NO_TODO_IDS"))
@@ -675,11 +795,17 @@ add(
 for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-03-15", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # per-todo 'update' action natively - schedule_todo_reliable's AppleScript
+    # path drops the time component, so this is routed to url_update instead
+    # (same as evening/tonight, including the auth-token requirement).
+    ("2031-03-15@11:45", ok(route="url_update", url_contains={"when": "2031-03-15@11:45"})),
+    ("2031-03-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
     (" ", write_error("VALIDATION_ERROR")),
@@ -710,6 +836,26 @@ add("bulk_update_todos", {"todo_ids": "T1,T2", "canceled": "1"}, write_error("VA
 add("bulk_update_todos", {"todo_ids": "T1,T2", "completed": True}, tool_error())
 
 add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "evening"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "2031-03-15@11:45"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+
+# hq-wbm: per-id pre-check via things.get(), before the AppleScript script
+# is built. Every id failing the pre-check -> a structured NOT_FOUND error
+# with no AppleScript/URL call at all (no_capture=True, the ok()/
+# write_error() default).
+add(
+    "bulk_update_todos",
+    {"todo_ids": f"{BULK_UNKNOWN_ID},{BULK_PROJECT_ID_AS_TARGET}", "title": "New Title"},
+    write_error("NOT_FOUND"),
+)
+# things.get() itself raises for one id -> pre-check is skipped for the
+# WHOLE batch (falls back to pre-bead behavior: every id, including T1,
+# reaches the per-id AppleScript try/on-error block unchecked), same
+# fallback pattern as update_todo's single-id pre-check.
+add(
+    "bulk_update_todos",
+    {"todo_ids": f"T1,{BULK_RAISING_ID}", "title": "New Title"},
+    ok(route="applescript", contains=["T1", BULK_RAISING_ID]),
+)
 
 
 # ===========================================================================
@@ -747,13 +893,25 @@ add("add_project", {"title": "P", "tags": "a,b"}, ok(route="applescript", contai
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("2031-04-15", ok(route="applescript")),
+    # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
+    # IS supported for projects - live-probed against things:///add-project
+    # and things:///update-project, both of which set a project reminder
+    # natively. The plain AppleScript create path applies this via a
+    # follow-up 'update-project' URL-scheme call (requires the auth token -
+    # see the AUTH_TOKEN_NOT_CONFIGURED case below), so the route here is
+    # url_update (the URL-scheme detector prefers the URL call over the
+    # AppleScript create call - see _detect_route).
+    ("2031-04-15@08:00", ok(route="url_update", url_contains={"when": "2031-04-15@08:00"})),
+    ("2031-04-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", ok(route="applescript")),
 ]:
     add("add_project", {"title": "P", "when": w}, exp)
+
+add("add_project", {"title": "P", "when": "2031-04-15@08:00"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 
 for d, exp in [
     ("2031-04-15", ok(route="applescript", contains=["due date of newProject"])),
@@ -763,11 +921,27 @@ for d, exp in [
     add("add_project", {"title": "P", "deadline": d}, exp)
 
 add("add_project", {"title": "P", "area_id": None}, ok(route="applescript"))
-add("add_project", {"title": "P", "area_id": "AREAID1"}, ok(route="applescript", contains=['area id "AREAID1"']))
+add("add_project", {"title": "P", "area_id": KNOWN_AREA_ID_1}, ok(route="applescript", contains=[f'area id "{KNOWN_AREA_ID_1}"']))
 add("add_project", {"title": "P", "area_id": ""}, ok(route="applescript"))
 add("add_project", {"title": "P", "area_title": None}, ok(route="applescript"))
-add("add_project", {"title": "P", "area_title": "Some Area"}, ok(route="applescript", contains=['area "Some Area"']))
-add("add_project", {"title": "P", "area_title": "DoesNotExistArea"}, ok(route="applescript", contains=['area "DoesNotExistArea"']))  # hq-rmh: emitted as-is, no rollback
+# area_title is pre-resolved via things.py to its concrete area_id (hq-rmh)
+# before the script is built, so a resolved title is emitted as
+# 'area id "<uuid>"', not 'area "<title>"'.
+add("add_project", {"title": "P", "area_title": KNOWN_AREA_TITLE}, ok(route="applescript", contains=['area id "KNOWNAREAUUID-Some-Area"']))
+# hq-rmh (fixed): an unresolvable area_title now returns a structured
+# NOT_FOUND error BEFORE any AppleScript write - no orphan project created.
+add("add_project", {"title": "P", "area_title": UNKNOWN_AREA_TITLE}, write_error("NOT_FOUND"))
+add("add_project", {"title": "P", "area_title": AMBIGUOUS_AREA_TITLE}, write_error("AMBIGUOUS_TARGET"))
+add("add_project", {"title": "P", "area_id": UNKNOWN_AREA_ID}, write_error("NOT_FOUND"))
+# things.get() itself raises (simulated unreadable Things DB) -> falls back
+# to emitting the raw area_id unchecked via AppleScript rather than
+# refusing the write (mirrors _resolve_list_id's documented DB-unreadable
+# fallback).
+add(
+    "add_project",
+    {"title": "P", "area_id": RAISING_AREA_ID},
+    ok(route="applescript", contains=[f'area id "{RAISING_AREA_ID}"']),
+)
 
 add("add_project", {"title": "P", "todos": None}, ok(route="applescript"))
 add("add_project", {"title": "P", "todos": ""}, ok(route="applescript"))
@@ -800,14 +974,23 @@ add("update_project", {"id": "PROJECTID1", "tags": "a,b"}, ok(route="applescript
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript")),
-    ("anytime", ok(route="applescript")),
+    ("someday", ok(route="applescript", contains=['list "Someday"'])),
+    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", write_error("UNSUPPORTED_FOR_PROJECTS")),  # projects don't support Evening
     ("2031-05-15", ok(route="applescript")),
+    # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
+    # IS supported for projects - live-probed against things:///update-project,
+    # which sets a project reminder natively (same as update_todo's evening
+    # routing, including the auth-token requirement - see the
+    # AUTH_TOKEN_NOT_CONFIGURED case below).
+    ("2031-05-15@16:20", ok(route="url_update", url_contains={"when": "2031-05-15@16:20"})),
+    ("2031-05-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
 ]:
     add("update_project", {"id": "PROJECTID1", "when": w}, exp)
+
+add("update_project", {"id": "PROJECTID1", "when": "2031-05-15@16:20"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 
 for d, exp in [
     ("2031-05-15", ok(route="applescript", contains=["due date of targetProject"])),
@@ -817,11 +1000,24 @@ for d, exp in [
     add("update_project", {"id": "PROJECTID1", "deadline": d}, exp)
 
 add("update_project", {"id": "PROJECTID1", "area_id": None}, ok(route="applescript"))
-add("update_project", {"id": "PROJECTID1", "area_id": "AREAID2"}, ok(route="applescript", contains=['area id "AREAID2"']))
+add("update_project", {"id": "PROJECTID1", "area_id": KNOWN_AREA_ID_2}, ok(route="applescript", contains=[f'area id "{KNOWN_AREA_ID_2}"']))
 add("update_project", {"id": "PROJECTID1", "area_id": ""}, ok(route="applescript"))
 add("update_project", {"id": "PROJECTID1", "area_title": None}, ok(route="applescript"))
-add("update_project", {"id": "PROJECTID1", "area_title": "Some Area"}, ok(route="applescript", contains=['area "Some Area"']))
-add("update_project", {"id": "PROJECTID1", "area_title": "DoesNotExistArea"}, ok(route="applescript", contains=['area "DoesNotExistArea"']))  # hq-rmh
+# area_title is pre-resolved via things.py to its concrete area_id (hq-rmh)
+# before the script is built, so a resolved title is emitted as
+# 'area id "<uuid>"', not 'area "<title>"'.
+add("update_project", {"id": "PROJECTID1", "area_title": KNOWN_AREA_TITLE}, ok(route="applescript", contains=['area id "KNOWNAREAUUID-Some-Area"']))
+# hq-rmh (fixed): an unresolvable area_title now returns a structured
+# NOT_FOUND error BEFORE any AppleScript write - no other field in the same
+# call (title/notes/tags/deadline/status) is silently discarded either.
+add("update_project", {"id": "PROJECTID1", "area_title": UNKNOWN_AREA_TITLE}, write_error("NOT_FOUND"))
+add("update_project", {"id": "PROJECTID1", "area_title": AMBIGUOUS_AREA_TITLE}, write_error("AMBIGUOUS_TARGET"))
+add("update_project", {"id": "PROJECTID1", "area_id": UNKNOWN_AREA_ID}, write_error("NOT_FOUND"))
+add(
+    "update_project",
+    {"id": "PROJECTID1", "area_id": RAISING_AREA_ID},
+    ok(route="applescript", contains=[f'area id "{RAISING_AREA_ID}"']),
+)
 
 for completed, canceled, expect_marker in [
     ("true", "true", "status of targetProject to canceled"),
@@ -880,18 +1076,14 @@ add("update_area", {"id": "AREAID1", "tags": "a,b"}, ok(route="applescript", con
 # add_tags / remove_tags
 # ===========================================================================
 
-# NOTE (Discovered): neither add_tags nor remove_tags validates todo_id
-# for non-empty/non-whitespace at the server layer (unlike update_todo/
-# delete_todo/move_record, which all call
-# ParameterValidator.validate_non_empty_string on their id parameter) - an
-# empty or whitespace-only todo_id is sent straight through as
-# `to do id ""` / `to do id "   "` and Things' AppleScript error handling
-# (mocked here as unconditional success) determines the outcome, not this
-# server. Cases below assert the OBSERVED behavior (success, since the fake
-# manager never simulates an AppleScript-level failure for a bad id).
+# hq-a5j: add_tags/remove_tags now validate todo_id for non-empty/
+# non-whitespace at the write_operations layer (matching update_todo/
+# delete_todo, which call ParameterValidator.validate_non_empty_string on
+# their id parameter) - an empty or whitespace-only todo_id is rejected
+# with a structured VALIDATION_ERROR before any AppleScript call is made.
 add("add_tags", {"todo_id": "TODOID1", "tags": "urgent"}, ok(route="applescript", contains=["tag names of targetTodo to"]))
-add("add_tags", {"todo_id": "", "tags": "urgent"}, ok(route="applescript", contains=['to do id ""']))
-add("add_tags", {"todo_id": "   ", "tags": "urgent"}, ok(route="applescript", contains=['to do id "   "']))
+add("add_tags", {"todo_id": "", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
+add("add_tags", {"todo_id": "   ", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
 add("add_tags", {"todo_id": SPECIAL_CHARS, "tags": "urgent"}, ok(route="applescript"))
 
 add("add_tags", {"todo_id": "TODOID1", "tags": ""}, write_error("NO_VALID_TAGS"))
@@ -900,8 +1092,8 @@ add("add_tags", {"todo_id": "TODOID1", "tags": "a,b"}, ok(route="applescript", c
 add("add_tags", {"todo_id": "TODOID1", "tags": "a, b"}, ok(route="applescript", contains=["set tag names of targetTodo to"]))
 
 add("remove_tags", {"todo_id": "RTID1", "tags": "urgent"}, ok(route="applescript", contains=["set tag names of targetTodo to"]))
-add("remove_tags", {"todo_id": "", "tags": "urgent"}, ok(route="applescript", contains=['to do id ""']))
-add("remove_tags", {"todo_id": "   ", "tags": "urgent"}, ok(route="applescript", contains=['to do id "   "']))
+add("remove_tags", {"todo_id": "", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
+add("remove_tags", {"todo_id": "   ", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
 # tags='' / ' , ' parse to an empty list, current tags is also empty (no
 # seed) -> a no-op removal (0 removed, nothing not_present) rather than a
 # validation error - remove_tags applies no non-empty-tags precondition
@@ -913,10 +1105,12 @@ add("remove_tags", {"todo_id": "RTID1", "tags": "a,b"}, ok(route="applescript", 
 
 
 # ===========================================================================
-# tag policy: default (FAIL_ON_UNKNOWN via ai_can_create_tags=False),
+# tag policy: default (FILTER_WARN - the declared default since hq-nb1),
 # ALLOW_ALL (via config directly, matching the default constructor param
-# path add_tags/add_todo use), and the two granular states hq-nb1 makes
-# unreachable via env - covered by constructing ThingsMCPConfig directly.
+# path add_tags/add_todo use), and the two granular states (FILTER_SILENT/
+# FILTER_WARN), all four reachable via ThingsMCPConfig(tag_creation_policy=...)
+# since the hq-nb1 fix (previously only ALLOW_ALL/FAIL_ON_UNKNOWN were
+# reachable via the ai_can_create_tags-derived path).
 # ===========================================================================
 
 add(
@@ -957,6 +1151,21 @@ add(
     ok(route="applescript", contains=["set tag names of targetTodo to"]),
     tag_policy=TagCreationPolicy.ALLOW_ALL,
 )
+# hq-r87: whitespace-only tokens (e.g. from "  ,  ") never reach tag
+# validation/AppleScript at all - the MCP tool boundary's own
+# `_parse_tag_list` (server.py) already filters `if t.strip()` per token,
+# so "  ,  " parses to an empty tag list before add_tags' AppleScript-layer
+# code (tools_helpers/write_operations.py) ever sees it. add_tags then
+# reports its own "nothing left to apply" NO_VALID_TAGS (a read-only
+# existing-tags lookup capture happens first, but no mutation) - confirming
+# no blank-titled tag can be created via this path, unlike the pre-fix
+# create_tag('   ') bug this bead fixes.
+add(
+    "add_tags",
+    {"todo_id": "TODOID1", "tags": "  ,  "},
+    write_error("NO_VALID_TAGS", no_capture=False),
+    tag_policy=TagCreationPolicy.ALLOW_ALL,
+)
 
 
 # ===========================================================================
@@ -966,11 +1175,21 @@ add(
 add("create_tag", {"tag_name": "newtag"}, ok(route="applescript", contains=["make new tag with properties"]), tag_policy=TagCreationPolicy.ALLOW_ALL)
 add("create_tag", {"tag_name": "newtag"}, write_error("TAG_CREATION_RESTRICTED"), tag_policy=TagCreationPolicy.FAIL_ON_UNKNOWN)
 add("create_tag", {"tag_name": SPECIAL_CHARS}, ok(route="applescript", contains=['he said \\"hi\\"']), tag_policy=TagCreationPolicy.ALLOW_ALL)
-# tag_name has no minLength in the schema - '' and whitespace-only both
-# pass pydantic and reach the AppleScript create path unchanged (observed;
-# not one of the bead's cited bugs, filed separately - see Discovered).
-add("create_tag", {"tag_name": ""}, ok(route="applescript"), tag_policy=TagCreationPolicy.ALLOW_ALL)
-add("create_tag", {"tag_name": "   "}, ok(route="applescript"), tag_policy=TagCreationPolicy.ALLOW_ALL)
+# hq-a5j: tag_name now has min_length=1 in the schema, so '' is rejected by
+# pydantic at the MCP tool boundary before the tool body ever runs (a
+# ToolError, not a structured write-error response) - see
+# TestCreateTag::test_empty_name_rejected.
+add("create_tag", {"tag_name": ""}, tool_error(), tag_policy=TagCreationPolicy.ALLOW_ALL)
+# hq-r87: a whitespace-only tag_name is now rejected by a runtime guard
+# before any AppleScript call is made (previously it reached AppleScript
+# unchanged, which Things silently trimmed to '', creating a real
+# blank-titled tag).
+add(
+    "create_tag",
+    {"tag_name": "   "},
+    write_error("TAG_CREATION_FAILED"),
+    tag_policy=TagCreationPolicy.ALLOW_ALL,
+)
 
 
 # ===========================================================================
@@ -980,14 +1199,16 @@ add("create_tag", {"tag_name": "   "}, ok(route="applescript"), tag_policy=TagCr
 for dest, exp in [
     ("inbox", ok(route="applescript", contains=['move theTodo to list "inbox"'])),
     ("today", ok(route="applescript", contains=['move theTodo to list "today"'])),
-    ("upcoming", ok(route="applescript", contains=['move theTodo to list "upcoming"'])),
+    # hq-cag: 'upcoming' is rejected at validation (Things has no direct
+    # Upcoming move target) - VALIDATION_ERROR with no AppleScript call.
+    ("upcoming", write_error("VALIDATION_ERROR")),
     ("anytime", ok(route="applescript", contains=['move theTodo to list "anytime"'])),
     ("someday", ok(route="applescript", contains=['move theTodo to list "someday"'])),
-    # hq-z5d: 'logbook'/'trash' pass _validate_destination's valid_lists
-    # check but are not in _execute_move's built-in-list branch, so they
-    # fall through to INVALID_DESTINATION - observed, not "correct".
-    ("logbook", write_error("INVALID_DESTINATION", no_capture=False)),
-    ("trash", write_error("INVALID_DESTINATION", no_capture=False)),
+    # hq-edj: 'logbook' completes the to-do (the only documented way an
+    # item reaches the Logbook); 'trash' uses the same `move ... to list`
+    # verb as the other built-in lists.
+    ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
     ("project:PROJ123", ok(route="applescript", contains=['project id "PROJ123"'])),
     ("area:AREA123", ok(route="applescript", contains=['area id "AREA123"'])),
     ("project:", write_error("VALIDATION_ERROR")),
@@ -996,11 +1217,11 @@ for dest, exp in [
     add("move_record", {"todo_id": "TODOID1", "destination_list": dest}, exp)
 
 add("move_record", {"todo_id": "", "destination_list": "today"}, write_error("VALIDATION_ERROR"))
-# move_record's own todo_id validation only rejects a falsy (empty) string,
-# not a whitespace-only one - "   " passes _validate_move_inputs and
-# proceeds to the (mocked) AppleScript move (observed; distinct from
-# update_todo/delete_todo, which reject whitespace-only ids too).
-add("move_record", {"todo_id": "   ", "destination_list": "today"}, ok(route="applescript"))
+# hq-a5j: move_record's todo_id validation now rejects whitespace-only ids
+# too (previously only a falsy/empty string was rejected; "   " passed
+# _validate_move_inputs and proceeded to the AppleScript move), matching
+# update_todo/delete_todo.
+add("move_record", {"todo_id": "   ", "destination_list": "today"}, write_error("VALIDATION_ERROR"))
 add("move_record", {"todo_id": SPECIAL_CHARS, "destination_list": "today"}, ok(route="applescript"))
 
 
@@ -1017,18 +1238,16 @@ add("bulk_move_records", {"todo_ids": "a,b,c", "destination": "today"}, ok(route
 for dest, exp in [
     ("inbox", ok(route="applescript")),
     ("today", ok(route="applescript")),
-    ("upcoming", ok(route="applescript")),
+    # hq-cag: 'upcoming' is rejected once up front by bulk_move's own
+    # _validate_destination call - INVALID_DESTINATION, no per-todo move
+    # attempted (nothing moves).
+    ("upcoming", write_error("INVALID_DESTINATION")),
     ("anytime", ok(route="applescript")),
     ("someday", ok(route="applescript")),
-    # 'logbook'/'trash' pass bulk_move's own destination validation (its
-    # valid_lists includes them) but fail per-todo inside _execute_move
-    # (same INVALID_DESTINATION gap as move_record, hq-z5d-adjacent) - the
-    # overall call still reports success=False, but via the bulk
-    # successful/failed-moves envelope, not the top-level pre-write
-    # validation error shape, and a script/URL call for the (failed)
-    # attempt IS made per todo.
-    ("logbook", write_error("INVALID_DESTINATION", no_capture=False)),
-    ("trash", write_error("INVALID_DESTINATION", no_capture=False)),
+    # hq-edj: same fix as move_record above - bulk_move delegates each id
+    # to move_record, so 'logbook'/'trash' now succeed per-todo too.
+    ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
     ("project:PROJ123", ok(route="applescript", contains=["PROJ123"])),
     ("area:AREA123", ok(route="applescript", contains=["AREA123"])),
     ("project:", write_error("INVALID_DESTINATION")),
@@ -1089,9 +1308,9 @@ def _detect_route(fake: RecordingAppleScriptManager) -> Optional[str]:
     an AppleScript execution for an unrelated pre-check."""
     if fake.url_scheme_calls:
         action = fake.url_scheme_calls[-1][0]
-        if action == "add":
+        if action in ("add", "add-project"):
             return "url_add"
-        if action == "update":
+        if action in ("update", "update-project"):
             return "url_update"
         if action == "json":
             return "url_json"
@@ -1252,3 +1471,46 @@ class TestCompleteness:
 
     def test_cases_table_has_at_least_200_entries(self) -> None:
         assert len(CASES) >= 200, f"Expected >= 200 CASES entries, got {len(CASES)}"
+
+
+class TestBulkUpdateTodosPreCheckMixed:
+    """hq-wbm: bulk_update_todos' per-id things.py pre-check, for shapes
+    that don't fit the binary ok()/write_error() matrix DSL above (a
+    partial-success response whose 'not_found' list must be asserted
+    exactly)."""
+
+    def test_mixed_valid_and_unknown_ids_reports_not_found_list(self) -> None:
+        result, fake = run_tool(
+            "bulk_update_todos",
+            {"todo_ids": f"T1,{BULK_UNKNOWN_ID}", "title": "New Title"},
+        )
+        sc = result.structured_content
+        assert sc.get("success") is True, sc
+        assert sc.get("updated_count") == 1, sc
+        assert sc.get("failed_count") == 1, sc
+        assert sc.get("total_requested") == 2, sc
+        assert sc.get("not_found") == [BULK_UNKNOWN_ID], sc
+        # Only the resolvable id (T1) was sent to AppleScript - the unknown
+        # id is excluded from the script entirely rather than reaching the
+        # per-id try/on-error block.
+        script_text = fake.all_scripts_text()
+        assert 'to do id "T1"' in script_text, script_text
+        assert f'to do id "{BULK_UNKNOWN_ID}"' not in script_text, script_text
+
+    def test_mixed_valid_and_project_id_reports_not_found_list(self) -> None:
+        """A project id embedded in todo_ids must be excluded (not_found),
+        not sent through the bulk AppleScript script - AppleScript's
+        `to do id "..."` unexpectedly also resolves a project uuid
+        (verified live), so without this pre-check it would be silently
+        renamed/modified instead of failing."""
+        result, fake = run_tool(
+            "bulk_update_todos",
+            {"todo_ids": f"T1,{BULK_PROJECT_ID_AS_TARGET}", "title": "New Title"},
+        )
+        sc = result.structured_content
+        assert sc.get("success") is True, sc
+        assert sc.get("updated_count") == 1, sc
+        assert sc.get("failed_count") == 1, sc
+        assert sc.get("not_found") == [BULK_PROJECT_ID_AS_TARGET], sc
+        script_text = fake.all_scripts_text()
+        assert f'to do id "{BULK_PROJECT_ID_AS_TARGET}"' not in script_text, script_text

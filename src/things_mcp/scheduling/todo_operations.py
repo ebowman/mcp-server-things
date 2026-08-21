@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Dict, Any, List, Optional, Tuple
 
-from ..locale_aware_dates import locale_handler
+from ..locale_aware_dates import locale_handler, when_has_time_component
 from ..things_import import LazyThingsProxy
 from ..utils.applescript_utils import AppleScriptTemplates
 # write_error is imported lazily (inside each call site, like the existing
@@ -27,6 +27,15 @@ from ..utils.applescript_utils import AppleScriptTemplates
 things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
+
+# Sentinel distinguishing "things.get() lookup itself raised" (DB
+# unreadable / Full Disk Access missing) from "things.get() succeeded and
+# returned None" (id genuinely unknown) - used by update_todo's todo_id
+# pre-check (hq-wbm). Mirrors tools_helpers/write_operations.py's
+# module-local _RESOLVE_UNAVAILABLE sentinel of the same shape; not shared
+# across modules to avoid the circular-import concerns documented above
+# for _write_error.
+_RESOLVE_UNAVAILABLE = object()
 
 
 def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
@@ -274,15 +283,117 @@ class TodoOperations:
         kind, matched_id = matches[0]
         return {"kind": kind, "id": matched_id}
 
+    def _resolve_area(
+        self, area_id: str = '', area_title: str = ''
+    ) -> Dict[str, Any]:
+        """Pre-resolve an add_project/update_project area target via
+        things.py BEFORE any write (hq-rmh).
+
+        Mirrors _resolve_list_id/_resolve_list_title's fallback semantics
+        exactly, applied to the project/area-only 'area_id'/'area_title'
+        parameters: area_id takes precedence over area_title, matching the
+        existing AppleScript-emission precedence in
+        _build_create_project_script/update_project/
+        _add_project_via_url_scheme.
+
+        Without this pre-check, Things 3's AppleScript has no transactional
+        rollback - 'make new project ...' followed by 'set area of
+        newProject to area "<bogus>"' in the same try block creates the
+        project first, then the area-set line throws, leaving a real,
+        un-areaed orphan project behind despite the call reporting
+        success=False/APPLESCRIPT_ERROR (hq-rmh).
+
+        Args:
+            area_id: Area UUID (takes precedence if provided).
+            area_title: Area title (exact match).
+
+        Returns:
+            {} if neither area_id nor area_title was given (nothing to
+            resolve - caller proceeds with no area set).
+            {"area_id": "..."} on a successful resolution - callers should
+            use this resolved id, not the raw input, for the AppleScript/
+            URL-scheme area-id assignment; this normalizes an area_title
+            match to its concrete uuid so downstream code only ever emits
+            'area id "<uuid>"' rather than "area \"<title>\"" once a title
+            has been resolved.
+            A write_error()-shaped dict (code "NOT_FOUND") if area_id
+            doesn't match any known area, or matches something that is not
+            an area; code "AMBIGUOUS_TARGET" (with an "ids" field) if
+            area_title matches more than one area.
+            If the underlying things.py lookup itself raises (e.g. the
+            Things database is unreadable / Full Disk Access is missing),
+            this falls back to {"area_id": area_id} (area_id path) or
+            {} (area_title path, since there's nothing to normalize
+            without a working lookup) - the pre-bead behavior of emitting
+            the raw value unchecked - rather than refusing the write,
+            mirroring _resolve_list_id's documented DB-unreadable fallback
+            (CLAUDE.md "list_id fallback when the Things database is
+            unreadable").
+        """
+        if area_id:
+            try:
+                record = things.get(area_id)
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while resolving area_id "
+                    f"{area_id} (falling back to emitting it unchecked): {e}"
+                )
+                return {"area_id": area_id}
+
+            if not record or record.get('type') != 'area':
+                return _write_error(
+                    "NOT_FOUND",
+                    f"area_id '{area_id}' does not match any known area",
+                )
+            return {"area_id": area_id}
+
+        if area_title:
+            try:
+                matching_areas = [
+                    a for a in (things.areas() or []) if a.get('title') == area_title
+                ]
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while resolving area_title "
+                    f"{area_title!r} (falling back to emitting it "
+                    f"unchecked): {e}"
+                )
+                return {}
+
+            if not matching_areas:
+                return _write_error(
+                    "NOT_FOUND",
+                    f"area_title '{area_title}' does not match any known area",
+                )
+            if len(matching_areas) > 1:
+                ids = [a['uuid'] for a in matching_areas]
+                return _write_error(
+                    "AMBIGUOUS_TARGET",
+                    f"area_title '{area_title}' is ambiguous - matches "
+                    f"multiple areas: {', '.join(ids)}",
+                    ids=ids,
+                )
+            return {"area_id": matching_areas[0]['uuid']}
+
+        return {}
+
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:
         """Add a new todo using AppleScript, or URL scheme if heading, checklist items,
-        and/or when='evening' are provided.
+        and/or when='evening'/when with a '@HH:MM' time component are provided.
 
         when='evening' (alias 'tonight', normalized to 'evening' by
         ParameterValidator) is routed via the Things URL scheme's 'add'
         action - AppleScript's 'schedule' command has no way to set the
         "This Evening" flag. Unlike heading/update, the URL scheme 'add'
         action does not require the Things auth token.
+
+        when='YYYY-MM-DD@HH:MM' (sets a reminder) is routed the same way:
+        the AppleScript scheduling path (schedule_todo_reliable ->
+        locale_aware_dates.normalize_date_input) only extracts year/month/
+        day and silently drops the time component, so no reminder is ever
+        set (hq-4gn). The Things URL scheme's 'add' action natively
+        supports this form and sets the reminder, and - like the evening
+        case - does not require the auth token.
         """
         try:
             # Extract parameters
@@ -312,11 +423,18 @@ class TodoOperations:
             # 'add' action DOES accept when=evening, so route there.
             when_is_evening = isinstance(when, str) and when.strip().lower() == 'evening'
 
-            # If a heading, checklist items, or an evening schedule are
-            # provided, use the Things URL scheme - it is the only way to
-            # create checklists, the only way to place a new to-do directly
-            # under a heading, and the only way to set "This Evening".
-            if heading or checklist or when_is_evening:
+            # when='YYYY-MM-DD@HH:MM' sets a reminder via the Things URL
+            # scheme natively; the AppleScript scheduler drops the time
+            # component (see docstring / hq-4gn).
+            when_has_time = when_has_time_component(when)
+
+            # If a heading, checklist items, an evening schedule, or a
+            # when with a time component are provided, use the Things URL
+            # scheme - it is the only way to create checklists, the only
+            # way to place a new to-do directly under a heading, the only
+            # way to set "This Evening", and the only way to set a reminder
+            # time.
+            if heading or checklist or when_is_evening or when_has_time:
                 return await self._add_todo_via_url_scheme(
                     title=title,
                     notes=notes,
@@ -1156,6 +1274,20 @@ class TodoOperations:
         `open` failure), the already-applied AppleScript fields are NOT
         rolled back.
 
+        when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn): passes
+        ParameterValidator's date-format check, but
+        schedule_todo_reliable() (the AppleScript scheduling path) calls
+        locale_aware_dates.normalize_date_input(), which only extracts
+        year/month/day - the '@HH:MM' component is silently dropped and no
+        reminder is ever set. The Things URL scheme's 'update' action
+        natively supports 'YYYY-MM-DD@HH:MM' and sets the reminder, so
+        this form is routed there instead - exactly the same routing,
+        auth-token gate, and AppleScript-write-ordering as when='evening'
+        above (the auth-token check happens BEFORE any AppleScript write;
+        if the token is configured and this is combined with
+        AppleScript-only fields, those are applied first and are not
+        rolled back if the URL-scheme call subsequently fails).
+
         list_id / list_title (move to a project or area): when heading is
         NOT also given, list_id (or list_title, resolved to an id the same
         way as add_todo - see _resolve_list_id/_resolve_list_title) moves
@@ -1174,6 +1306,57 @@ class TodoOperations:
         plain AppleScript move - see the heading docs above.
         """
         try:
+            # Pre-check todo_id via things.py BEFORE any write (hq-wbm).
+            # AppleScript's `to do id "<uuid>"` unexpectedly ALSO resolves a
+            # project uuid (Things treats projects as a "selected to do"
+            # class internally - verified live) rather than erroring, so
+            # without this check update_todo(id=<project-uuid>, title=...)
+            # would silently rename/modify the project instead of failing.
+            # things.get() distinguishes the cases: None means the id is
+            # genuinely unknown (NOT_FOUND); a record whose type isn't
+            # 'to-do' means the id resolves to something update_todo cannot
+            # target (VALIDATION_ERROR, naming the actual type). If the
+            # things.py lookup itself raises (e.g. the Things database is
+            # unreadable / Full Disk Access missing), fall through and
+            # proceed with the write - same documented DB-unreadable
+            # fallback as _resolve_list_id/_resolve_area (CLAUDE.md "list_id
+            # fallback when the Things database is unreadable") - refusing
+            # every update whenever things.py is unavailable would be a
+            # larger behavior change than this bead asks for.
+            try:
+                todo_record_for_precheck = things.get(todo_id)
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while pre-checking todo_id "
+                    f"{todo_id} (falling back to proceeding with the write "
+                    f"unchecked): {e}"
+                )
+                todo_record_for_precheck = _RESOLVE_UNAVAILABLE
+
+            if todo_record_for_precheck is None:
+                return _write_error(
+                    "NOT_FOUND",
+                    f"No to-do found with id '{todo_id}'",
+                )
+            if todo_record_for_precheck is not _RESOLVE_UNAVAILABLE:
+                precheck_type = todo_record_for_precheck.get('type')
+                if precheck_type != 'to-do':
+                    if precheck_type == 'project':
+                        return _write_error(
+                            "VALIDATION_ERROR",
+                            f"id '{todo_id}' is a project, not a to-do; use "
+                            "update_project() instead",
+                            field="id",
+                            invalid_value=todo_id,
+                        )
+                    return _write_error(
+                        "VALIDATION_ERROR",
+                        f"id '{todo_id}' refers to a '{precheck_type}', not "
+                        "a to-do",
+                        field="id",
+                        invalid_value=todo_id,
+                    )
+
             # Extract parameters. title/area/project default to '' (falsy
             # "unchanged") since they have no clear semantics here; notes/
             # deadline/tags default to None so "not provided" (leave
@@ -1197,6 +1380,14 @@ class TodoOperations:
             # schedule_todo_reliable() when when='evening'.
             when_is_evening = isinstance(when, str) and when.strip().lower() == 'evening'
 
+            # when='YYYY-MM-DD@HH:MM' sets a reminder via the Things URL
+            # scheme's 'update' action natively; schedule_todo_reliable's
+            # AppleScript path (locale_aware_dates.normalize_date_input)
+            # only extracts year/month/day and silently drops the time
+            # component, so no reminder is ever set (hq-4gn). Route this
+            # the same way as when_is_evening.
+            when_has_time = when_has_time_component(when)
+
             # heading has no "clear" semantics via the URL scheme - reject an
             # explicit empty (or whitespace-only) string rather than silently
             # ignoring it or sending an ambiguous request to Things. This
@@ -1214,11 +1405,12 @@ class TodoOperations:
                     field="heading",
                 )
 
-            # heading and when='evening' are only honoured via the Things URL
-            # scheme's 'update' action, which requires the auth token. Fail
-            # fast BEFORE any AppleScript write so other fields are never
+            # heading, when='evening', and when with a '@HH:MM' time
+            # component are only honoured via the Things URL scheme's
+            # 'update' action, which requires the auth token. Fail fast
+            # BEFORE any AppleScript write so other fields are never
             # partially applied.
-            if heading or when_is_evening:
+            if heading or when_is_evening or when_has_time:
                 if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
                     return _write_error(
@@ -1368,11 +1560,12 @@ class TodoOperations:
             # deadline, area, project, project_id/area_id, completed,
             # canceled). This mirrors the pre-existing unconditional
             # behavior (the AppleScript write is always issued, even as a
-            # no-op "updated" round trip) EXCEPT when heading and/or
-            # when='evening' are the only field(s) requested - in that case
-            # skip the AppleScript step entirely and rely solely on the
-            # URL-scheme update below, since there is nothing else to write.
-            skip_applescript = (heading or when_is_evening) and not any([
+            # no-op "updated" round trip) EXCEPT when heading, when='evening',
+            # and/or when with a '@HH:MM' time component are the only
+            # field(s) requested - in that case skip the AppleScript step
+            # entirely and rely solely on the URL-scheme update below,
+            # since there is nothing else to write.
+            skip_applescript = (heading or when_is_evening or when_has_time) and not any([
                 title, notes is not None, tags is not None, deadline is not None,
                 area, project, project_id, area_id, completed is not None, canceled is not None
             ])
@@ -1395,12 +1588,14 @@ class TodoOperations:
                         details=result.get("output", "AppleScript execution failed"),
                     )
 
-            if heading or when_is_evening:
+            if heading or when_is_evening or when_has_time:
                 url_params: Dict[str, Any] = {'id': todo_id}
                 if heading:
                     url_params['heading'] = heading
                 if when_is_evening:
                     url_params['when'] = 'evening'
+                elif when_has_time:
+                    url_params['when'] = when
 
                 # list_id/list_title are only meaningful here (as a
                 # URL-scheme 'list-id') when heading is also given - they
@@ -1420,7 +1615,8 @@ class TodoOperations:
 
                 # The remaining warnings in this block are all
                 # heading-placement concerns - skip them entirely when only
-                # when_is_evening triggered this branch (no heading requested).
+                # when_is_evening/when_has_time triggered this branch (no
+                # heading requested).
                 # effective_project_id and heading_warning were already
                 # resolved (using the same explicit-list_id/list_title-else-
                 # current-project fallback, and the combined
@@ -1449,16 +1645,19 @@ class TodoOperations:
                 url_result = await self.applescript.execute_url_scheme('update', url_params)
 
                 if not url_result.get('success'):
-                    fallback_message = (
-                        "Failed to update todo heading" if heading
-                        else "Failed to schedule todo for evening"
-                    )
+                    if heading:
+                        fallback_message = "Failed to update todo heading"
+                    elif when_is_evening:
+                        fallback_message = "Failed to schedule todo for evening"
+                    else:
+                        fallback_message = "Failed to set todo reminder"
                     return self._propagate_url_scheme_error(url_result, fallback_message)
 
-            # Schedule if when date provided (evening was already applied via
-            # the URL scheme above - schedule_todo_reliable has no AppleScript
-            # mechanism for it).
-            if when and not when_is_evening:
+            # Schedule if when date provided (evening and date+time-with-
+            # reminder were already applied via the URL scheme above -
+            # schedule_todo_reliable has no AppleScript mechanism for
+            # either).
+            if when and not when_is_evening and not when_has_time:
                 schedule_result = await self.scheduler.schedule_todo_reliable(todo_id, when)
                 response = {
                     "success": True,
@@ -1473,7 +1672,10 @@ class TodoOperations:
                 "success": True,
                 "message": (
                     "Todo updated and scheduled for This Evening successfully"
-                    if when_is_evening else "Todo updated successfully"
+                    if when_is_evening else (
+                        "Todo updated and reminder set successfully"
+                        if when_has_time else "Todo updated successfully"
+                    )
                 )
             }
             if when_is_evening:
@@ -1481,6 +1683,12 @@ class TodoOperations:
                     "success": True,
                     "method": "url_scheme",
                     "date_set": "evening"
+                }
+            elif when_has_time:
+                response["scheduling"] = {
+                    "success": True,
+                    "method": "url_scheme",
+                    "date_set": when
                 }
             if warnings:
                 response["warnings"] = warnings
@@ -1685,6 +1893,19 @@ class TodoOperations:
             if items:
                 attributes['items'] = items
 
+            # when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn): the
+            # 'json' action's 'when' attribute natively supports this form
+            # (live-probed) and sets the reminder directly, unlike
+            # schedule_todo_reliable's AppleScript path which drops the
+            # time component - so pass it straight through here instead
+            # of relying on the post-create schedule_todo_reliable() call
+            # below (which still handles plain dates/relative keywords for
+            # this path, unchanged).
+            when_kwarg = kwargs.get('when')
+            when_has_time = when_has_time_component(when_kwarg)
+            if when_has_time:
+                attributes['when'] = when_kwarg
+
             payload = [{"type": "project", "attributes": attributes}]
 
             # Snapshot existing project ids with this exact title *before*
@@ -1778,9 +1999,19 @@ class TodoOperations:
                     "returned the first one created."
                 )
 
-            when = kwargs.get('when')
-            if when:
-                schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
+            if when_has_time:
+                # Already applied via the 'when' attribute in the payload
+                # above (sets the reminder directly) - report it here
+                # rather than re-scheduling via schedule_todo_reliable,
+                # which would drop the time component.
+                response["message"] = "Project created and reminder set successfully"
+                response["scheduling"] = {
+                    "success": True,
+                    "method": "url_scheme",
+                    "date_set": when_kwarg
+                }
+            elif when_kwarg:
+                schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when_kwarg)
                 response["message"] = "Project created and scheduled successfully"
                 response["scheduling"] = schedule_result
 
@@ -1800,6 +2031,21 @@ class TodoOperations:
         "Today" schedule (as schedule_todo_reliable's list-fallback would
         otherwise do for an unrecognized when value) would misrepresent
         what was actually applied.
+
+        when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn): unlike
+        'evening', this form IS supported for projects - live-probed
+        against ``things:///add-project`` and ``things:///update-project``,
+        both of which accept a 'YYYY-MM-DD@HH:MM' ``when`` and set
+        ``reminder_time``/``start_date`` on the project exactly as they do
+        for to-dos. schedule_todo_reliable's AppleScript path
+        (locale_aware_dates.normalize_date_input) only extracts
+        year/month/day and would silently drop the time component the
+        same way it does for to-dos, so this is routed via
+        ``things:///update-project`` after the AppleScript create instead
+        - same pattern as when='evening' on update_todo. update-project
+        requires the Things auth token (unlike add-project/add), so the
+        token is checked BEFORE the project is created, to avoid creating
+        a project whose reminder then silently fails to apply.
 
         Headings (hq-f0w.41): a ``todos`` line prefixed with ``##`` is a
         request for a heading. The AppleScript ``make new to do`` path has
@@ -1829,9 +2075,26 @@ class TodoOperations:
                     field="when",
                 )
 
+            when_has_time = when_has_time_component(when)
+
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
             area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
+
+            # Pre-resolve the area target via things.py BEFORE any write
+            # (hq-rmh): AppleScript has no transactional rollback, so
+            # emitting an unresolvable area_id/area_title into the create
+            # script would create a real orphan project when the area-set
+            # line throws. A successful resolution normalizes area_title to
+            # its concrete area_id so both the AppleScript and URL-scheme
+            # create paths below emit a uuid-based area reference.
+            if area_id or area_title:
+                area_resolution = self._resolve_area(area_id=area_id, area_title=area_title)
+                if "error" in area_resolution:
+                    return area_resolution
+                if area_resolution.get("area_id"):
+                    area_id = area_resolution["area_id"]
+                    area_title = ''
 
             # Handle todos parameter - can be string (newline-separated) or list
             todos_param = kwargs.get('todos', [])
@@ -1844,9 +2107,30 @@ class TodoOperations:
                 todos = []
 
             if any(t.startswith('##') for t in todos):
+                # _add_project_via_url_scheme uses the 'json' action, which
+                # (like 'add'/'add-project') does NOT require the auth
+                # token - it sets 'when' with a time component directly in
+                # the create payload's attributes, unlike the plain
+                # AppleScript path below which needs a separate
+                # 'update-project' call (and therefore the token) after
+                # creation.
                 return await self._add_project_via_url_scheme(
                     title, notes=notes, tags=tags, when=when, deadline=deadline,
                     area_id=area_id, area_title=area_title, todos=todos
+                )
+
+            # The plain AppleScript create path (below) sets a when with a
+            # time component via a follow-up 'update-project' URL-scheme
+            # call, which DOES require the auth token - checked here,
+            # before creating the project, so a missing token is reported
+            # without creating an orphaned project whose reminder then
+            # silently fails to apply.
+            if when_has_time and not self.applescript.auth_token:
+                from ..services.applescript_manager import AUTH_TOKEN_HINT
+                return _write_error(
+                    "AUTH_TOKEN_NOT_CONFIGURED",
+                    "Things URL-scheme auth token not configured",
+                    hint=AUTH_TOKEN_HINT,
                 )
 
             # Build and execute script
@@ -1889,8 +2173,25 @@ class TodoOperations:
                                 "verify manually before retrying to avoid duplicates."
                             ]
 
-                    # Schedule if when date provided
-                    if when:
+                    # Schedule if when date provided. A when with a
+                    # '@HH:MM' time component sets a reminder and is only
+                    # honoured by the Things URL scheme (see docstring) -
+                    # the auth token was already verified present above.
+                    if when_has_time:
+                        url_result = await self.applescript.execute_url_scheme(
+                            'update-project', {'id': project_id, 'when': when}
+                        )
+                        if not url_result.get('success'):
+                            return self._propagate_url_scheme_error(
+                                url_result, "Failed to set project reminder"
+                            )
+                        response["message"] = "Project created and reminder set successfully"
+                        response["scheduling"] = {
+                            "success": True,
+                            "method": "url_scheme",
+                            "date_set": when
+                        }
+                    elif when:
                         schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
                         response["message"] = "Project created and scheduled successfully"
                         response["scheduling"] = schedule_result
@@ -1923,6 +2224,21 @@ class TodoOperations:
         "Today" schedule (as schedule_todo_reliable's list-fallback would
         otherwise do for an unrecognized when value) would misrepresent
         what was actually applied.
+
+        when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn): unlike
+        'evening', this form IS supported for projects - live-probed
+        against ``things:///update-project``, which accepts a
+        'YYYY-MM-DD@HH:MM' ``when`` and sets ``reminder_time``/
+        ``start_date`` on the project exactly as it does for to-dos.
+        schedule_todo_reliable's AppleScript path
+        (locale_aware_dates.normalize_date_input) only extracts
+        year/month/day and would silently drop the time component the
+        same way it does for to-dos, so this is routed via
+        ``things:///update-project`` instead - same pattern as
+        when='evening' on update_todo, including the fail-fast auth-token
+        gate BEFORE any AppleScript write (update-project requires the
+        Things auth token), so a missing token never results in a
+        partially-applied update.
         """
         try:
             # Extract parameters. title/area default to '' (falsy
@@ -1944,9 +2260,33 @@ class TodoOperations:
                     field="when",
                 )
 
+            when_has_time = when_has_time_component(when)
+            if when_has_time and not self.applescript.auth_token:
+                from ..services.applescript_manager import AUTH_TOKEN_HINT
+                return _write_error(
+                    "AUTH_TOKEN_NOT_CONFIGURED",
+                    "Things URL-scheme auth token not configured",
+                    hint=AUTH_TOKEN_HINT,
+                )
+
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')
             area_title = kwargs.get('area_title', '') or kwargs.get('area', '')  # 'area' param is treated as title
+
+            # Pre-resolve the area target via things.py BEFORE any write
+            # (hq-rmh): the whole update below runs in a single AppleScript
+            # try block, so an unresolvable area_id/area_title would throw
+            # partway through and silently discard every other field
+            # (title/notes/tags/deadline/status) requested in the same
+            # call, while still reporting APPLESCRIPT_ERROR. A successful
+            # resolution normalizes area_title to its concrete area_id.
+            if area_id or area_title:
+                area_resolution = self._resolve_area(area_id=area_id, area_title=area_title)
+                if "error" in area_resolution:
+                    return area_resolution
+                if area_resolution.get("area_id"):
+                    area_id = area_resolution["area_id"]
+                    area_title = ''
 
             completed = kwargs.get('completed', None)
             canceled = kwargs.get('canceled', None)
@@ -2041,8 +2381,29 @@ class TodoOperations:
             if result.get("success"):
                 output = result.get("output", "").strip()
                 if output == "updated":
-                    # Schedule the project if when date is provided
-                    if when:
+                    # Schedule the project if when date is provided. A
+                    # when with a '@HH:MM' time component sets a reminder
+                    # and is only honoured by the Things URL scheme (see
+                    # docstring) - the auth token was already verified
+                    # present above, before the AppleScript write ran.
+                    if when_has_time:
+                        url_result = await self.applescript.execute_url_scheme(
+                            'update-project', {'id': project_id, 'when': when}
+                        )
+                        if not url_result.get('success'):
+                            return self._propagate_url_scheme_error(
+                                url_result, "Failed to set project reminder"
+                            )
+                        return {
+                            "success": True,
+                            "message": "Project updated and reminder set successfully",
+                            "scheduling": {
+                                "success": True,
+                                "method": "url_scheme",
+                                "date_set": when
+                            }
+                        }
+                    elif when:
                         schedule_result = await self.scheduler.schedule_todo_reliable(project_id, when)
                         return {
                             "success": True,

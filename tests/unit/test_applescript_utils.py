@@ -5,6 +5,7 @@ collapsing them to spaces) and emits balanced-quote AppleScript literals.
 """
 
 import re
+from unittest.mock import patch
 
 import pytest
 
@@ -145,6 +146,23 @@ class TestScriptBuildersPreserveNewlinesAndBalance:
     @pytest.fixture
     def tools(self, mock_applescript_manager):
         return ThingsTools(mock_applescript_manager)
+
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: update_todo/bulk_update_todos now pre-check the primary
+        todo_id via things.get() before any write. "todo-1" is a fake id
+        never present in the real Things database, so without this patch
+        every update_todo/bulk_update_todos call in this class would
+        report NOT_FOUND/not_found instead of exercising the AppleScript
+        escaping/quote-balance behavior this class is actually testing."""
+        with patch(
+            "things_mcp.scheduling.todo_operations.things.get",
+            return_value={"type": "to-do"},
+        ), patch(
+            "things_mcp.tools_helpers.bulk_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
 
     @pytest.mark.asyncio
     async def test_add_todo_script_has_escaped_notes_and_balanced_quotes(self, tools, mock_applescript_manager):

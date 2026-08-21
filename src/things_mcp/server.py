@@ -308,11 +308,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -409,7 +407,7 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def create_tag(
-            tag_name: str = Field(..., description="Name of the tag to create")
+            tag_name: str = Field(..., min_length=1, description="Name of the tag to create")
         ) -> Dict[str, Any]:
             """Create a new tag. Note: For human use only, AI should ask users to create tags."""
             # Check if AI can create tags based on configuration
@@ -420,6 +418,21 @@ class ThingsMCPServer:
                     "This system is configured to require manual tag creation by users. This helps maintain a clean and intentional tag structure.",
                     user_action=f"Please ask the user if they would like to create the tag '{tag_name}'",
                     existing_tags_hint="You can use get_tags to show the user existing tags they can use instead."
+                )
+
+            # Whitespace-only names (e.g. '   ') must be rejected the same
+            # way an empty name is: AppleScript's `make new tag with
+            # properties {name:"   "}` succeeds and Things silently trims
+            # the whitespace, creating a real tag with an empty title. An
+            # actually-empty name already fails at the AppleScript layer
+            # with TAG_CREATION_FAILED, so mirror that exact code/shape
+            # here rather than letting whitespace-only names reach
+            # AppleScript at all.
+            if tag_name is not None and tag_name.strip() == "" and tag_name != "":
+                return self._write_error(
+                    "TAG_CREATION_FAILED",
+                    "Tag creation failed",
+                    details=f"Failed to create tag '{tag_name}': tag name cannot be whitespace-only",
                 )
 
             # If AI can create tags, proceed
@@ -935,7 +948,7 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def move_record(
             todo_id: str = Field(..., description="ID of the todo to move"),
-            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
+            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, logbook, trash), project:ID, or area:ID. 'upcoming' is NOT a valid destination - use update_todo(id=..., when='<YYYY-MM-DD>') to schedule a future date instead")
         ) -> Dict[str, Any]:
             """Move a todo to a different list, project, or area."""
             try:
@@ -947,7 +960,7 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def bulk_move_records(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
-            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID"),
+            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, logbook, trash), project:ID, or area:ID. 'upcoming' is NOT a valid destination - use update_todo(id=..., when='<YYYY-MM-DD>') to schedule a future date instead"),
             max_concurrent: int = Field(5, description="Maximum concurrent operations (1-10)", ge=1, le=10)
         ) -> Dict[str, Any]:
             """Move multiple todos to the same destination efficiently. The move operation handles scheduling automatically based on the destination."""
@@ -983,11 +996,9 @@ class ThingsMCPServer:
             """Get all projects with optional task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Prepare request parameters
                 request_params = {
@@ -1189,11 +1200,9 @@ class ThingsMCPServer:
             """Get all areas with optional project/task inclusion. Supports include_items and response optimization via mode parameter."""
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Prepare request parameters
                 request_params = {
@@ -1272,6 +1281,13 @@ class ThingsMCPServer:
             Inbox in any case, since Inbox items cannot belong to a project.
             """
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1298,6 +1314,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos due today. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1329,6 +1352,13 @@ class ThingsMCPServer:
             Without 'days', returns items from Things 3's built-in Upcoming list.
             """
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # If days is specified, filter todos by date range
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
@@ -1376,6 +1406,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1403,6 +1440,13 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
             try:
+                # Validate mode parameter (hq-exd: previously unguarded,
+                # letting a bogus mode reach ResponseMode(...) and raise an
+                # unhandled ValueError surfaced as an opaque ToolError).
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
                 # Fetch the full unbounded set first so `total` reflects the
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`
                 # here - mirrors the existing get_upcoming(days=...) pattern.
@@ -1435,7 +1479,7 @@ class ThingsMCPServer:
                 logbook_data = await self.tools.get_logbook(
                     limit=limit, period=period, offset=offset, include_canceled=include_canceled)
                 total = getattr(logbook_data, 'total_count', None)
-                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total)
+                result = self._read_result(logbook_data, mode='standard', limit=limit, offset=offset, total=total, requested_mode=None)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -1485,7 +1529,7 @@ class ThingsMCPServer:
             """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only."""
             try:
                 due_todos = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
-                result = self._read_result(due_todos, mode='standard')
+                result = self._read_result(due_todos, mode='standard', requested_mode=None)
                 result['days'] = days
                 result['include_overdue'] = include_overdue
                 return result
@@ -1503,7 +1547,7 @@ class ThingsMCPServer:
             """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded."""
             try:
                 activating_todos = await self.tools.get_todos_activating_in_days(days)
-                result = self._read_result(activating_todos, mode='standard')
+                result = self._read_result(activating_todos, mode='standard', requested_mode=None)
                 result['days'] = days
                 return result
             except Exception as e:
@@ -1521,7 +1565,7 @@ class ThingsMCPServer:
             """Get all tags with item counts or full items. Use include_items=true for full item lists."""
             try:
                 tags_data = await self.tools.get_tags(include_items=include_items)
-                return self._read_result(tags_data, mode='standard')
+                return self._read_result(tags_data, mode='standard', requested_mode=None)
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
                 raise
@@ -1544,7 +1588,7 @@ class ThingsMCPServer:
                     # _build_unknown_tag_error (read_operations.py) - no need
                     # to overwrite it here.
                     return tagged_items
-                result = self._read_result(tagged_items, mode='standard')
+                result = self._read_result(tagged_items, mode='standard', requested_mode=None)
                 result['tag'] = tag
                 return result
             except Exception as e:
@@ -1580,11 +1624,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 headings_result = await self.tools.get_project_headings(project_id=project_id)
                 if isinstance(headings_result, dict) and headings_result.get('error'):
@@ -1678,11 +1720,9 @@ class ThingsMCPServer:
             """
             try:
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Normalize status parameter (MCP may pass string "None")
                 if status == "None" or status == "null":
@@ -1778,12 +1818,9 @@ class ThingsMCPServer:
                 from datetime import datetime
                 
                 # Validate mode parameter
-                if mode and mode not in ["auto", "summary", "minimal", "standard", "detailed", "raw"]:
-                    return self._read_error(
-                        "invalid_mode",
-                        f"Mode must be one of: auto, summary, minimal, standard, detailed, raw. Got: {mode}",
-                        valid_modes=["auto", "summary", "minimal", "standard", "detailed", "raw"],
-                    )
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
 
                 # Validate date formats
                 if start_date:
@@ -1896,7 +1933,7 @@ class ThingsMCPServer:
             """
             try:
                 recent_items = await self.tools.get_recent(period=period, status=status, type=type)
-                result = self._read_result(recent_items, mode='standard')
+                result = self._read_result(recent_items, mode='standard', requested_mode=None)
                 result['period'] = period
                 return result
             except Exception as e:
@@ -2370,6 +2407,44 @@ class ThingsMCPServer:
         """
         return _tools_read_error(code, message, **extra)
 
+    _VALID_RESPONSE_MODES = ["auto", "summary", "minimal", "standard", "detailed", "raw"]
+
+    @classmethod
+    def _validate_mode(cls, mode: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Validate a read tool's `mode` parameter.
+
+        Shared by every read tool that accepts a `mode` parameter
+        (get_todos, get_projects, get_areas, get_project_headings,
+        search_todos, search_advanced, get_inbox, get_today, get_upcoming,
+        get_anytime, get_someday) so the invalid-mode check and error
+        shape can never drift between them - see hq-exd (the five list
+        tools used to skip this check entirely and pass a bogus mode
+        straight into ResponseMode(...), raising an unhandled ValueError
+        surfaced by FastMCP as an opaque ToolError instead of the
+        canonical structured read-tool error).
+
+        A falsy `mode` (None or '') is treated as "not provided" and is
+        always valid - callers that need a concrete mode default to 'auto'
+        downstream. Matching is case-sensitive: 'STANDARD' is invalid, only
+        the exact lowercase mode strings are accepted.
+
+        Args:
+            mode: The raw `mode` string as received from the MCP call, or
+                None if omitted.
+
+        Returns:
+            None if `mode` is valid (or not provided); otherwise the
+            canonical `_read_error('invalid_mode', ...)` dict to return
+            directly from the calling tool.
+        """
+        if mode and mode not in cls._VALID_RESPONSE_MODES:
+            return cls._read_error(
+                "invalid_mode",
+                f"Mode must be one of: {', '.join(cls._VALID_RESPONSE_MODES)}. Got: {mode}",
+                valid_modes=cls._VALID_RESPONSE_MODES,
+            )
+        return None
+
     @staticmethod
     def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
         """Build the canonical structured-error shape for a write tool.
@@ -2406,6 +2481,7 @@ class ThingsMCPServer:
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         total: Optional[int] = None,
+        requested_mode: Any = "_unset",
     ) -> Dict[str, Any]:
         """Normalize a read-tool response into a consistent structured-content shape.
 
@@ -2444,11 +2520,19 @@ class ThingsMCPServer:
             mode: Requested response mode, if known (e.g. 'auto', 'summary', 'standard').
                 When this is 'auto' or None, the resolved effective mode is reported
                 instead: meta['mode'] if present, else a top-level 'mode' key (summary
-                responses carry no meta), else the requested value.
+                responses carry no meta), else the requested value. For tools with no
+                'mode' parameter at all (e.g. get_logbook, get_tags), callers pass a
+                fixed literal here (e.g. 'standard') purely to report the effective
+                shape of the returned items - see 'requested_mode' below.
             limit: The limit that was applied/requested, if any.
             offset: The offset that was applied/requested, if any.
             total: Total item count before limiting, if known/tracked separately from the
                 returned items (e.g. pagination endpoints like get_trash).
+            requested_mode: What the caller actually asked for, when that differs from
+                `mode` (e.g. a tool with no 'mode' parameter at all should pass
+                ``requested_mode=None`` here, while still passing e.g. mode='standard'
+                to report the effective item shape). Defaults to echoing `mode`, which
+                is correct for every tool that does have a real 'mode' parameter.
 
         Returns:
             A dict containing at least items/count/total/mode/limit/offset, plus any
@@ -2456,11 +2540,13 @@ class ThingsMCPServer:
         """
         if isinstance(response, list):
             items = response
+            effective_requested_mode = mode if requested_mode == "_unset" else requested_mode
             result: Dict[str, Any] = {
                 "items": items,
                 "count": len(items),
                 "total": total if total is not None else len(items),
                 "mode": mode,
+                "requested_mode": effective_requested_mode,
                 "limit": limit,
                 "offset": offset,
             }
@@ -2476,12 +2562,18 @@ class ThingsMCPServer:
             items = result["data"]
         else:
             # Summary-style responses (and other non-list-bearing dicts) don't carry a
-            # full item list - use whatever preview list is present (e.g.
-            # 'recent_preview', 'recent_projects', 'most_common') without inventing one,
-            # to avoid materializing full items in summary mode.
+            # full item list - use whatever preview list is present, to avoid
+            # materializing full items in summary mode. The key name varies per
+            # ProgressiveDisclosureEngine summarizer method (context_manager.py):
+            # todos -> 'recent_preview', projects -> 'recent_projects',
+            # search results -> 'result_preview' (hq-cal.4 - previously missing here,
+            # so search_todos/search_advanced(mode='summary') always reported
+            # items=[] even though result_preview was populated), plus 'tags'/'top'
+            # for other summary shapes seen elsewhere.
             preview = (
                 result.get("recent_preview")
                 or result.get("recent_projects")
+                or result.get("result_preview")
                 or result.get("tags")
                 or result.get("top")
                 or []
@@ -2496,7 +2588,7 @@ class ThingsMCPServer:
         # payload from create_summary_response, which carries no 'meta' at all). Prefer
         # whichever of those is actually present so structured_content reflects what was
         # returned, per docs, instead of echoing back the literal 'auto' request.
-        requested_mode = mode
+        requested_mode = mode if requested_mode == "_unset" else requested_mode
         if mode in (None, "auto"):
             effective_mode = meta.get("mode") or result.get("mode") or mode
         else:

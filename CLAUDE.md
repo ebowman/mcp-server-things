@@ -79,7 +79,8 @@ result = self.applescript_manager.execute_script(script)
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
 5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
-6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
+6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`, `when` with a `@HH:MM` time component) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
+7. **`when='YYYY-MM-DD@HH:MM'` sets a reminder, and requires the Things auth token on update paths** (hq-4gn): this form is accepted on `add_todo`, `update_todo`, `bulk_update_todos`, `add_project`, and `update_project`, and - like `when='evening'` - is routed via the Things URL scheme rather than AppleScript, since AppleScript's `schedule` command (and `locale_aware_dates.normalize_date_input`, used by the AppleScript scheduling path) has no way to honor the time component and would otherwise silently drop it (no reminder set). `add_todo(when='<date>@<time>')` works without a token (routed via `things:///add`); `update_todo`/`bulk_update_todos`/`add_project`/`update_project` with a `when` in this form require the Things URL-scheme auth token (routed via `things:///update`/`things:///update-project`/`things:///add-project` as appropriate), checked before any AppleScript write so a missing token never partially applies other fields in the same call. Unlike `when='evening'` (rejected for projects with `UNSUPPORTED_FOR_PROJECTS`), the time-component form IS supported for projects - Things sets a project reminder the same way it does for to-dos. An out-of-range hour/minute (e.g. `'25:99'`) is rejected with `INVALID_WHEN` before any write.
 
 ### Boot Diagnostics (v1.5.0+)
 
@@ -408,7 +409,7 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_due_in_days`, `get_activating_in_days`, `get_tags`, `get_tagged_items`, `get_recent`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`).
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
@@ -451,6 +452,22 @@ Write/mutating tools (`add_todo`, `update_todo`, `bulk_update_todos`, `delete_to
 - Additional fields may be present depending on the error (e.g. `VALIDATION_ERROR` also carries `field` and `invalid_value`; `AMBIGUOUS_TARGET` carries `ids` (the list of matching `kind:id` strings); an AppleScript-execution failure may carry `details` with the raw AppleScript error text; `AUTH_TOKEN_NOT_CONFIGURED` carries `hint`).
 
 This shape is produced by a single shared implementation, `tools_helpers.errors.write_error(code, message, **extra)`, used at every layer that returns a write-tool structured error: `ThingsMCPServer._write_error` (server.py, the MCP tool boundary), `WriteOperations`/`BulkOperations` (`tools_helpers/write_operations.py`, `tools_helpers/bulk_operations.py`), `scheduling/todo_operations.py` (`TodoOperations`, backing `add_todo`/`update_todo`/`add_project`/`update_project`/checklist scheduling - migrated in hq-f0w.46), and `parameter_validator.create_validation_error_response` (which independently produces the same `VALIDATION_ERROR` shape, predating this helper). Every AppleScript-execution-failure/exception path in `server.py`, `write_operations.py`, `bulk_operations.py`, and `scheduling/todo_operations.py` now goes through `write_error`, carrying the dynamic AppleScript/exception text in a `details` field rather than overloading `error` with it. `AppleScriptManager.execute_url_scheme`'s auth-gate (`services/applescript_manager.py`, `AUTH_REQUIRING_ACTIONS`) returns code `AUTH_TOKEN_NOT_CONFIGURED` with the (unchanged) literal `"Things URL-scheme auth token not configured"` now carried verbatim in `message` instead of `error`, and a `hint` field; every consumer that forwards an `execute_url_scheme` failure (checklist tools, `update_todo`, `bulk_update_todos`) forwards that code/message/hint through rather than re-wrapping it. `move_operations.py` (`move_record`, `bulk_move_records`) already used UPPER_SNAKE_CASE codes (`VALIDATION_ERROR`, `TODO_NOT_FOUND`, `NO_TODOS_SPECIFIED`, `INVALID_DESTINATION`, `APPLESCRIPT_ERROR`, etc.) before this bead and needed no changes.
+
+**`update_todo`/`bulk_update_todos` primary todo_id pre-check (hq-wbm):** both tools now
+resolve the primary `id`/`todo_ids` via `things.get()` **before** any AppleScript write -
+an id that things.py resolves cleanly but finds nothing for returns `NOT_FOUND` (naming
+the id); an id that resolves to something other than a to-do (most notably a **project**
+id - AppleScript's `to do id "..."` unexpectedly also resolves a project uuid, so without
+this check `update_todo` would silently rename/modify the project instead of failing)
+returns `VALIDATION_ERROR` naming the actual type and suggesting `update_project()`
+instead. `bulk_update_todos` applies this per id across the batch: unresolvable ids are
+excluded from the AppleScript script and reported in a `not_found` list field in the
+response (in addition to being counted in `failed_count`), while resolvable ids are still
+updated normally; if every id in the batch fails the pre-check, the whole call returns a
+top-level `NOT_FOUND` with `not_found` populated and no AppleScript is run at all. As with
+`list_id`/`area_id` resolution elsewhere, if the things.py lookup itself raises (e.g. the
+Things database is unreadable / Full Disk Access missing), both tools fall back to
+proceeding with the write unchecked rather than refusing it.
 
 Known, currently-out-of-scope exceptions to this contract:
 - **`reliable_scheduling.py`** (`ReliableThingsScheduler`) has its own divergent, ungated `error` conventions, but has zero production callers (dead code since hq-f0w.20 removed its last calling path) - not in scope for any error-contract migration.
@@ -1001,9 +1018,11 @@ move_record(
 # Move multiple todos (bulk operation - much faster)
 bulk_move_records(
     todo_ids="todo1,todo2,todo3",
-    destination="project:project456",
-    preserve_scheduling=true
+    destination="project:project456"
 )
+# Scheduling on move (no preserve_scheduling parameter exists):
+# moves into a project/area leave when/deadline untouched; moving to
+# "today" sets the start date to today (deadline untouched).
 ```
 
 ### Destination Formats
@@ -1014,7 +1033,34 @@ bulk_move_records(
 | Today | `"today"` | `move_record(todo_id="123", destination_list="today")` |
 | Anytime | `"anytime"` | `move_record(todo_id="123", destination_list="anytime")` |
 | Someday | `"someday"` | `move_record(todo_id="123", destination_list="someday")` |
+| Logbook | `"logbook"` | `move_record(todo_id="123", destination_list="logbook")` |
+| Trash | `"trash"` | `move_record(todo_id="123", destination_list="trash")` |
 | Project | `"project:{id}"` | `move_record(todo_id="123", destination_list="project:xyz")` |
+| Area | `"area:{id}"` | `move_record(todo_id="123", destination_list="area:xyz")` |
+
+**`"logbook"` completes the to-do rather than performing a true "move"** -
+Things has no `move ... to list "logbook"` target; the only documented way
+an item reaches the Logbook is completion (`set status of theTodo to
+completed`), which is what this destination actually does.
+
+**`"upcoming"` is not a valid move destination** (bead hq-cag). Things has
+no direct "Upcoming" move target - an item is Upcoming by having a future
+start date, not by belonging to a distinct list, and Things' own AppleScript
+move verb rejects `move ... to list "upcoming"` with "Cannot move to-do".
+`move_record(destination_list="upcoming")` and
+`bulk_move_records(destination="upcoming")` are rejected at validation
+(`VALIDATION_ERROR` / `INVALID_DESTINATION` respectively, nothing moves) with
+a message pointing at the correct alternative - schedule the to-do for a
+future date instead:
+
+```python
+# WRONG - rejected, 'upcoming' is not a move destination
+move_record(todo_id="123", destination_list="upcoming")
+
+# CORRECT - schedule a future date; the to-do then appears in Upcoming
+update_todo(id="123", when="2026-09-01")
+update_todo(id="123", when="tomorrow")
+```
 
 ### Status Filtering
 
@@ -1164,7 +1210,7 @@ replace_checklist_items(
    - Use comma-separated format: `"tag1,tag2"` not `"tag1, tag2"`
 
 2. **Date formats** - Use consistent formats:
-   - `when` (scheduling): `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`, `'anytime'`, `'evening'` (alias `'tonight'` - schedules for This Evening; on `update_todo`/`bulk_update_todos` this requires the Things auth token, since only the Things URL scheme, not AppleScript, can set the Evening flag; not supported for projects)
+   - `when` (scheduling): `YYYY-MM-DD` or `'today'`, `'tomorrow'`, `'someday'`, `'anytime'`, `'evening'` (alias `'tonight'` - schedules for This Evening; on `update_todo`/`bulk_update_todos` this requires the Things auth token, since only the Things URL scheme, not AppleScript, can set the Evening flag; not supported for projects), or `'YYYY-MM-DD@HH:MM'` (sets a reminder at that time - supported on `add_todo`, `update_todo`, `bulk_update_todos`, `add_project`, and `update_project`; like `evening`, `add_todo` works without the auth token but `update_todo`/`bulk_update_todos`/`add_project`/`update_project` require it, since only the Things URL scheme, not AppleScript, can honor the time component - see hq-4gn)
    - `deadline`: always `YYYY-MM-DD` - relative keywords like `'today'` are rejected on every tool (add/update/bulk)
 
 3. **Limits** - Respect parameter limits:

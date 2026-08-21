@@ -8,11 +8,25 @@ from ..services.applescript_manager import AppleScriptManager
 from ..pure_applescript_scheduler import PureAppleScriptScheduler
 from ..services.tag_service import TagValidationService
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
-from ..locale_aware_dates import locale_handler
+from ..locale_aware_dates import locale_handler, when_has_time_component
+from ..things_import import LazyThingsProxy
 from .helpers import ToolsHelpers
 from .errors import write_error
 
+# Lazily-importing proxy for things.py, same rationale as
+# scheduling/todo_operations.py's module-level `things` - avoids the
+# unbounded glob.iglob() scan `import things` performs at server boot time,
+# and preserves existing test seams that patch `things.<attr>` directly.
+things = LazyThingsProxy()
+
 logger = logging.getLogger(__name__)
+
+# Sentinel distinguishing "things.get() lookup itself raised" (DB
+# unreadable / Full Disk Access missing) from "things.get() succeeded and
+# returned None" (id genuinely unknown) - used by bulk_update_todos' per-id
+# pre-check (hq-wbm). Mirrors scheduling/todo_operations.py's module-local
+# sentinel of the same name/shape.
+_RESOLVE_UNAVAILABLE = object()
 
 
 class BulkOperations:
@@ -209,25 +223,48 @@ class BulkOperations:
         return script
 
     async def _parse_bulk_results(self, result: dict, todo_ids: List[str],
-                                  when_value: Optional[str], tag_validation: Optional[dict]) -> Dict[str, Any]:
+                                  when_value: Optional[str], tag_validation: Optional[dict],
+                                  not_found_ids: Optional[List[str]] = None,
+                                  total_requested: Optional[int] = None) -> Dict[str, Any]:
         """Parse results from bulk update operation.
 
         Args:
             result: AppleScript execution result
-            todo_ids: List of todo IDs that were updated
+            todo_ids: List of todo IDs that were sent to the AppleScript
+                script (i.e. ids that passed the things.py pre-check in
+                bulk_update_todos - see hq-wbm; may be a strict subset of
+                the originally-requested todo_ids when not_found_ids is
+                non-empty).
             when_value: Optional scheduling value
             tag_validation: Optional tag validation results
+            not_found_ids: Ids from the original request that the
+                pre-check in bulk_update_todos determined do not resolve
+                to a to-do (unknown id, or an id resolving to something
+                other than a to-do, e.g. a project) - reported back in the
+                response's 'not_found' field and folded into failed_count/
+                total_requested accounting. Empty/None when the pre-check
+                itself was unavailable (things.py lookup raised) or found
+                nothing to reject.
+            total_requested: The count of ids in the ORIGINAL request
+                (before pre-check filtering). Defaults to len(todo_ids)
+                when not given, preserving prior behavior for any other
+                caller of this method.
 
         Returns:
             Formatted result dictionary
         """
+        not_found_ids = not_found_ids or []
+        if total_requested is None:
+            total_requested = len(todo_ids)
+
         if not result.get('success'):
             return write_error(
                 "APPLESCRIPT_ERROR", "Failed to perform bulk update",
                 details=result.get('error', 'Unknown error'),
                 updated_count=0,
-                failed_count=len(todo_ids),
-                total_requested=len(todo_ids)
+                failed_count=total_requested,
+                total_requested=total_requested,
+                not_found=not_found_ids,
             )
 
         output = result.get('output', '')
@@ -251,6 +288,7 @@ class BulkOperations:
         # Handle scheduling
         scheduling_results = []
         when_is_evening = bool(when_value) and when_value.lower() == 'evening'
+        when_has_time = when_has_time_component(when_value)
         if when_value and success_count > 0:
             logger.info(f"Scheduling {success_count} todos for: {when_value}")
             for todo_id in todo_ids:
@@ -269,6 +307,24 @@ class BulkOperations:
                             "method": "url_scheme",
                             "date_set": "evening"
                         }
+                    elif when_has_time:
+                        # 'YYYY-MM-DD@HH:MM' sets a reminder via the Things
+                        # URL scheme's 'update' action natively;
+                        # schedule_todo_reliable's AppleScript path
+                        # (locale_aware_dates.normalize_date_input) only
+                        # extracts year/month/day and silently drops the
+                        # time component, so no reminder is ever set
+                        # (hq-4gn). The auth token is already verified
+                        # present in bulk_update_todos before this method
+                        # is reached (same gate as when_is_evening).
+                        url_result = await self.applescript.execute_url_scheme(
+                            'update', {'id': todo_id, 'when': when_value}
+                        )
+                        schedule_result = {
+                            "success": url_result.get('success', False),
+                            "method": "url_scheme",
+                            "date_set": when_value
+                        }
                     else:
                         schedule_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when_value)
                     if schedule_result.get('success'):
@@ -281,19 +337,22 @@ class BulkOperations:
                     logger.error(f"Error scheduling todo {todo_id}: {e}")
 
         # Build result message
-        result_message = f"Bulk update completed: {success_count}/{len(todo_ids)} todos updated"
+        result_message = f"Bulk update completed: {success_count}/{total_requested} todos updated"
         if when_value:
             scheduled_count = len([r for r in scheduling_results if 'scheduled' in r and 'failed' not in r])
             result_message += f", {scheduled_count}/{success_count} scheduled"
         if error_messages:
             result_message += f" ({', '.join(error_messages)})"
+        if not_found_ids:
+            result_message += f" ({len(not_found_ids)} id(s) not found: {', '.join(not_found_ids)})"
 
         return {
             "success": success_count > 0,
             "message": result_message,
             "updated_count": success_count,
-            "failed_count": len(todo_ids) - success_count,
-            "total_requested": len(todo_ids),
+            "failed_count": total_requested - success_count,
+            "total_requested": total_requested,
+            "not_found": not_found_ids,
             "scheduling_info": scheduling_results if when_value else None,
             "tag_info": tag_validation if tag_validation else None
         }
@@ -320,6 +379,16 @@ class BulkOperations:
         schedule calls happen second - if a given todo's evening-schedule
         call fails, the AppleScript fields already applied to that todo
         are NOT rolled back.
+
+        when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn) is routed the
+        same way as when='evening' above - AppleScript's 'schedule'
+        command has no way to honor the '@HH:MM' component
+        (schedule_todo_reliable's locale_aware_dates.normalize_date_input
+        silently drops it), so this form is scheduled via the Things URL
+        scheme's 'update' action per todo instead, with the same
+        up-front auth-token gate and AppleScript-first-then-URL-scheme
+        ordering (and the same no-rollback-on-URL-scheme-failure caveat)
+        as when='evening'.
         """
         try:
             # Validate parameters
@@ -328,12 +397,13 @@ class BulkOperations:
             if not todo_ids:
                 return write_error("NO_TODO_IDS", "No todo IDs provided", updated_count=0)
 
-            # when='evening' is only honoured via the Things URL scheme's
-            # 'update' action (AppleScript's 'schedule' command has no way to
-            # set the "This Evening" flag), which requires the Things auth
-            # token. Fail fast BEFORE any AppleScript write so nothing is
-            # partially applied across the batch.
-            if when_value and when_value.lower() == 'evening':
+            # when='evening' or when with a '@HH:MM' time component are
+            # only honoured via the Things URL scheme's 'update' action
+            # (AppleScript's 'schedule' command supports neither), which
+            # requires the Things auth token. Fail fast BEFORE any
+            # AppleScript write so nothing is partially applied across the
+            # batch.
+            if when_value and (when_value.lower() == 'evening' or when_has_time_component(when_value)):
                 if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
                     return write_error(
@@ -343,12 +413,75 @@ class BulkOperations:
                         updated_count=0,
                     )
 
-            # Build and execute update script
-            script = self._build_bulk_update_script(todo_ids, kwargs)
+            # Pre-check each id via things.py BEFORE building/running the
+            # AppleScript script (hq-wbm). Batches are small (2-50 ids per
+            # the documented optimal range), so one things.get() call per id
+            # is cheap and avoids the wasted AppleScript round-trip (and
+            # opaque "Can't get to do id ..." per-id error message) for ids
+            # that are already known to be unresolvable. Same rationale as
+            # update_todo's single-id pre-check: AppleScript's
+            # `to do id "<uuid>"` also unexpectedly resolves a PROJECT uuid
+            # (verified live) rather than erroring, so without this check a
+            # project id embedded in todo_ids would be silently
+            # renamed/modified by the bulk script instead of failing.
+            #
+            # If the things.py lookup itself raises for ANY id (e.g. the
+            # Things database is unreadable / Full Disk Access missing),
+            # fall back to the pre-bead behavior: skip pre-checking
+            # entirely and let every id go through the per-id
+            # try/on-error AppleScript block unchecked - refusing the
+            # whole bulk update whenever things.py is briefly unavailable
+            # would be a larger behavior change than this bead asks for.
+            not_found_ids: List[str] = []
+            resolvable_ids = todo_ids
+            precheck_unavailable = False
+            for candidate_id in todo_ids:
+                try:
+                    record = things.get(candidate_id)
+                except Exception as e:
+                    logger.warning(
+                        f"things.py lookup failed while pre-checking bulk "
+                        f"todo_id {candidate_id} (falling back to skipping "
+                        f"pre-check for this whole batch): {e}"
+                    )
+                    precheck_unavailable = True
+                    break
+                if record is None or record.get('type') != 'to-do':
+                    not_found_ids.append(candidate_id)
+
+            if precheck_unavailable:
+                not_found_ids = []
+                resolvable_ids = todo_ids
+            else:
+                resolvable_ids = [tid for tid in todo_ids if tid not in not_found_ids]
+
+            if not resolvable_ids:
+                # Every id failed the pre-check - nothing to send to
+                # AppleScript at all.
+                return write_error(
+                    "NOT_FOUND",
+                    "None of the provided todo_ids resolve to a to-do",
+                    updated_count=0,
+                    failed_count=len(todo_ids),
+                    total_requested=len(todo_ids),
+                    not_found=not_found_ids,
+                )
+
+            # Build and execute update script (only for ids that passed the
+            # pre-check, or - if the pre-check itself was unavailable - the
+            # full original list, matching pre-bead behavior).
+            script = self._build_bulk_update_script(resolvable_ids, kwargs)
             result = await self.applescript.execute_applescript(script)
 
-            # Parse and return results
-            return await self._parse_bulk_results(result, todo_ids, when_value, tag_validation)
+            # Parse and return results. total_requested/failed_count must
+            # reflect the ORIGINAL todo_ids (including pre-check
+            # rejections), so pass todo_ids for accounting while the
+            # AppleScript success/failure counting itself only covers
+            # resolvable_ids.
+            return await self._parse_bulk_results(
+                result, resolvable_ids, when_value, tag_validation,
+                not_found_ids=not_found_ids, total_requested=len(todo_ids),
+            )
 
         except ValidationError as e:
             logger.error(f"Validation error in bulk_update_todos: {e}")

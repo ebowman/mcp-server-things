@@ -330,22 +330,31 @@ class TestInvalidInputs:
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_todo(self, tools_with_mock, mock_applescript_manager):
-        """Test updating a todo that doesn't exist."""
-        mock_applescript_manager.set_mock_response("default", {
-            "success": False,
-            "output": "",
-            "error": "Todo not found"
-        })
+        """Test updating a todo that doesn't exist.
 
-        result = await tools_with_mock.update_todo(todo_id="fake-id", title="New Title")
+        hq-wbm: update_todo now pre-checks the primary todo_id via
+        things.get() BEFORE any AppleScript write; None -> structured
+        NOT_FOUND, no script emitted. things.get is mocked to return None
+        here (a unit test must not depend on the real Things database -
+        on a machine/CI runner without one, an unmocked call would raise
+        and trigger the DB-unreadable fallback instead, surfacing
+        APPLESCRIPT_ERROR and failing this test). This supersedes the
+        pre-hq-wbm behavior where an unknown id reached AppleScript's
+        `to do id "..."` lookup and surfaced as an opaque
+        APPLESCRIPT_ERROR only after Things itself reported failure.
+        """
+        from unittest.mock import patch
+
+        with patch(
+            "things_mcp.scheduling.todo_operations.things.get",
+            return_value=None,
+        ):
+            result = await tools_with_mock.update_todo(todo_id="fake-id", title="New Title")
 
         assert result["success"] is False
-        # Even though Things reports failure, the update must still have
-        # targeted the requested id and title in the emitted script.
-        script = mock_applescript_manager.execution_calls[0]["script"]
-        assert 'to do id "fake-id"' in script
-        assert 'name of' in script and '"New Title"' in script
-        assert_balanced_quotes(script)
+        assert result["error"] == "NOT_FOUND"
+        assert "fake-id" in result["message"]
+        assert mock_applescript_manager.execution_calls == []
 
     @pytest.mark.asyncio
     async def test_move_to_invalid_destination(self, tools_with_mock, mock_applescript_manager):
@@ -550,6 +559,19 @@ class TestStatusValues:
     @pytest.fixture
     def tools_with_mock(self, mock_applescript_manager):
         return ThingsTools(mock_applescript_manager)
+
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: update_todo now pre-checks todo_id via things.get()
+        before any write. "todo-123" is a fake id never present in the
+        real Things database, so without this patch every call in this
+        class would report NOT_FOUND instead of exercising the status
+        transition behavior this class is actually testing."""
+        with patch(
+            "things_mcp.scheduling.todo_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
 
     @pytest.mark.asyncio
     async def test_complete_todo(self, tools_with_mock, mock_applescript_manager):

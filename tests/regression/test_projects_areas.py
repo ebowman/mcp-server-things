@@ -32,15 +32,12 @@ Error-code notes (confirmed by reading source, not assumed):
     substring match), VALIDATION_ERROR (title='') - all confirmed in
     tools_helpers/write_operations.py's update_area().
 
-Known live quirks (documented, not fixed here - see CLAUDE.md /
-tests/regression/test_update_todo.py's own notes): when='today' via the
-AppleScript scheduler leaves start='Someday' with start_date=today rather
-than start='Anytime' (bead hq-x9z); when='anytime' lands start='Someday'
-instead of 'Anytime' (bead hq-z5d). Both apply to update_project's `when`
-path too (shared scheduler), asserted here as xfail(strict=True) citing the
-same beads where the AppleScript scheduler is used, or verified via
-things.py start_date and list-membership predicates matching
-test_update_todo.py's approach.
+bead hq-x9z (fixed): when='today' via the AppleScript scheduler used to
+leave start='Someday' with start_date=today rather than start='Anytime'.
+Fixed by routing the today-path through `move theTodo to list "Today"`
+instead of the `schedule` verb - this applies to update_project's `when`
+path too (shared scheduler). See test_when_today_start_is_anytime_not_someday
+below and test_update_todo.py's own notes.
 """
 import time
 
@@ -123,6 +120,35 @@ class TestAddProjectFields:
         ]
         assert matches == [], matches
 
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: unlike when='evening' (UNSUPPORTED_FOR_PROJECTS),
+        add_project(when='YYYY-MM-DD@HH:MM') IS supported - routed via the
+        Things URL scheme's 'update-project' action after the AppleScript
+        create (requires the auth token), which sets the project's reminder
+        natively."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=13)).strftime("%Y-%m-%d")
+        title = sandbox_title("proj when time " + ts())
+        result = mcp.call_sync(
+            "add_project", title=title, area_id=sandbox.area_id, when=f"{when_date}@10:30"
+        )
+        assert result.get("success") is True, result
+        project_id = result.get("project_id")
+        assert project_id
+        sandbox.tracked_project_ids.append(project_id)
+
+        record = read_back(
+            project_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "10:30", record
+        assert record.get("start_date") == when_date, record
+
     def test_deadline_valid(self, mcp, sandbox):
         from datetime import date, timedelta
 
@@ -170,35 +196,21 @@ class TestAddProjectFields:
         )
         assert record is not None and record.get("area") == sandbox.area_id, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed live: scheduling/todo_operations.py's "
-            "_build_create_project_script issues `make new project ...` "
-            "followed by `set area of newProject to area \"<bogus>\"` "
-            "inside the SAME AppleScript try block - Things creates the "
-            "project first, THEN the area-set line throws (no "
-            "transactional rollback in AppleScript), so add_project "
-            "reports success=False/APPLESCRIPT_ERROR even though a real, "
-            "un-areaed project was actually created and persists in "
-            "Things. This test encodes the documented/expected behavior "
-            "(a failed add_project creates nothing) and is expected to "
-            "fail until the AppleScript script separates project creation "
-            "from area assignment (or verifies+deletes on area-set "
-            "failure). The stray project this creates is tracked and "
-            "cleaned up by the sandbox teardown regardless."
-        ),
-    )
     def test_area_title_unknown(self, mcp, sandbox):
+        """hq-rmh (fixed): add_project pre-resolves area_title via
+        things.py BEFORE any AppleScript write
+        (TodoOperations._resolve_area). An unresolvable area_title now
+        returns a structured NOT_FOUND error and creates nothing - no more
+        orphaned, un-areaed project persisting despite a reported failure."""
         title = sandbox_title("proj unknown area " + ts())
         bogus_area = f"hq-gbl-reg-nonexistent-area-{ts()}"
         result = mcp.call_sync("add_project", title=title, area_title=bogus_area)
 
         # Regardless of reported success, track/clean up any project that
         # actually landed with this exact title - this is the safety net
-        # for the observed partial-creation-on-error quirk documented
-        # above, so a leaked live object never survives this test either
-        # way, xfail or not.
+        # for the previously-observed partial-creation-on-error quirk
+        # documented above, so a leaked live object never survives this
+        # test either way.
         import things
 
         def _find_created():
@@ -215,14 +227,64 @@ class TestAddProjectFields:
         for p in matches:
             sandbox.tracked_project_ids.append(p["uuid"])
 
-        # Documents the desired/expected contract (bug hq-rmh): an
-        # add_project whose area_title cannot be resolved must return a
-        # structured write error AND create nothing. Live today it does
-        # the opposite (APPLESCRIPT_ERROR yet the project persists), so
-        # this xfails strictly and will XPASS-signal the fix.
-        assert result.get("success") is False, result
+        assert_write_error(result, "NOT_FOUND")
         assert not matches, (
             "unknown area_title must not create a project; found: "
+            f"{[p['uuid'] for p in matches]}"
+        )
+
+    def test_area_title_ambiguous(self, mcp, sandbox):
+        """hq-rmh: an area_title matching more than one area returns
+        AMBIGUOUS_TARGET and creates nothing."""
+        dup_title = sandbox_title("proj dup area " + ts())
+
+        area_result_1 = mcp.call_sync("add_area", title=dup_title)
+        assert area_result_1.get("success") is True, area_result_1
+        area_id_1 = area_result_1.get("area_id")
+        sandbox.track_area(area_id_1)
+
+        area_result_2 = mcp.call_sync("add_area", title=dup_title)
+        assert area_result_2.get("success") is True, area_result_2
+        area_id_2 = area_result_2.get("area_id")
+        sandbox.track_area(area_id_2)
+
+        title = sandbox_title("proj via ambiguous area " + ts())
+        result = mcp.call_sync("add_project", title=title, area_title=dup_title)
+
+        import things
+
+        matches = [
+            p for p in things.projects(status=None, trashed=None) or []
+            if p.get("title") == title
+        ]
+        for p in matches:
+            sandbox.tracked_project_ids.append(p["uuid"])
+
+        assert_write_error(result, "AMBIGUOUS_TARGET")
+        assert not matches, (
+            "ambiguous area_title must not create a project; found: "
+            f"{[p['uuid'] for p in matches]}"
+        )
+
+    def test_area_id_unknown(self, mcp, sandbox):
+        """hq-rmh: an unresolvable area_id returns NOT_FOUND and creates
+        nothing."""
+        title = sandbox_title("proj unknown area id " + ts())
+        bogus_area_id = f"hq-gbl-reg-nonexistent-areaid-{ts()}"
+        result = mcp.call_sync("add_project", title=title, area_id=bogus_area_id)
+
+        import things
+
+        matches = [
+            p for p in things.projects(status=None, trashed=None) or []
+            if p.get("title") == title
+        ]
+        for p in matches:
+            sandbox.tracked_project_ids.append(p["uuid"])
+
+        assert_write_error(result, "NOT_FOUND")
+        assert not matches, (
+            "unknown area_id must not create a project; found: "
             f"{[p['uuid'] for p in matches]}"
         )
 
@@ -402,6 +464,58 @@ class TestUpdateProjectFields:
         record = read_back(project_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record
 
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: unlike when='evening' (UNSUPPORTED_FOR_PROJECTS),
+        update_project(when='YYYY-MM-DD@HH:MM') IS supported - routed via
+        the Things URL scheme's 'update-project' action (requires the auth
+        token), which sets the project's reminder natively."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
+        project_id, _, _ = _new_project(mcp, sandbox)
+        result = mcp.call_sync(
+            "update_project", id=project_id, when=f"{when_date}@11:20"
+        )
+        assert result.get("success") is True, result
+
+        record = read_back(
+            project_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "11:20", record
+        assert record.get("start_date") == when_date, record
+
+    def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
+        """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires
+        the auth token, checked BEFORE any AppleScript write - a title
+        passed in the same call must not be applied either."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        project_id, original_title, _ = _new_project(mcp, sandbox)
+        when_date = (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
+            result = mcp.call_sync(
+                "update_project",
+                id=project_id,
+                when=f"{when_date}@11:20",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+        finally:
+            manager.auth_token = original_token
+
+        record = read_back(project_id, lambda r: r is not None)
+        assert record is not None and record.get("title") == original_title, record
+
     def test_unknown_id(self, mcp, sandbox):
         result = mcp.call_sync(
             "update_project", id="bogus-project-id-does-not-exist", title="new title"
@@ -499,20 +613,38 @@ class TestUpdateProjectMoves:
         )
         assert record is not None and record.get("area") == second_area_id, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-x9z): update_project(when='today') shares "
-            "the AppleScript scheduler with update_todo, which leaves "
-            "start='Someday' with start_date=today rather than "
-            "start='Anytime' - the project is therefore not a member of "
-            "things.py's Anytime-style membership predicate this test "
-            "checks for. Encodes the documented behavior (should be "
-            "unambiguously 'Anytime'-scheduled) and is expected to fail "
-            "until hq-x9z is fixed."
-        ),
-    )
+    def test_area_title_unknown_no_partial_update(self, mcp, sandbox):
+        """hq-rmh: update_project pre-resolves area_title via things.py
+        BEFORE the single AppleScript try block that also applies title/
+        notes in the same call runs - an unresolvable area_title returns
+        NOT_FOUND and none of the other fields in the same call are
+        applied either (previously, the area-set line would throw
+        mid-script and silently discard the rest of the update while still
+        reporting APPLESCRIPT_ERROR)."""
+        project_id, _, _ = _new_project(mcp, sandbox)
+        bogus_area = f"hq-gbl-reg-nonexistent-area-{ts()}"
+        new_title = sandbox_title("proj should not rename " + ts())
+
+        result = mcp.call_sync(
+            "update_project",
+            id=project_id,
+            area_title=bogus_area,
+            title=new_title,
+        )
+        assert_write_error(result, "NOT_FOUND")
+
+        record = read_back(project_id, lambda r: r is not None)
+        assert record is not None, record
+        assert record.get("title") != new_title, (
+            "title must not be updated when area_title resolution fails: "
+            f"{record}"
+        )
+
     def test_when_today_start_is_anytime_not_someday(self, mcp, sandbox):
+        """hq-x9z fixed: update_project(when='today') shares the
+        scheduler's today-path fix with update_todo - it now uses `move
+        theTodo to list "Today"` instead of the `schedule` verb, yielding
+        start='Anytime' with start_date=today. No longer an xfail."""
         from datetime import date
 
         project_id, _, _ = _new_project(mcp, sandbox)
@@ -555,16 +687,30 @@ class TestUpdateProjectMoves:
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "observed (bead hq-z5d): update_project(when='anytime') shares "
-            "scheduling.helpers.determine_target_list(), which maps the "
-            "literal string 'anytime' to the same Someday-list AppleScript "
-            "fallback as 'someday' - the project ends up with "
-            "start='Someday', indistinguishable from a native "
-            "when='someday' update, so it is a member of "
-            "get_someday(include_project_tasks=...) rather than "
-            "get_anytime(include_projects=True). This test encodes the "
-            "documented behavior (should land in Anytime) and is expected "
-            "to fail until hq-z5d is fixed."
+            "observed (filed as hq-cal.2; not the scheduling bug itself): "
+            "update_project(when='anytime') now correctly schedules the "
+            "project into the Anytime list - confirmed directly via "
+            "things.get()/things.anytime()/things.tasks(start='Anytime'), "
+            "all of which report the project with start='Anytime' and "
+            "include it in the raw result set. The failure is in the "
+            "get_anytime(include_projects=True, mode='detailed') MCP read "
+            "path instead: on this database, things.anytime() currently "
+            "returns 1177 items; ContextAwareResponseManager.optimize_response "
+            "(context_manager.py) estimates the DETAILED-mode payload size "
+            "for that many items, finds it exceeds "
+            "ContextBudget.max_response_size (80KB), and routes through "
+            "_handle_oversized_response's relevance-ranked pagination - "
+            "silently truncating the result to a top page that a freshly "
+            "created, low-relevance test project does not make it into, "
+            "even though get_anytime(include_projects=True) was called with "
+            "no limit= (which CLAUDE.md documents as returning the full set "
+            "before any client-side limit is applied). This is a pagination/"
+            "truncation bug in a shared read-response-shaping module, not a "
+            "scheduling bug - out of scope for this bead. Expected to fail "
+            "until get_anytime's oversized-response handling is fixed to "
+            "either honor an unbounded request or surface truncation "
+            "instead of silently dropping items regardless of when they "
+            "were scheduled."
         ),
     )
     def test_when_anytime_visible_via_get_anytime_include_projects(self, mcp, sandbox):

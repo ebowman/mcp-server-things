@@ -5,20 +5,13 @@ Every test creates its own tracked to-do via mcp.call_sync('add_todo',
 list_id=sandbox.project_id) so each case starts from a clean, known-good
 state, then exercises update_todo against it.
 
-Known live quirks (documented, not fixed here - see CLAUDE.md/
-REGRESSION_SPIKE_FINDINGS.md and tests/regression/test_seed_oracle.py's
-XFAILS):
-  - when='anytime' (add_todo AND update_todo - both share
-    scheduling.strategies.SchedulingStrategies.schedule_todo_reliable via
-    scheduling.helpers.determine_target_list()) lands start='Someday'
-    instead of 'Anytime' (bead hq-z5d).
-  - when='today' via the AppleScript 'schedule' verb (used by both add_todo
-    and update_todo) leaves start='Someday' with start_date=today, rather
-    than start='Anytime' (bead hq-x9z) - the URL-scheme when='today' path
-    (checklist/heading/evening adds) does not share this quirk, but
-    update_todo's when path is always the AppleScript scheduler.
-  These are asserted as xfail(strict=True) with the bead id in the reason,
-  per the brief, rather than loosening the oracle.
+bead hq-x9z (fixed): when='today' used to go through the AppleScript
+'schedule' verb (used by both add_todo and update_todo), which left
+start='Someday' with start_date=today rather than start='Anytime'. Fixed
+by routing the today-path through `move theTodo to list "Today"` instead
+of `schedule` - update_todo's when='today' now yields start='Anytime',
+matching the URL-scheme when='today' path (checklist/heading/evening
+adds). See TestUpdateTodoWhen below.
 
 Error-code notes (confirmed by reading scheduling/todo_operations.py):
   - list_id/list_title resolution: NOT_FOUND (unknown), AMBIGUOUS_TARGET
@@ -30,10 +23,13 @@ Error-code notes (confirmed by reading scheduling/todo_operations.py):
   - heading/when='evening' without the Things auth token configured:
     AUTH_TOKEN_NOT_CONFIGURED, with a 'hint' field - checked before any
     AppleScript write, so no field in the same call is applied.
-  - An unknown todo_id reaches the AppleScript `to do id "..."` lookup,
-    which errors and is surfaced as APPLESCRIPT_ERROR (not a bespoke
-    NOT_FOUND-shaped code) - update_todo has no pre-check via things.py for
-    the primary target id itself (unlike list_id/list_title targets).
+  - An unknown todo_id is now pre-checked via things.py BEFORE any write
+    (hq-wbm) and surfaced as NOT_FOUND, consistent with list_id/list_title
+    resolution above. A todo_id that resolves to something other than a
+    to-do (e.g. a project id) is rejected with VALIDATION_ERROR instead -
+    AppleScript's `to do id "..."` unexpectedly ALSO resolves a project
+    uuid (verified live), so without this pre-check a project id passed as
+    the primary target would be silently modified rather than erroring.
   - completed/canceled invalid strings ('yes'/'1'): VALIDATION_ERROR with
     field='completed'/'canceled', raised in server.py before ever calling
     self.tools.update_todo.
@@ -252,18 +248,14 @@ class TestUpdateTodoWhen:
         assert record is not None, f"{keyword}: todo never read back"
 
     def test_when_today_membership(self, mcp, sandbox):
-        """Documents observed bug hq-x9z: update_todo(when='today') (the
-        AppleScript scheduler, shared with add_todo's 'today' seed class)
-        leaves start='Someday' with start_date=today rather than
-        start='Anytime'. Asserted on start_date (unambiguous) per the
-        brief; the things.today() membership half is verified separately
-        below (things.today()'s own predicate explicitly includes this
-        exact 'unconfirmed scheduled' state - start_date in the past/today
-        AND start='Someday' - as a prediction, so start='Someday' does NOT
-        make this to-do absent from things.today(); it only makes it
-        absent from things.anytime(), which is the actual hq-x9z
-        list-membership inconsistency - see
-        test_when_anytime_in_things_anytime_list below for that half)."""
+        """hq-x9z fixed: update_todo(when='today') (the AppleScript
+        scheduler, shared with add_todo's 'today' seed class) now uses
+        `move theTodo to list "Today"` instead of the `schedule` verb, and
+        yields start='Anytime' with start_date=today - matching the
+        URL-scheme when='today' path. things.today() membership is
+        verified separately below (test_when_today_in_things_today_list);
+        things.anytime() membership is verified below
+        (test_when_today_in_things_anytime_list)."""
         from datetime import date
 
         todo_id, _ = _new_todo(mcp, sandbox)
@@ -275,15 +267,12 @@ class TestUpdateTodoWhen:
             todo_id, lambda r: r is not None and r.get("start_date") == today_str
         )
         assert record is not None and record.get("start_date") == today_str, record
-        assert record.get("start") == "Someday", record
+        assert record.get("start") == "Anytime", record
 
     def test_when_today_in_things_today_list(self, mcp, sandbox):
-        """Not an xfail: things.today()'s own implementation
-        (things/api.py's today()) explicitly unions in
-        'unconfirmed_scheduled_tasks' (start_date in the past/today AND
-        start='Someday') as a same-day prediction - exactly the state
-        update_todo(when='today') produces - so membership here is
-        expected, confirmed live rather than assumed."""
+        """update_todo(when='today') (fixed as of hq-x9z to yield
+        start='Anytime', start_date=today) is a member of things.today() -
+        confirmed live rather than assumed."""
         import things
 
         todo_id, _ = _new_todo(mcp, sandbox)
@@ -302,20 +291,29 @@ class TestUpdateTodoWhen:
             found = _in_today()
         assert found, "expected todo to be a member of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-z5d): update_todo(when='anytime') shares "
-            "scheduling.helpers.determine_target_list(), which maps the "
-            "literal string 'anytime' to the same Someday-list AppleScript "
-            "fallback as 'someday' - the to-do ends up with "
-            "start='Someday', start_date=None, indistinguishable from a "
-            "native when='someday' update, so it is a member of "
-            "things.someday() rather than things.anytime(). This test "
-            "encodes the documented behavior (should land in Anytime) and "
-            "is expected to fail until hq-z5d is fixed."
-        ),
-    )
+    def test_when_today_in_things_anytime_list(self, mcp, sandbox):
+        """hq-x9z fixed: update_todo(when='today') now yields
+        start='Anytime', so it must also be a member of things.anytime() -
+        previously this was the actual hq-x9z bug (absent from
+        things.anytime() while present in things.today())."""
+        import things
+
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="today")
+        assert result.get("success") is True, result
+
+        read_back(todo_id, lambda r: r is not None and r.get("start_date") is not None)
+
+        def _in_anytime():
+            return any(t["uuid"] == todo_id for t in things.anytime() or [])
+
+        deadline = time.monotonic() + 20
+        found = _in_anytime()
+        while not found and time.monotonic() < deadline:
+            time.sleep(0.25)
+            found = _in_anytime()
+        assert found, "expected todo to be a member of things.anytime()"
+
     def test_when_anytime_in_things_anytime_list(self, mcp, sandbox):
         import things
 
@@ -360,16 +358,90 @@ class TestUpdateTodoWhen:
         assert_write_error(result, "VALIDATION_ERROR")
         assert result.get("field") == "when"
 
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: update_todo(when='YYYY-MM-DD@HH:MM') is routed via the
+        Things URL scheme's 'update' action (same as when='evening'), which
+        sets the reminder natively - the AppleScript scheduling path
+        (schedule_todo_reliable) used to silently drop the '@HH:MM'
+        component. Requires the auth token (same as heading/evening)."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when=f"{when_date}@15:45")
+        assert result.get("success") is True, result
+
+        record = read_back(
+            todo_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "15:45", record
+        assert record.get("start_date") == when_date, record
+
+    def test_when_iso_date_with_time_invalid_hour_rejected(self, mcp, sandbox):
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="2031-06-15@25:99")
+        assert_write_error(result, "INVALID_WHEN")
+
+
+class TestUpdateTodoWhenTimeNoAuthToken:
+    def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
+        """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires the
+        auth token, checked BEFORE any AppleScript write - a title passed in
+        the same call must not be applied either."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        todo_id, original_title = _new_todo(mcp, sandbox)
+        when_date = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = f"SHOULD-NOT-APPLY-{ts()}"
+            result = mcp.call_sync(
+                "update_todo",
+                id=todo_id,
+                when=f"{when_date}@15:45",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+        finally:
+            manager.auth_token = original_token
+
+        record = read_back(todo_id, lambda r: r is not None)
+        assert record is not None and record.get("title") == original_title, record
+
 
 class TestUpdateTodoUnknownId:
     def test_unknown_id_write_error(self, mcp, sandbox):
         result = mcp.call_sync(
             "update_todo", id="bogus-update-id-does-not-exist", title="new title"
         )
-        # Observed: no upstream things.py pre-check on the primary target
-        # id - it reaches the AppleScript `to do id "..."` lookup, which
-        # errors and is surfaced as APPLESCRIPT_ERROR (module docstring).
-        assert_write_error(result, "APPLESCRIPT_ERROR")
+        # hq-wbm: unknown primary target id is now pre-checked via
+        # things.py before any write and surfaced as NOT_FOUND, consistent
+        # with list_id/list_title resolution (module docstring).
+        assert_write_error(result, "NOT_FOUND")
+
+    def test_project_id_as_primary_target_rejected(self, mcp, sandbox):
+        """A project id passed as the primary target id must be rejected,
+        not silently applied - AppleScript's `to do id "..."` unexpectedly
+        also resolves a project uuid (verified live against the real
+        Things dictionary), so without this pre-check update_todo would
+        rename/modify the caller's project instead of erroring."""
+        result = mcp.call_sync(
+            "update_todo", id=sandbox.project_id, title="should not be applied"
+        )
+        assert_write_error(result, "VALIDATION_ERROR")
+
+        # Confirm the sandbox project's title was NOT changed.
+        project_record = read_back(sandbox.project_id, lambda r: r is not None)
+        assert project_record is not None
+        assert project_record.get("title") != "should not be applied", project_record
 
 
 # ---------------------------------------------------------------------------

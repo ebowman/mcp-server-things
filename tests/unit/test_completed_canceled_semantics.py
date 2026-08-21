@@ -28,7 +28,7 @@ reopen an item that was supposed to stay completed/canceled.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from fastmcp import Client
 
@@ -64,6 +64,28 @@ def _rendered_script(mock_applescript_manager) -> str:
     mock_applescript_manager.execute_applescript.assert_called_once()
     args, kwargs = mock_applescript_manager.execute_applescript.call_args
     return args[0] if args else kwargs["script"]
+
+
+@pytest.fixture(autouse=True)
+def _things_get_resolves_as_todo():
+    """hq-wbm: update_todo/bulk_update_todos now pre-check the primary
+    todo_id(s) via things.get() before any write. "TODO-1" (and the
+    similar sentinel ids used by the bulk classes below) are fake ids
+    never present in the real Things database, so without this patch
+    every TodoOperations/BulkOperations-level call in this module would
+    report NOT_FOUND/not_found instead of exercising the status-precedence
+    behavior these classes are actually testing. Scoped module-wide (not
+    per-class) since it's harmless to the server-layer classes further
+    down, which mock ThingsTools.update_todo/bulk_update_todos entirely
+    and never reach TodoOperations/BulkOperations at all."""
+    with patch(
+        "things_mcp.scheduling.todo_operations.things.get",
+        return_value={"type": "to-do"},
+    ), patch(
+        "things_mcp.tools_helpers.bulk_operations.things.get",
+        return_value={"type": "to-do"},
+    ):
+        yield
 
 
 class TestUpdateTodoCanceledFalseAlone:

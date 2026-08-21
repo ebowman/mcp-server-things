@@ -494,3 +494,72 @@ class TestMixedListProjectRowDispatch:
             [SAMPLE_PROJECT_ITEM], ResponseMode.MINIMAL, method_name='get_projects'
         )[0]
         assert filtered.get('area') == 'area-uuid'
+
+
+class TestSummaryPreviewRowShape:
+    """hq-9tm: summary-mode preview rows (ProgressiveDisclosureEngine's
+    _summarize_todos/_summarize_projects/_summarize_search_results) must emit
+    the documented SUMMARY field set {uuid, title, status, tags, dueDate}
+    from CLAUDE.md's 'Todo field lists per mode', not a hand-built
+    {id, name} shape. Previously the preview rows carried entirely different
+    key names than the rest of the SUMMARY contract."""
+
+    SUMMARY_KEYS = {'uuid', 'title', 'status', 'tags', 'dueDate'}
+
+    def test_summarize_todos_preview_row_exact_keys(self):
+        engine = _engine()
+        summary = engine.progressive_engine._summarize_todos([SAMPLE_ITEM])
+        preview = summary['recent_preview']
+        assert len(preview) == 1
+        row = preview[0]
+        assert set(row.keys()) == self.SUMMARY_KEYS
+        assert 'id' not in row
+        assert 'name' not in row
+        assert row['uuid'] == 'todo-1'
+        assert row['title'] == 'Sample todo'
+        assert row['status'] == 'incomplete'
+        assert row['tags'] == ['work']
+        assert row['dueDate'] is None
+
+    def test_summarize_projects_preview_row_exact_keys(self):
+        engine = _engine()
+        summary = engine.progressive_engine._summarize_projects([SAMPLE_PROJECT_ITEM])
+        preview = summary['recent_projects']
+        assert len(preview) == 1
+        row = preview[0]
+        assert set(row.keys()) == self.SUMMARY_KEYS
+        assert 'id' not in row
+        assert 'name' not in row
+        assert row['uuid'] == 'project-1'
+        assert row['title'] == 'Sample project'
+        assert row['status'] == 'open'
+        assert row['tags'] == ['work']
+        assert row['dueDate'] == '2026-09-01'
+
+    def test_summarize_search_results_preview_row_exact_keys(self):
+        """Search preview rows mix todo and project rows depending on the
+        underlying result's own 'type' - a to-do row here must resolve
+        against TODO_FIELD_SETS, matching _apply_field_filtering's per-row
+        dispatch used by non-preview list responses."""
+        engine = _engine()
+        summary = engine.progressive_engine._summarize_search_results([SAMPLE_ITEM])
+        preview = summary['result_preview']
+        assert len(preview) == 1
+        row = preview[0]
+        assert set(row.keys()) == self.SUMMARY_KEYS
+        assert 'id' not in row
+        assert 'name' not in row
+        assert row['uuid'] == 'todo-1'
+        assert row['title'] == 'Sample todo'
+
+    def test_summarize_todos_preview_omits_null_fields(self):
+        """Field-filtering never invents keys - a preview row for an item
+        missing a SUMMARY field (e.g. no dueDate key at all) simply omits
+        it, same convention as non-preview field filtering."""
+        engine = _engine()
+        sparse_todo = {'uuid': 'todo-2', 'title': 'No due date', 'status': 'open'}
+        summary = engine.progressive_engine._summarize_todos([sparse_todo])
+        row = summary['recent_preview'][0]
+        assert set(row.keys()) == {'uuid', 'title', 'status'}
+        assert 'dueDate' not in row
+        assert 'tags' not in row

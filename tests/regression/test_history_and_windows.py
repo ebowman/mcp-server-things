@@ -129,6 +129,11 @@ class TestGetLogbook:
         # 1d window should already contain both seeds - this session just
         # created them - but page defensively all the same).
         result = mcp.call_sync("get_logbook", period="1d", limit=500, include_canceled=True)
+        # get_logbook has no 'mode' parameter, so requested_mode must be None
+        # (nothing was requested) while 'mode' reports the effective shape
+        # ('standard') of the returned items - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         by_uuid = {i.get("uuid"): i for i in result.get("items", [])}
         if completed_id in by_uuid:
             assert by_uuid[completed_id].get("status") == "completed", by_uuid[completed_id]
@@ -406,6 +411,10 @@ class TestGetRecent:
         window - the sandbox project was created this session (< 1d)."""
         result = mcp.call_sync("get_recent", period="1d")
         assert "tool_error" not in result, result
+        # get_recent has no 'mode' parameter, so requested_mode must be None
+        # while 'mode' reports the effective ('standard') shape - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         uuids = {i.get("uuid") for i in result.get("items", [])}
         assert sandbox.project_id in uuids, (
             "sandbox project missing from untyped get_recent(period='1d')"
@@ -522,6 +531,10 @@ class TestGetDueInDays:
         assert "tool_error" not in result, result
         assert result.get("days") == days, result
         assert result.get("include_overdue") == include_overdue, result
+        # get_due_in_days has no 'mode' parameter, so requested_mode must be
+        # None while 'mode' reports the effective ('standard') shape - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         return {i.get("uuid") for i in result.get("items", [])}
 
     def test_days_1_membership(self, mcp, seeded):
@@ -591,6 +604,11 @@ class TestGetActivatingInDays:
         result = mcp.call_sync("get_activating_in_days", days=days)
         assert "tool_error" not in result, result
         assert result.get("days") == days, result
+        # get_activating_in_days has no 'mode' parameter, so requested_mode
+        # must be None while 'mode' reports the effective ('standard')
+        # shape - hq-lsb.
+        assert result.get("requested_mode") is None, result
+        assert result.get("mode") == "standard", result
         return {i.get("uuid") for i in result.get("items", [])}
 
     def test_days_7_absent(self, mcp, seeded):

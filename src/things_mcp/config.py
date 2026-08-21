@@ -15,7 +15,7 @@ try:
     from pydantic_settings import BaseSettings
 except ImportError:
     from pydantic import BaseSettings
-from pydantic import Field, field_validator, ConfigDict
+from pydantic import Field, field_validator, model_validator, ConfigDict
 
 
 class ExecutionMethod(str, Enum):
@@ -195,8 +195,22 @@ class ThingsMCPConfig(BaseSettings):
     )
     
     # Keep legacy field for backward compatibility but map to new simplified model
+    #
+    # Default is FILTER_WARN, not FAIL_ON_UNKNOWN. History: prior to the
+    # hq-nb1 fix, a pair of order-dependent field_validators silently
+    # rewrote an unconfigured tag_creation_policy from its then-declared
+    # default of FAIL_ON_UNKNOWN to FILTER_WARN (derived from
+    # ai_can_create_tags' default of False) - so FAIL_ON_UNKNOWN was never
+    # actually reachable as the effective default in practice, and every
+    # unconfigured deployment has always behaved as FILTER_WARN (matching
+    # CLAUDE.md's documented "Non-existent tags are silently filtered (no
+    # error)" - closer to filter_warn/filter_silent than to
+    # fail_on_unknown). The declared default is corrected here to match
+    # that long-standing effective behavior, so fixing the validator
+    # reconciliation bug does not also silently change the default for
+    # unconfigured users.
     tag_creation_policy: TagCreationPolicy = Field(
-        default=TagCreationPolicy.FAIL_ON_UNKNOWN,
+        default=TagCreationPolicy.FILTER_WARN,
         description="[DEPRECATED - use ai_can_create_tags] Policy for handling unknown tags"
     )
     
@@ -338,17 +352,15 @@ class ThingsMCPConfig(BaseSettings):
     
     @field_validator('tag_creation_policy', mode='before')
     @classmethod
-    def validate_tag_creation_policy(cls, v, info):
-        """Sync tag policy with ai_can_create_tags setting."""
-        # If ai_can_create_tags is explicitly set, use it to determine policy
-        if info.data and 'ai_can_create_tags' in info.data:
-            if info.data['ai_can_create_tags']:
-                return TagCreationPolicy.ALLOW_ALL
-            else:
-                # Use FILTER_WARN for better AI guidance
-                return TagCreationPolicy.FILTER_WARN
-        
-        # Otherwise parse from string with backward compatibility
+    def validate_tag_creation_policy(cls, v):
+        """Parse tag_creation_policy from a string, with backward-compat
+        aliases for old policy names. Does NOT cross-reference
+        ai_can_create_tags - that reconciliation happens in
+        `_reconcile_tag_policy_and_ai_flag` below, after both fields have
+        been individually validated (see hq-nb1: doing the cross-sync here,
+        in a `mode='before')` field_validator, made the reconciliation
+        order-dependent on field declaration order and made
+        THINGS_MCP_TAG_CREATION_POLICY unreachable via env)."""
         if isinstance(v, str):
             v_lower = v.lower()
             # Map old names to new ones for backward compatibility
@@ -360,26 +372,59 @@ class ThingsMCPConfig(BaseSettings):
             v_lower = compatibility_map.get(v_lower, v_lower)
             return TagCreationPolicy(v_lower)
         return v
-    
-    @field_validator('ai_can_create_tags', mode='before')
-    @classmethod
-    def set_ai_can_create_tags_from_policy(cls, v, info):
-        """Set ai_can_create_tags based on policy if not explicitly set."""
-        # If explicitly set, use that value
-        if v is not None:
-            return v
-        
-        # Otherwise derive from tag_creation_policy if present
-        if info.data and 'tag_creation_policy' in info.data:
-            policy = info.data['tag_creation_policy']
-            if isinstance(policy, str):
-                policy = policy.lower()
-            # Only ALLOW_ALL means AI can create tags
-            return policy == TagCreationPolicy.ALLOW_ALL or policy == 'allow_all'
-        
-        # Default to False (human-only)
-        return False
-    
+
+    @model_validator(mode='after')
+    def _reconcile_tag_policy_and_ai_flag(self) -> 'ThingsMCPConfig':
+        """Reconcile tag_creation_policy and ai_can_create_tags after both
+        fields have been independently validated (hq-nb1 fix).
+
+        Precedence rules:
+          - Neither explicitly set: leave both at their declared defaults
+            (tag_creation_policy=FAIL_ON_UNKNOWN, ai_can_create_tags=False -
+            already consistent, since FAIL_ON_UNKNOWN != ALLOW_ALL).
+          - Only ai_can_create_tags explicitly set (policy not set): derive
+            the policy from it, same mapping as before (True -> ALLOW_ALL,
+            False -> FILTER_WARN).
+          - Only tag_creation_policy explicitly set (bool not set): derive
+            ai_can_create_tags from it (policy == ALLOW_ALL).
+          - Both explicitly set: the explicit tag_creation_policy wins for
+            the policy field; ai_can_create_tags is recomputed from it for
+            consistency (policy == ALLOW_ALL <-> True). If the caller's
+            explicit ai_can_create_tags value disagrees with what the
+            explicit policy implies, log a warning noting the conflict was
+            resolved in favor of tag_creation_policy.
+
+        Uses `model_fields_set` (pydantic v2) to distinguish "explicitly
+        provided" (via env var, env_file, or constructor kwarg) from "left
+        at its field default".
+        """
+        policy_explicit = 'tag_creation_policy' in self.model_fields_set
+        ai_flag_explicit = 'ai_can_create_tags' in self.model_fields_set
+
+        if policy_explicit and ai_flag_explicit:
+            expected_ai_flag = self.tag_creation_policy == TagCreationPolicy.ALLOW_ALL
+            if self.ai_can_create_tags != expected_ai_flag:
+                logging.getLogger(__name__).warning(
+                    "Both tag_creation_policy=%s and ai_can_create_tags=%s were "
+                    "explicitly set and conflict; tag_creation_policy wins - "
+                    "ai_can_create_tags is being recomputed to %s for consistency.",
+                    self.tag_creation_policy, self.ai_can_create_tags, expected_ai_flag,
+                )
+            self.ai_can_create_tags = expected_ai_flag
+        elif policy_explicit:
+            # Only the policy was explicitly set - derive the bool from it.
+            self.ai_can_create_tags = self.tag_creation_policy == TagCreationPolicy.ALLOW_ALL
+        elif ai_flag_explicit:
+            # Only the bool was explicitly set - derive the policy from it.
+            self.tag_creation_policy = (
+                TagCreationPolicy.ALLOW_ALL if self.ai_can_create_tags
+                else TagCreationPolicy.FILTER_WARN
+            )
+        # else: neither explicitly set - leave both at their defaults
+        # (already mutually consistent).
+
+        return self
+
     model_config = ConfigDict(
         env_prefix="THINGS_MCP_",
         case_sensitive=False,
