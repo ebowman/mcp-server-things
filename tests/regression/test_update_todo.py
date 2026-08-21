@@ -23,10 +23,13 @@ Error-code notes (confirmed by reading scheduling/todo_operations.py):
   - heading/when='evening' without the Things auth token configured:
     AUTH_TOKEN_NOT_CONFIGURED, with a 'hint' field - checked before any
     AppleScript write, so no field in the same call is applied.
-  - An unknown todo_id reaches the AppleScript `to do id "..."` lookup,
-    which errors and is surfaced as APPLESCRIPT_ERROR (not a bespoke
-    NOT_FOUND-shaped code) - update_todo has no pre-check via things.py for
-    the primary target id itself (unlike list_id/list_title targets).
+  - An unknown todo_id is now pre-checked via things.py BEFORE any write
+    (hq-wbm) and surfaced as NOT_FOUND, consistent with list_id/list_title
+    resolution above. A todo_id that resolves to something other than a
+    to-do (e.g. a project id) is rejected with VALIDATION_ERROR instead -
+    AppleScript's `to do id "..."` unexpectedly ALSO resolves a project
+    uuid (verified live), so without this pre-check a project id passed as
+    the primary target would be silently modified rather than erroring.
   - completed/canceled invalid strings ('yes'/'1'): VALIDATION_ERROR with
     field='completed'/'canceled', raised in server.py before ever calling
     self.tools.update_todo.
@@ -419,10 +422,26 @@ class TestUpdateTodoUnknownId:
         result = mcp.call_sync(
             "update_todo", id="bogus-update-id-does-not-exist", title="new title"
         )
-        # Observed: no upstream things.py pre-check on the primary target
-        # id - it reaches the AppleScript `to do id "..."` lookup, which
-        # errors and is surfaced as APPLESCRIPT_ERROR (module docstring).
-        assert_write_error(result, "APPLESCRIPT_ERROR")
+        # hq-wbm: unknown primary target id is now pre-checked via
+        # things.py before any write and surfaced as NOT_FOUND, consistent
+        # with list_id/list_title resolution (module docstring).
+        assert_write_error(result, "NOT_FOUND")
+
+    def test_project_id_as_primary_target_rejected(self, mcp, sandbox):
+        """A project id passed as the primary target id must be rejected,
+        not silently applied - AppleScript's `to do id "..."` unexpectedly
+        also resolves a project uuid (verified live against the real
+        Things dictionary), so without this pre-check update_todo would
+        rename/modify the caller's project instead of erroring."""
+        result = mcp.call_sync(
+            "update_todo", id=sandbox.project_id, title="should not be applied"
+        )
+        assert_write_error(result, "VALIDATION_ERROR")
+
+        # Confirm the sandbox project's title was NOT changed.
+        project_record = read_back(sandbox.project_id, lambda r: r is not None)
+        assert project_record is not None
+        assert project_record.get("title") != "should not be applied", project_record
 
 
 # ---------------------------------------------------------------------------

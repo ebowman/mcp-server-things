@@ -65,6 +65,10 @@ THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 # doesn't fall through to the real things.py package against a sentinel id
 # that doesn't exist in the developer's database.
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+# bulk_operations.py holds its own separate LazyThingsProxy instance too -
+# bulk_update_todos' per-id pre-check (hq-wbm) needs its own patch for the
+# same reason as WRITE_OPS_THINGS_GET_PATCH above.
+BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -222,9 +226,28 @@ def _patched_things_lookups():
       delete_todo()'s own type-resolution things.get() call (hq-f0w.40),
       keeping delete_todo(todo_id=<sentinel>) on its `to do id` script path
       instead of hitting the real, unpatched things.py package.
+
+    hq-wbm: things.get() now also backs update_todo's own primary-todo_id
+    pre-check (before any write). This same patch target is shared by both
+    "is this the primary todo_id?" (needs 'to-do') and "is this a
+    list_id/area_id target?" (needs 'project') callers in this file, and
+    both use the same generic per-param sentinel-naming scheme
+    (_sentinel_for), so the two purposes can't be told apart by a fixed
+    allowlist of ids. Instead: default to 'to-do' (covers TODOID1 and the
+    update_todo.id per-param sentinel, SENTINELUPDATETODOIDX), and
+    special-case the known project-target sentinels/literals used by
+    list_id/heading override entries in PARAM_ASSERTIONS below (identified
+    by the substring 'LISTID' in the per-param sentinel, or the two
+    literal PROJHEADTARGET* extra_kwargs ids) to resolve as a project
+    instead, preserving pre-existing list_id/heading-move behavior.
     """
+    def _things_get_side_effect(uuid: str, **kwargs: Any) -> Dict[str, Any]:
+        if "LISTID" in uuid or uuid.startswith("PROJHEADTARGET"):
+            return {"type": "project", "uuid": uuid}
+        return {"type": "to-do", "uuid": uuid}
+
     return [
-        patch(THINGS_GET_PATCH, return_value={"type": "project"}),
+        patch(THINGS_GET_PATCH, side_effect=_things_get_side_effect),
         patch(
             THINGS_PROJECTS_PATCH,
             return_value=[{"uuid": RESOLVED_LIST_TITLE_PROJECT_ID, "title": SENTINEL_LIST_TITLE}],
@@ -232,6 +255,10 @@ def _patched_things_lookups():
         patch(THINGS_AREAS_PATCH, return_value=[]),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
+        # hq-wbm: bulk_update_todos' per-id pre-check - every id used in
+        # this file's bulk_update_todos cases (TODOID1, TODOID2, and the
+        # generic per-param sentinels) must resolve as a to-do.
+        patch(BULK_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
     ]
 
 

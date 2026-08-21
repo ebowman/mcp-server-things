@@ -289,8 +289,18 @@ class TestUpdateTodoCompletedProjectNoHeading:
     async def test_update_todo_list_id_completed_project_returns_structured_error(
         self, ops, mock_applescript_manager
     ):
+        # hq-wbm: update_todo's own primary todo_id ("abc123") is now also
+        # pre-checked via things.get() before any write, so the mock must
+        # distinguish it (resolves as a to-do) from the list_id target
+        # ("PROJECT1", resolves as a completed project) - a single
+        # return_value can no longer serve both lookups.
+        def _things_get(uuid, **kwargs):
+            if uuid == "abc123":
+                return {"type": "to-do"}
+            return {"type": "project", "status": "completed"}
+
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project", "status": "completed"}):
+                   side_effect=_things_get):
             result = await ops.update_todo("abc123", list_id="PROJECT1")
 
         assert result["success"] is False
@@ -300,8 +310,13 @@ class TestUpdateTodoCompletedProjectNoHeading:
 
     @pytest.mark.asyncio
     async def test_update_todo_list_id_open_project_is_unaffected(self, ops, mock_applescript_manager):
+        def _things_get(uuid, **kwargs):
+            if uuid == "abc123":
+                return {"type": "to-do"}
+            return {"type": "project", "status": "incomplete"}
+
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "project", "status": "incomplete"}):
+                   side_effect=_things_get):
             result = await ops.update_todo("abc123", list_id="PROJECT1")
 
         assert result["success"] is True
@@ -311,8 +326,13 @@ class TestUpdateTodoCompletedProjectNoHeading:
     async def test_update_todo_list_id_area_is_unaffected(self, ops, mock_applescript_manager):
         """Areas have no completed/canceled status in Things - a list_id
         resolving to an area must never trip TARGET_COMPLETED."""
+        def _things_get(uuid, **kwargs):
+            if uuid == "abc123":
+                return {"type": "to-do"}
+            return {"type": "area"}
+
         with patch("things_mcp.scheduling.todo_operations.things.get",
-                   return_value={"type": "area"}):
+                   side_effect=_things_get):
             result = await ops.update_todo("abc123", list_id="AREA1")
 
         assert result["success"] is True

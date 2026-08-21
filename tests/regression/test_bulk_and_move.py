@@ -21,12 +21,16 @@ bulk_move_records wrappers):
     the batch is touched (verified below by reading every todo back
     unchanged).
   - bulk_update_todos: an unknown id inside an otherwise-valid todo_ids
-    list is NOT reported per-id - BulkOperations._build_bulk_update_script
-    wraps each id's AppleScript block in its own try/on error, so unknown
-    ids silently fail (counted in errorMessages, not itemized by id) while
-    known ids still succeed; _parse_bulk_results reports only aggregate
-    updated_count/failed_count/total_requested - there is no per-id result
-    list in the response shape at all.
+    list IS now pre-checked via things.py BEFORE the AppleScript script is
+    built (hq-wbm) - unresolvable ids (unknown, or resolving to something
+    other than a to-do, e.g. a project) are excluded from the script and
+    reported in a 'not_found' list field, while known ids still go through
+    the existing per-id try/on-error AppleScript block and succeed.
+    updated_count/failed_count/total_requested still reflect the full
+    ORIGINAL request (pre-check rejections count as failures). There is
+    still no per-id result list for AppleScript-level failures (a
+    known-good id whose AppleScript write itself errors) - only the
+    pre-check's 'not_found' list is itemized by id.
   - move_record: destination is not one of the fixed valid_lists /
     'project:'-or-'area:'-prefixed forms -> VALIDATION_ERROR (from
     MoveOperationsTools._validate_move_inputs/_validate_destination,
@@ -406,9 +410,11 @@ class TestBulkUpdateNoTodoIds:
 
 class TestBulkUpdateMixedValidUnknown:
     def test_mixed_valid_and_unknown_ids(self, mcp, sandbox):
-        """Response shape has no per-id result list (see module docstring) -
-        only aggregate updated_count/failed_count/total_requested. Asserts
-        that shape exactly, and that the valid id WAS updated."""
+        """hq-wbm: unknown ids are now pre-checked via things.py and
+        reported in a 'not_found' list field (see module docstring), while
+        the valid id is still updated via AppleScript as before. There is
+        still no per-id AppleScript-failure breakdown ('results'/'per_id'
+        keys), only the pre-check's itemized 'not_found' list."""
         todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("bulk mixed valid " + ts()))
         unknown_id = "bogus-bulk-update-id-does-not-exist"
         new_title = sandbox_title("bulk mixed applied " + ts())
@@ -424,12 +430,32 @@ class TestBulkUpdateMixedValidUnknown:
         assert result.get("total_requested") == 2, result
         assert result.get("updated_count") == 1, result
         assert result.get("failed_count") == 1, result
-        # No per-id breakdown field exists in the response.
+        assert result.get("not_found") == [unknown_id], result
+        # No per-id AppleScript-failure breakdown field exists in the response.
         assert "results" not in result, result
         assert "per_id" not in result, result
 
         record = read_back(todo_id, lambda r: r is not None and r.get("title") == new_title)
         assert record is not None and record.get("title") == new_title, record
+
+    def test_all_unknown_ids_not_found(self, mcp, sandbox):
+        """When every id fails the pre-check, bulk_update_todos returns a
+        structured NOT_FOUND error without ever building/running the
+        AppleScript script."""
+        unknown_ids = [
+            "bogus-bulk-update-id-does-not-exist-1",
+            "bogus-bulk-update-id-does-not-exist-2",
+        ]
+        result = mcp.call_sync(
+            "bulk_update_todos",
+            todo_ids=",".join(unknown_ids),
+            title="should not be applied",
+        )
+        assert_write_error(result, "NOT_FOUND")
+        assert result.get("updated_count") == 0, result
+        assert result.get("failed_count") == 2, result
+        assert result.get("total_requested") == 2, result
+        assert result.get("not_found") == unknown_ids, result
 
 
 class TestBulkUpdateEvening:

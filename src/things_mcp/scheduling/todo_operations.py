@@ -28,6 +28,15 @@ things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
 
+# Sentinel distinguishing "things.get() lookup itself raised" (DB
+# unreadable / Full Disk Access missing) from "things.get() succeeded and
+# returned None" (id genuinely unknown) - used by update_todo's todo_id
+# pre-check (hq-wbm). Mirrors tools_helpers/write_operations.py's
+# module-local _RESOLVE_UNAVAILABLE sentinel of the same shape; not shared
+# across modules to avoid the circular-import concerns documented above
+# for _write_error.
+_RESOLVE_UNAVAILABLE = object()
+
 
 def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
     """Thin wrapper around tools_helpers.errors.write_error that performs
@@ -1297,6 +1306,57 @@ class TodoOperations:
         plain AppleScript move - see the heading docs above.
         """
         try:
+            # Pre-check todo_id via things.py BEFORE any write (hq-wbm).
+            # AppleScript's `to do id "<uuid>"` unexpectedly ALSO resolves a
+            # project uuid (Things treats projects as a "selected to do"
+            # class internally - verified live) rather than erroring, so
+            # without this check update_todo(id=<project-uuid>, title=...)
+            # would silently rename/modify the project instead of failing.
+            # things.get() distinguishes the cases: None means the id is
+            # genuinely unknown (NOT_FOUND); a record whose type isn't
+            # 'to-do' means the id resolves to something update_todo cannot
+            # target (VALIDATION_ERROR, naming the actual type). If the
+            # things.py lookup itself raises (e.g. the Things database is
+            # unreadable / Full Disk Access missing), fall through and
+            # proceed with the write - same documented DB-unreadable
+            # fallback as _resolve_list_id/_resolve_area (CLAUDE.md "list_id
+            # fallback when the Things database is unreadable") - refusing
+            # every update whenever things.py is unavailable would be a
+            # larger behavior change than this bead asks for.
+            try:
+                todo_record_for_precheck = things.get(todo_id)
+            except Exception as e:
+                logger.warning(
+                    f"things.py lookup failed while pre-checking todo_id "
+                    f"{todo_id} (falling back to proceeding with the write "
+                    f"unchecked): {e}"
+                )
+                todo_record_for_precheck = _RESOLVE_UNAVAILABLE
+
+            if todo_record_for_precheck is None:
+                return _write_error(
+                    "NOT_FOUND",
+                    f"No to-do found with id '{todo_id}'",
+                )
+            if todo_record_for_precheck is not _RESOLVE_UNAVAILABLE:
+                precheck_type = todo_record_for_precheck.get('type')
+                if precheck_type != 'to-do':
+                    if precheck_type == 'project':
+                        return _write_error(
+                            "VALIDATION_ERROR",
+                            f"id '{todo_id}' is a project, not a to-do; use "
+                            "update_project() instead",
+                            field="id",
+                            invalid_value=todo_id,
+                        )
+                    return _write_error(
+                        "VALIDATION_ERROR",
+                        f"id '{todo_id}' refers to a '{precheck_type}', not "
+                        "a to-do",
+                        field="id",
+                        invalid_value=todo_id,
+                    )
+
             # Extract parameters. title/area/project default to '' (falsy
             # "unchanged") since they have no clear semantics here; notes/
             # deadline/tags default to None so "not provided" (leave

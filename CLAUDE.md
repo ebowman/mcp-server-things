@@ -453,6 +453,22 @@ Write/mutating tools (`add_todo`, `update_todo`, `bulk_update_todos`, `delete_to
 
 This shape is produced by a single shared implementation, `tools_helpers.errors.write_error(code, message, **extra)`, used at every layer that returns a write-tool structured error: `ThingsMCPServer._write_error` (server.py, the MCP tool boundary), `WriteOperations`/`BulkOperations` (`tools_helpers/write_operations.py`, `tools_helpers/bulk_operations.py`), `scheduling/todo_operations.py` (`TodoOperations`, backing `add_todo`/`update_todo`/`add_project`/`update_project`/checklist scheduling - migrated in hq-f0w.46), and `parameter_validator.create_validation_error_response` (which independently produces the same `VALIDATION_ERROR` shape, predating this helper). Every AppleScript-execution-failure/exception path in `server.py`, `write_operations.py`, `bulk_operations.py`, and `scheduling/todo_operations.py` now goes through `write_error`, carrying the dynamic AppleScript/exception text in a `details` field rather than overloading `error` with it. `AppleScriptManager.execute_url_scheme`'s auth-gate (`services/applescript_manager.py`, `AUTH_REQUIRING_ACTIONS`) returns code `AUTH_TOKEN_NOT_CONFIGURED` with the (unchanged) literal `"Things URL-scheme auth token not configured"` now carried verbatim in `message` instead of `error`, and a `hint` field; every consumer that forwards an `execute_url_scheme` failure (checklist tools, `update_todo`, `bulk_update_todos`) forwards that code/message/hint through rather than re-wrapping it. `move_operations.py` (`move_record`, `bulk_move_records`) already used UPPER_SNAKE_CASE codes (`VALIDATION_ERROR`, `TODO_NOT_FOUND`, `NO_TODOS_SPECIFIED`, `INVALID_DESTINATION`, `APPLESCRIPT_ERROR`, etc.) before this bead and needed no changes.
 
+**`update_todo`/`bulk_update_todos` primary todo_id pre-check (hq-wbm):** both tools now
+resolve the primary `id`/`todo_ids` via `things.get()` **before** any AppleScript write -
+an id that things.py resolves cleanly but finds nothing for returns `NOT_FOUND` (naming
+the id); an id that resolves to something other than a to-do (most notably a **project**
+id - AppleScript's `to do id "..."` unexpectedly also resolves a project uuid, so without
+this check `update_todo` would silently rename/modify the project instead of failing)
+returns `VALIDATION_ERROR` naming the actual type and suggesting `update_project()`
+instead. `bulk_update_todos` applies this per id across the batch: unresolvable ids are
+excluded from the AppleScript script and reported in a `not_found` list field in the
+response (in addition to being counted in `failed_count`), while resolvable ids are still
+updated normally; if every id in the batch fails the pre-check, the whole call returns a
+top-level `NOT_FOUND` with `not_found` populated and no AppleScript is run at all. As with
+`list_id`/`area_id` resolution elsewhere, if the things.py lookup itself raises (e.g. the
+Things database is unreadable / Full Disk Access missing), both tools fall back to
+proceeding with the write unchecked rather than refusing it.
+
 Known, currently-out-of-scope exceptions to this contract:
 - **`reliable_scheduling.py`** (`ReliableThingsScheduler`) has its own divergent, ungated `error` conventions, but has zero production callers (dead code since hq-f0w.20 removed its last calling path) - not in scope for any error-contract migration.
 - `delete_todo`'s `not_deletable`/`not_found` codes are lower_snake_case - they predate this bead, have extensive existing test coverage, and intentionally share the `not_found` convention with the read-tool contract (`get_project_headings`), so changing their case would create a cross-cutting inconsistency rather than resolve one.

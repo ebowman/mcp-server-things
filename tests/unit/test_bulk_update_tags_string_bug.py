@@ -1,6 +1,6 @@
 """Test for bulk_update_todos tag string handling bug fix."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from things_mcp.tools import ThingsTools
 
 
@@ -37,6 +37,20 @@ def tools_with_mock(mock_applescript_manager):
 
 class TestBulkUpdateTagsStringBug:
     """Test that bulk_update_todos handles tags string correctly (BUG FIX #8)."""
+
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: bulk_update_todos now pre-checks each id via things.get()
+        before building the AppleScript script. The fake ids used in this
+        class ("todo1"/"todo2") are never present in the real Things
+        database, so without this patch every call here would report them
+        as not_found instead of exercising the tag-string handling this
+        class is actually testing."""
+        with patch(
+            "things_mcp.tools_helpers.bulk_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
 
     @pytest.mark.asyncio
     async def test_bulk_update_with_string_tags_defensive(self, tools_with_mock, mock_applescript_manager):

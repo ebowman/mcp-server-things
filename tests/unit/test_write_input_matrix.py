@@ -82,6 +82,9 @@ THINGS_PROJECTS_PATCH = "things_mcp.scheduling.todo_operations.things.projects"
 THINGS_AREAS_PATCH = "things_mcp.scheduling.todo_operations.things.areas"
 THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+# hq-wbm: bulk_update_todos' per-id pre-check patch target (BulkOperations'
+# own module-local things proxy - see tools_helpers/bulk_operations.py).
+BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
 
 SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
@@ -179,7 +182,14 @@ class RecordingAppleScriptManager:
             return {"success": True, "output": "MOVED to destination"}
 
         if "successCount" in script:
-            return {"success": True, "output": "successCount:2, errors:{}"}
+            # hq-wbm: count actual `to do id "..."` blocks in the script
+            # rather than hardcoding 2 - bulk_update_todos' per-id
+            # pre-check can now send fewer ids than were originally
+            # requested (unresolvable ids are excluded before the script
+            # is built), so a fixed canned count would misreport success
+            # for those cases.
+            actual_count = len(re.findall(r'to do id "', script))
+            return {"success": True, "output": f"successCount:{actual_count}, errors:{{}}"}
 
         if 'return "updated"' in script:
             return {"success": True, "output": "updated"}
@@ -246,6 +256,25 @@ UNKNOWN_LIST_ID = "UNKNOWNLISTIDDOESNOTEXIST"
 # database is unreadable").
 RAISING_LIST_ID = "RAISINGLISTIDCAUSESLOOKUPERROR"
 
+# hq-wbm: update_todo's primary todo_id pre-check sentinels. PRIMARY_TODO_ID
+# is the same value as the pre-existing "TODOID1" literal used throughout
+# the update_todo matrix below (kept as a named constant here so the
+# things.get() router and the `add(...)` cases stay in sync by
+# construction rather than by string-literal coincidence).
+PRIMARY_TODO_ID = "TODOID1"
+# things.get() resolves cleanly but reports nothing -> definitively unknown
+# primary todo_id, rejected before any write (NOT_FOUND).
+UNKNOWN_PRIMARY_TODO_ID = "UNKNOWNPRIMARYTODOIDDOESNOTEXIST"
+# things.get() itself raises for this id (simulating an unreadable Things
+# database / missing Full Disk Access) - falls back to proceeding with the
+# write unchecked, same fallback pattern as RAISING_LIST_ID/RAISING_AREA_ID.
+RAISING_PRIMARY_TODO_ID = "RAISINGPRIMARYTODOIDCAUSESLOOKUPERROR"
+# things.get() resolves cleanly to a PROJECT (not a to-do) - AppleScript's
+# `to do id "..."` unexpectedly also resolves a project uuid (verified
+# live against the real Things dictionary), so this must be rejected with
+# VALIDATION_ERROR rather than silently modifying the project.
+PROJECT_ID_AS_PRIMARY_TARGET = "PROJECTIDUSEDASPRIMARYTARGET"
+
 
 class _SimulatedThingsLookupError(Exception):
     """Raised by _todo_ops_things_get for RAISING_LIST_ID to simulate an
@@ -253,6 +282,21 @@ class _SimulatedThingsLookupError(Exception):
 
 
 def _todo_ops_things_get(uuid: str, **kwargs: Any) -> Dict[str, Any]:
+    # hq-wbm: update_todo's primary todo_id pre-check calls this same
+    # things.get() patch target. TODOID1/SPECIAL_CHARS/UNICODE_EMOJI are the
+    # sentinel ids used as the primary `id` throughout the update_todo
+    # matrix below (list_id/list_title/area_id targets use distinct
+    # sentinel ids and must keep resolving via the pre-existing branches/
+    # default below), so they must resolve as a to-do here or every
+    # existing update_todo case would spuriously fail the new pre-check.
+    if uuid in (PRIMARY_TODO_ID, SPECIAL_CHARS, UNICODE_EMOJI):
+        return {"type": "to-do", "uuid": uuid}
+    if uuid == UNKNOWN_PRIMARY_TODO_ID:
+        return None
+    if uuid == RAISING_PRIMARY_TODO_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    if uuid == PROJECT_ID_AS_PRIMARY_TARGET:
+        return {"type": "project", "uuid": uuid}
     if uuid == AREA_TARGET_ID:
         return {"type": "area", "uuid": uuid}
     if uuid == COMPLETED_PROJECT_ID:
@@ -318,6 +362,7 @@ def _patched_things_lookups():
         ),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
+        patch(BULK_OPS_THINGS_GET_PATCH, side_effect=_bulk_ops_things_get),
     ]
 
 
@@ -543,6 +588,29 @@ add("update_todo", {"id": "TODOID1"}, ok(route="applescript", contains=['to do i
 add("update_todo", {"id": ""}, write_error("VALIDATION_ERROR"))
 add("update_todo", {"id": "   "}, write_error("VALIDATION_ERROR"))
 add("update_todo", {"id": SPECIAL_CHARS}, ok(route="applescript"))
+# hq-wbm: primary todo_id pre-check via things.get(), before any write.
+# things.get() resolves cleanly but reports nothing -> definitively unknown
+# primary todo_id (NOT_FOUND), consistent with list_id/list_title
+# resolution elsewhere in this matrix.
+add("update_todo", {"id": UNKNOWN_PRIMARY_TODO_ID, "title": "New Title"}, write_error("NOT_FOUND"))
+# things.get() itself raises (simulated unreadable Things DB) -> falls back
+# to proceeding with the write unchecked, same fallback pattern as
+# RAISING_LIST_ID/RAISING_AREA_ID (CLAUDE.md "list_id fallback when the
+# Things database is unreadable").
+add(
+    "update_todo",
+    {"id": RAISING_PRIMARY_TODO_ID, "title": "New Title"},
+    ok(route="applescript", contains=[f'to do id "{RAISING_PRIMARY_TODO_ID}"']),
+)
+# things.get() resolves cleanly to a PROJECT (not a to-do) -> rejected with
+# VALIDATION_ERROR rather than silently modifying the project (AppleScript's
+# `to do id "..."` unexpectedly also resolves a project uuid - verified
+# live against the real Things dictionary).
+add(
+    "update_todo",
+    {"id": PROJECT_ID_AS_PRIMARY_TARGET, "title": "New Title"},
+    write_error("VALIDATION_ERROR"),
+)
 
 add("update_todo", {"id": "TODOID1", "title": None}, ok(route="applescript"))
 add("update_todo", {"id": "TODOID1", "title": ""}, write_error("VALIDATION_ERROR"))
@@ -679,6 +747,28 @@ add(
 # bulk_update_todos
 # ===========================================================================
 
+# hq-wbm: bulk_update_todos' per-id pre-check sentinels (BULK_OPS_THINGS_GET_PATCH).
+# Ids used as definitively-unknown / DB-unreadable-simulation / wrong-type
+# targets for the pre-check test cases below.
+BULK_UNKNOWN_ID = "BULKUNKNOWNIDDOESNOTEXIST"
+BULK_RAISING_ID = "BULKRAISINGIDCAUSESLOOKUPERROR"
+BULK_PROJECT_ID_AS_TARGET = "BULKPROJECTIDUSEDASTARGET"
+
+
+def _bulk_ops_things_get(uuid: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """Router for BULK_OPS_THINGS_GET_PATCH. Every pre-existing
+    bulk_update_todos case uses plain sentinel ids (T1/T2/T3/a/b/c/etc.)
+    that must resolve as a to-do (the default branch below) so the new
+    per-id pre-check (hq-wbm) doesn't spuriously reject them."""
+    if uuid == BULK_UNKNOWN_ID:
+        return None
+    if uuid == BULK_RAISING_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    if uuid == BULK_PROJECT_ID_AS_TARGET:
+        return {"type": "project", "uuid": uuid}
+    return {"type": "to-do", "uuid": uuid}
+
+
 add("bulk_update_todos", {"todo_ids": "T1,T2,T3"}, ok(route="applescript", contains=["T1", "T2", "T3"]))
 add("bulk_update_todos", {"todo_ids": ""}, write_error("NO_TODO_IDS"))
 add("bulk_update_todos", {"todo_ids": ",,"}, write_error("NO_TODO_IDS"))
@@ -753,6 +843,25 @@ add("bulk_update_todos", {"todo_ids": "T1,T2", "completed": True}, tool_error())
 
 add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "evening"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "2031-03-15@11:45"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+
+# hq-wbm: per-id pre-check via things.get(), before the AppleScript script
+# is built. Every id failing the pre-check -> a structured NOT_FOUND error
+# with no AppleScript/URL call at all (no_capture=True, the ok()/
+# write_error() default).
+add(
+    "bulk_update_todos",
+    {"todo_ids": f"{BULK_UNKNOWN_ID},{BULK_PROJECT_ID_AS_TARGET}", "title": "New Title"},
+    write_error("NOT_FOUND"),
+)
+# things.get() itself raises for one id -> pre-check is skipped for the
+# WHOLE batch (falls back to pre-bead behavior: every id, including T1,
+# reaches the per-id AppleScript try/on-error block unchecked), same
+# fallback pattern as update_todo's single-id pre-check.
+add(
+    "bulk_update_todos",
+    {"todo_ids": f"T1,{BULK_RAISING_ID}", "title": "New Title"},
+    ok(route="applescript", contains=["T1", BULK_RAISING_ID]),
+)
 
 
 # ===========================================================================
@@ -1345,3 +1454,46 @@ class TestCompleteness:
 
     def test_cases_table_has_at_least_200_entries(self) -> None:
         assert len(CASES) >= 200, f"Expected >= 200 CASES entries, got {len(CASES)}"
+
+
+class TestBulkUpdateTodosPreCheckMixed:
+    """hq-wbm: bulk_update_todos' per-id things.py pre-check, for shapes
+    that don't fit the binary ok()/write_error() matrix DSL above (a
+    partial-success response whose 'not_found' list must be asserted
+    exactly)."""
+
+    def test_mixed_valid_and_unknown_ids_reports_not_found_list(self) -> None:
+        result, fake = run_tool(
+            "bulk_update_todos",
+            {"todo_ids": f"T1,{BULK_UNKNOWN_ID}", "title": "New Title"},
+        )
+        sc = result.structured_content
+        assert sc.get("success") is True, sc
+        assert sc.get("updated_count") == 1, sc
+        assert sc.get("failed_count") == 1, sc
+        assert sc.get("total_requested") == 2, sc
+        assert sc.get("not_found") == [BULK_UNKNOWN_ID], sc
+        # Only the resolvable id (T1) was sent to AppleScript - the unknown
+        # id is excluded from the script entirely rather than reaching the
+        # per-id try/on-error block.
+        script_text = fake.all_scripts_text()
+        assert 'to do id "T1"' in script_text, script_text
+        assert f'to do id "{BULK_UNKNOWN_ID}"' not in script_text, script_text
+
+    def test_mixed_valid_and_project_id_reports_not_found_list(self) -> None:
+        """A project id embedded in todo_ids must be excluded (not_found),
+        not sent through the bulk AppleScript script - AppleScript's
+        `to do id "..."` unexpectedly also resolves a project uuid
+        (verified live), so without this pre-check it would be silently
+        renamed/modified instead of failing."""
+        result, fake = run_tool(
+            "bulk_update_todos",
+            {"todo_ids": f"T1,{BULK_PROJECT_ID_AS_TARGET}", "title": "New Title"},
+        )
+        sc = result.structured_content
+        assert sc.get("success") is True, sc
+        assert sc.get("updated_count") == 1, sc
+        assert sc.get("failed_count") == 1, sc
+        assert sc.get("not_found") == [BULK_PROJECT_ID_AS_TARGET], sc
+        script_text = fake.all_scripts_text()
+        assert f'to do id "{BULK_PROJECT_ID_AS_TARGET}"' not in script_text, script_text

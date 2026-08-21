@@ -19,6 +19,22 @@ def tools_with_mocks(mock_applescript_manager):
 class TestBulkUpdateTodos:
     """Test bulk_update_todos functionality."""
 
+    @pytest.fixture(autouse=True)
+    def _things_get_resolves_as_todo(self):
+        """hq-wbm: bulk_update_todos now pre-checks each id via things.get()
+        before building/running the AppleScript script. The fake ids used
+        throughout this class ("todo-1" etc.) are never present in the
+        real Things database, so without this patch every call here would
+        report every id as not_found (returning a structured NOT_FOUND
+        before ever reaching AppleScript) instead of exercising the
+        AppleScript-execution success/failure/exception behavior this
+        class is actually testing."""
+        with patch(
+            "things_mcp.tools_helpers.bulk_operations.things.get",
+            return_value={"type": "to-do"},
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_bulk_update_todos_mark_complete(self, tools_with_mocks):
         """Test marking multiple todos as complete."""

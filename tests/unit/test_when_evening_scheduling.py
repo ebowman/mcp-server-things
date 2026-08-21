@@ -49,6 +49,29 @@ def fast_url_scheme_polling(monkeypatch):
     monkeypatch.setattr(TodoOperations, "_URL_SCHEME_LOOKUP_DEADLINE_SECS", 0.05)
 
 
+@pytest.fixture(autouse=True)
+def _things_get_resolves_as_todo():
+    """hq-wbm: update_todo/bulk_update_todos now pre-check the primary
+    todo_id via things.get() before any write. The fake ids used
+    throughout this file ("abc123", "id1", "id2", "proj123" etc.) are
+    never present in the real Things database, so without this patch
+    every update_todo/bulk_update_todos call here would (correctly, per
+    the new behavior) return NOT_FOUND/not_found instead of exercising the
+    when='evening' scheduling behavior this file is actually testing.
+    Individual tests that need a different things.get() response for a
+    non-primary lookup (e.g. heading-move's project/heading resolution)
+    layer their own patch on top via a nested `with patch(...)` - the
+    innermost active patch wins."""
+    with patch(
+        "things_mcp.scheduling.todo_operations.things.get",
+        return_value={"type": "to-do"},
+    ), patch(
+        "things_mcp.tools_helpers.bulk_operations.things.get",
+        return_value={"type": "to-do"},
+    ):
+        yield
+
+
 def id_lookup_side_effect(new_id):
     """Build an execute_applescript side_effect list for
     _add_todo_via_url_scheme's snapshot-then-poll id lookup (hq-nxu.12):
