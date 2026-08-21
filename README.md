@@ -357,7 +357,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 ### Todo Management
 - `get_todos(project_uuid?, include_items?)` - List todos
 - `add_todo(title, ...)` - Create new todo
-- `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; successful responses include the target `todo_id` and final `item` readback. `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
+- `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; successful responses include the target `todo_id` and `verified`. When verified, `item` contains the final readback; if readback fails after the write, `success` remains true, `verified` is false, and `verification_error` plus a warning make clear that the write must not be retried automatically. `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
 - `get_todo_by_id(todo_id)` - Get specific todo
 - `delete_todo(todo_id)` - Delete a to-do or a project (auto-detects the id type; headings/areas/tags cannot be deleted via any public Things 3 API)
@@ -401,7 +401,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_recent(period, status?, type?)` - Get recently created items; returns all statuses and both to-dos and projects by default (headings are never included unless `type='heading'` is passed explicitly)
 
 ### Bulk Operations
-- `move_record(todo_id, destination_list)` - Move one todo; successful responses include the target `todo_id` and final `item` readback
+- `move_record(todo_id, destination_list)` - Move one todo; uses the same `todo_id`/`verified`/`item` receipt as `update_todo`, preserving write success with an explicit warning if final readback fails
 - `bulk_move_records(record_ids, to_parent_uuid)` - Move multiple records
 
 ### System & Utilities

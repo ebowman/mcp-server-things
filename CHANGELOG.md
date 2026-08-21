@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Successful `update_todo` and `move_record` calls now return verified write receipts** containing the stable target `todo_id` and an `item` readback in the same shape as `get_todo_by_id`. Structured write failures are returned unchanged and do not trigger a readback.
+- **Successful `update_todo` and `move_record` calls now return verified write receipts** containing the stable target `todo_id`, an explicit `verified` state, and, when verification succeeds, an `item` readback in the same shape as `get_todo_by_id`. If readback fails after a successful write, the response keeps `success: true`, sets `verified: false`, and includes `verification_error` plus a no-auto-retry warning. Structured write failures are returned unchanged and do not trigger a readback.
 
 ## [1.7.0] - 2026-08-19
 

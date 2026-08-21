@@ -543,8 +543,11 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
-            A successful response includes ``todo_id`` and ``item``, where
-            ``item`` is the final state returned by ``get_todo_by_id``.
+            A successful response includes ``todo_id`` and ``verified``.
+            When verified is true, ``item`` is the final state returned by
+            ``get_todo_by_id``. If readback fails after the write, success
+            remains true, verified is false, and ``verification_error`` plus
+            a warning explain that callers must not retry automatically.
 
             Status semantics for completed/canceled (identical across update_todo,
             bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
@@ -942,8 +945,11 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Move a todo to a different list, project, or area.
 
-            A successful response includes ``todo_id`` and ``item``, where
-            ``item`` is the final state returned by ``get_todo_by_id``.
+            A successful response includes ``todo_id`` and ``verified``.
+            When verified is true, ``item`` is the final state returned by
+            ``get_todo_by_id``. If readback fails after the write, success
+            remains true, verified is false, and ``verification_error`` plus
+            a warning explain that callers must not retry automatically.
             """
             try:
                 result = await self.tools.move_record(
@@ -2416,8 +2422,51 @@ class ThingsMCPServer:
         if not result.get("success"):
             return result
 
-        item = await self.tools.get_todo_by_id(todo_id)
-        return {**result, "todo_id": todo_id, "item": item}
+        try:
+            item = await self.tools.get_todo_by_id(todo_id)
+        except Exception as exc:
+            verification_error = self._read_error(
+                "readback_failed",
+                "Final item readback failed.",
+                details=str(exc),
+            )
+            return self._unverified_todo_write_receipt(
+                todo_id, result, verification_error
+            )
+
+        if isinstance(item, dict) and item.get("success") is False:
+            return self._unverified_todo_write_receipt(todo_id, result, item)
+
+        return {
+            **result,
+            "todo_id": todo_id,
+            "verified": True,
+            "item": item,
+        }
+
+    @staticmethod
+    def _unverified_todo_write_receipt(
+        todo_id: str,
+        result: Dict[str, Any],
+        verification_error: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Report readback failure without misreporting the completed write."""
+        warning = (
+            "Write succeeded, but final item state could not be verified; "
+            "do not retry automatically."
+        )
+        existing_warnings = result.get("warnings")
+        warnings = (
+            list(existing_warnings) if isinstance(existing_warnings, list) else []
+        )
+        warnings.append(warning)
+        return {
+            **result,
+            "todo_id": todo_id,
+            "verified": False,
+            "verification_error": verification_error,
+            "warnings": warnings,
+        }
 
     def _read_result(
         self,
