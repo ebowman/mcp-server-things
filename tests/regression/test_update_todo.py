@@ -355,6 +355,64 @@ class TestUpdateTodoWhen:
         assert_write_error(result, "VALIDATION_ERROR")
         assert result.get("field") == "when"
 
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: update_todo(when='YYYY-MM-DD@HH:MM') is routed via the
+        Things URL scheme's 'update' action (same as when='evening'), which
+        sets the reminder natively - the AppleScript scheduling path
+        (schedule_todo_reliable) used to silently drop the '@HH:MM'
+        component. Requires the auth token (same as heading/evening)."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when=f"{when_date}@15:45")
+        assert result.get("success") is True, result
+
+        record = read_back(
+            todo_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "15:45", record
+        assert record.get("start_date") == when_date, record
+
+    def test_when_iso_date_with_time_invalid_hour_rejected(self, mcp, sandbox):
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="2031-06-15@25:99")
+        assert_write_error(result, "INVALID_WHEN")
+
+
+class TestUpdateTodoWhenTimeNoAuthToken:
+    def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
+        """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires the
+        auth token, checked BEFORE any AppleScript write - a title passed in
+        the same call must not be applied either."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        todo_id, original_title = _new_todo(mcp, sandbox)
+        when_date = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = f"SHOULD-NOT-APPLY-{ts()}"
+            result = mcp.call_sync(
+                "update_todo",
+                id=todo_id,
+                when=f"{when_date}@15:45",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+        finally:
+            manager.auth_token = original_token
+
+        record = read_back(todo_id, lambda r: r is not None)
+        assert record is not None and record.get("title") == original_title, record
+
 
 class TestUpdateTodoUnknownId:
     def test_unknown_id_write_error(self, mcp, sandbox):

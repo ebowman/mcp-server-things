@@ -499,3 +499,21 @@ def parse_applescript_date_output(output):
 def build_applescript_date_property(year, month, day):
     """Convenience function for building AppleScript date properties."""
     return locale_handler.build_applescript_date_property(year, month, day)
+
+
+_WHEN_TIME_COMPONENT_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}@\d{1,2}:\d{2}$')
+
+
+def when_has_time_component(when: Any) -> bool:
+    """True if `when` is a 'YYYY-MM-DD@HH:MM' string (ParameterValidator's
+    accepted date+time form for setting a reminder).
+
+    This form is only understood by the Things URL scheme (`when=...`
+    sets a reminder there); `normalize_date_input` (used by the
+    AppleScript scheduling path, `SchedulingStrategies.schedule_todo_reliable`)
+    extracts only year/month/day and silently drops the time component -
+    see hq-4gn. Callers use this to route such a `when` value to the URL
+    scheme instead of the AppleScript scheduler, the same way they already
+    detect and route `when='evening'`.
+    """
+    return isinstance(when, str) and bool(_WHEN_TIME_COMPONENT_PATTERN.match(when.strip()))

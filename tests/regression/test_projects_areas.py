@@ -120,6 +120,35 @@ class TestAddProjectFields:
         ]
         assert matches == [], matches
 
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: unlike when='evening' (UNSUPPORTED_FOR_PROJECTS),
+        add_project(when='YYYY-MM-DD@HH:MM') IS supported - routed via the
+        Things URL scheme's 'update-project' action after the AppleScript
+        create (requires the auth token), which sets the project's reminder
+        natively."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=13)).strftime("%Y-%m-%d")
+        title = sandbox_title("proj when time " + ts())
+        result = mcp.call_sync(
+            "add_project", title=title, area_id=sandbox.area_id, when=f"{when_date}@10:30"
+        )
+        assert result.get("success") is True, result
+        project_id = result.get("project_id")
+        assert project_id
+        sandbox.tracked_project_ids.append(project_id)
+
+        record = read_back(
+            project_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "10:30", record
+        assert record.get("start_date") == when_date, record
+
     def test_deadline_valid(self, mcp, sandbox):
         from datetime import date, timedelta
 
@@ -395,6 +424,58 @@ class TestUpdateProjectFields:
         result = mcp.call_sync("update_project", id=project_id, when="evening")
         assert_write_error(result, "UNSUPPORTED_FOR_PROJECTS")
         assert result.get("field") == "when", result
+
+        record = read_back(project_id, lambda r: r is not None)
+        assert record is not None and record.get("title") == original_title, record
+
+    def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox, live_server):
+        """hq-4gn: unlike when='evening' (UNSUPPORTED_FOR_PROJECTS),
+        update_project(when='YYYY-MM-DD@HH:MM') IS supported - routed via
+        the Things URL scheme's 'update-project' action (requires the auth
+        token), which sets the project's reminder natively."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
+        project_id, _, _ = _new_project(mcp, sandbox)
+        result = mcp.call_sync(
+            "update_project", id=project_id, when=f"{when_date}@11:20"
+        )
+        assert result.get("success") is True, result
+
+        record = read_back(
+            project_id,
+            lambda r: r is not None and r.get("reminder_time") is not None,
+        )
+        assert record is not None
+        assert record.get("reminder_time") == "11:20", record
+        assert record.get("start_date") == when_date, record
+
+    def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
+        """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires
+        the auth token, checked BEFORE any AppleScript write - a title
+        passed in the same call must not be applied either."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        project_id, original_title, _ = _new_project(mcp, sandbox)
+        when_date = (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
+            result = mcp.call_sync(
+                "update_project",
+                id=project_id,
+                when=f"{when_date}@11:20",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+        finally:
+            manager.auth_token = original_token
 
         record = read_back(project_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record

@@ -168,27 +168,6 @@ class TestAddTodoWhen:
         )
         assert record is not None and record.get("start_date") == when_date, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed: add_todo(when='YYYY-MM-DD@HH:MM') is accepted by "
-            "ParameterValidator.validate_date_format (allows the '@HH:MM' "
-            "suffix) and passed through to "
-            "scheduling.strategies.SchedulingStrategies.schedule_todo_reliable, "
-            "but that scheduler's date parsing "
-            "(locale_aware_dates.normalize_date_input) only extracts "
-            "year/month/day - the '@HH:MM' time component is silently "
-            "dropped before any AppleScript is built, so no reminder is "
-            "ever set. Live: add_todo(when='<+9d>@14:30', ...) -> success, "
-            "but a things.get() read-back shows start_date correctly set "
-            "to the target date, reminder_time is None (never set), and "
-            "'start' unexpectedly reports 'Someday' rather than a "
-            "scheduled state. This test encodes the documented behavior "
-            "(CLAUDE.md: 'YYYY-MM-DD@HH:MM (assert reminderTime)') and is "
-            "expected to fail until the AppleScript scheduling path is "
-            "taught to honor the time component."
-        ),
-    )
     def test_when_iso_date_with_time_sets_reminder(self, mcp, sandbox):
         from datetime import date, timedelta
 

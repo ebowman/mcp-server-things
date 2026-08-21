@@ -353,10 +353,26 @@ class ParameterValidator:
                     date_str
                 )
 
-        # Check for datetime format with time component (YYYY-MM-DD@HH:MM)
-        datetime_pattern = r'^\d{4}-\d{2}-\d{2}@\d{1,2}:\d{2}$'
-        if '@' in date_str and re.match(datetime_pattern, date_str):
-            return date_str  # Valid datetime format
+        # Check for datetime format with time component (YYYY-MM-DD@HH:MM).
+        # The date portion is validated the same way as the plain
+        # YYYY-MM-DD case above (real calendar date, via strptime), and the
+        # time portion's hour/minute ranges are validated explicitly -
+        # datetime.strptime with '%H:%M' already rejects out-of-range
+        # values (e.g. '25:99'), which a bare regex does not.
+        datetime_pattern = r'^(\d{4}-\d{2}-\d{2})@(\d{1,2}:\d{2})$'
+        datetime_match = re.match(datetime_pattern, date_str)
+        if datetime_match:
+            date_part, time_part = datetime_match.groups()
+            try:
+                datetime.strptime(date_part, '%Y-%m-%d')
+                datetime.strptime(time_part, '%H:%M')
+                return date_str  # Valid datetime format
+            except ValueError as e:
+                raise ValidationError(
+                    field_name,
+                    f"is not a valid date/time: {str(e)}",
+                    date_str
+                )
 
         if allow_relative:
             message = f"must be in YYYY-MM-DD format or a relative date (today, tomorrow, etc.), got '{date_str}'"

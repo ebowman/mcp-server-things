@@ -497,6 +497,66 @@ class TestBulkUpdateEvening:
             assert record.get("start") != "Anytime" or record.get("start_date") is None, record
 
 
+class TestBulkUpdateWhenWithTime:
+    """hq-4gn: bulk_update_todos(when='YYYY-MM-DD@HH:MM') is routed via the
+    Things URL scheme's per-todo 'update' action (same pattern as
+    when='evening'), which sets each todo's reminder natively - the
+    AppleScript scheduling path used to silently drop the '@HH:MM'
+    component."""
+
+    def test_when_time_with_token_sets_reminder(self, mcp, sandbox, live_server):
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        from datetime import date, timedelta
+
+        when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
+        todo_ids, _ = _new_todos(mcp, sandbox, 2, prefix="bulk when time")
+        result = mcp.call_sync(
+            "bulk_update_todos", todo_ids=",".join(todo_ids), when=f"{when_date}@13:15"
+        )
+        assert result.get("success") is True, result
+
+        for todo_id in todo_ids:
+            record = read_back(
+                todo_id,
+                lambda r: r is not None and r.get("reminder_time") is not None,
+            )
+            assert record is not None
+            assert record.get("reminder_time") == "13:15", record
+            assert record.get("start_date") == when_date, record
+
+    def test_when_time_without_token_nothing_touched(self, mcp, sandbox, live_server):
+        """Monkeypatches the shared live AppleScriptManager's auth_token to
+        None for the duration of this test only, restoring it in a finally
+        block. Todos are created BEFORE the patch is applied."""
+        from datetime import date, timedelta
+
+        manager = live_server.applescript_manager
+        original_token = manager.auth_token
+        todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk when time no token")
+        when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
+        try:
+            manager.auth_token = None
+            should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
+            result = mcp.call_sync(
+                "bulk_update_todos",
+                todo_ids=",".join(todo_ids),
+                when=f"{when_date}@13:15",
+                title=should_not_apply,
+            )
+            assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
+            assert result.get("hint"), result
+            assert result.get("updated_count") == 0, result
+        finally:
+            manager.auth_token = original_token
+
+        for todo_id, original_title in zip(todo_ids, original_titles):
+            record = read_back(todo_id, lambda r: r is not None)
+            assert record is not None and record.get("title") == original_title, record
+            assert record.get("reminder_time") is None, record
+
+
 class TestBulkUpdateTiming:
     def test_25_id_batch_timing(self, mcp, sandbox):
         """25-id batch timing, recorded for reference only - no assertion

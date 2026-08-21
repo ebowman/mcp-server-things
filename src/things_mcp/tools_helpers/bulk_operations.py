@@ -8,7 +8,7 @@ from ..services.applescript_manager import AppleScriptManager
 from ..pure_applescript_scheduler import PureAppleScriptScheduler
 from ..services.tag_service import TagValidationService
 from ..parameter_validator import ParameterValidator, ValidationError, create_validation_error_response
-from ..locale_aware_dates import locale_handler
+from ..locale_aware_dates import locale_handler, when_has_time_component
 from .helpers import ToolsHelpers
 from .errors import write_error
 
@@ -251,6 +251,7 @@ class BulkOperations:
         # Handle scheduling
         scheduling_results = []
         when_is_evening = bool(when_value) and when_value.lower() == 'evening'
+        when_has_time = when_has_time_component(when_value)
         if when_value and success_count > 0:
             logger.info(f"Scheduling {success_count} todos for: {when_value}")
             for todo_id in todo_ids:
@@ -268,6 +269,24 @@ class BulkOperations:
                             "success": url_result.get('success', False),
                             "method": "url_scheme",
                             "date_set": "evening"
+                        }
+                    elif when_has_time:
+                        # 'YYYY-MM-DD@HH:MM' sets a reminder via the Things
+                        # URL scheme's 'update' action natively;
+                        # schedule_todo_reliable's AppleScript path
+                        # (locale_aware_dates.normalize_date_input) only
+                        # extracts year/month/day and silently drops the
+                        # time component, so no reminder is ever set
+                        # (hq-4gn). The auth token is already verified
+                        # present in bulk_update_todos before this method
+                        # is reached (same gate as when_is_evening).
+                        url_result = await self.applescript.execute_url_scheme(
+                            'update', {'id': todo_id, 'when': when_value}
+                        )
+                        schedule_result = {
+                            "success": url_result.get('success', False),
+                            "method": "url_scheme",
+                            "date_set": when_value
                         }
                     else:
                         schedule_result = await self.reliable_scheduler.schedule_todo_reliable(todo_id, when_value)
@@ -320,6 +339,16 @@ class BulkOperations:
         schedule calls happen second - if a given todo's evening-schedule
         call fails, the AppleScript fields already applied to that todo
         are NOT rolled back.
+
+        when='YYYY-MM-DD@HH:MM' (sets a reminder, hq-4gn) is routed the
+        same way as when='evening' above - AppleScript's 'schedule'
+        command has no way to honor the '@HH:MM' component
+        (schedule_todo_reliable's locale_aware_dates.normalize_date_input
+        silently drops it), so this form is scheduled via the Things URL
+        scheme's 'update' action per todo instead, with the same
+        up-front auth-token gate and AppleScript-first-then-URL-scheme
+        ordering (and the same no-rollback-on-URL-scheme-failure caveat)
+        as when='evening'.
         """
         try:
             # Validate parameters
@@ -328,12 +357,13 @@ class BulkOperations:
             if not todo_ids:
                 return write_error("NO_TODO_IDS", "No todo IDs provided", updated_count=0)
 
-            # when='evening' is only honoured via the Things URL scheme's
-            # 'update' action (AppleScript's 'schedule' command has no way to
-            # set the "This Evening" flag), which requires the Things auth
-            # token. Fail fast BEFORE any AppleScript write so nothing is
-            # partially applied across the batch.
-            if when_value and when_value.lower() == 'evening':
+            # when='evening' or when with a '@HH:MM' time component are
+            # only honoured via the Things URL scheme's 'update' action
+            # (AppleScript's 'schedule' command supports neither), which
+            # requires the Things auth token. Fail fast BEFORE any
+            # AppleScript write so nothing is partially applied across the
+            # batch.
+            if when_value and (when_value.lower() == 'evening' or when_has_time_component(when_value)):
                 if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
                     return write_error(

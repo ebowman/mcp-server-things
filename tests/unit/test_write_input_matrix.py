@@ -455,7 +455,12 @@ for w, exp in [
     ("evening", ok(route="url_add")),
     ("tonight", ok(route="url_add")),
     ("2031-01-15", ok(route="applescript")),
-    ("2031-01-15@14:30", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # 'add' action natively - the AppleScript scheduling path
+    # (locale_aware_dates.normalize_date_input) silently drops the time
+    # component, so this is routed to url_add instead (same as evening/tonight).
+    ("2031-01-15@14:30", ok(route="url_add", url_contains={"when": "2031-01-15@14:30"})),
+    ("2031-01-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", ok(route="applescript")),  # falsy -> no when applied at all, still AppleScript create
     (" ", write_error("VALIDATION_ERROR")),
@@ -544,7 +549,14 @@ for w, exp in [
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-02-15", ok(route="applescript")),
-    ("2031-02-15@09:00", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # 'update' action natively - the AppleScript scheduling path
+    # (locale_aware_dates.normalize_date_input) silently drops the time
+    # component, so this is routed to url_update instead (same as evening/tonight,
+    # including the auth-token requirement - see the AUTH_TOKEN_NOT_CONFIGURED
+    # case below).
+    ("2031-02-15@09:00", ok(route="url_update", url_contains={"when": "2031-02-15@09:00"})),
+    ("2031-02-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
     (" ", write_error("VALIDATION_ERROR")),
@@ -626,10 +638,11 @@ add("update_todo", {"id": "TODOID1", "list_title": SENTINEL_LIST_TITLE}, ok(rout
 add("update_todo", {"id": "TODOID1", "list_title": AMBIGUOUS_LIST_TITLE}, write_error("AMBIGUOUS_TARGET"))
 add("update_todo", {"id": "TODOID1", "list_title": UNKNOWN_LIST_TITLE}, write_error("NOT_FOUND"))
 
-# auth gate: heading/evening require the URL-scheme auth token
+# auth gate: heading/evening/when-with-time require the URL-scheme auth token
 add("update_todo", {"id": "TODOID1", "heading": "H", "list_id": "PROJHEAD1"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 add("update_todo", {"id": "TODOID1", "when": "evening"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 add("update_todo", {"id": "TODOID1", "when": "tonight"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+add("update_todo", {"id": "TODOID1", "when": "2031-02-15@09:00"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 # no-partial-update-on-failed-gate: title in the same call must not apply either
 add(
     "update_todo",
@@ -680,6 +693,12 @@ for w, exp in [
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-03-15", ok(route="applescript")),
+    # hq-4gn: 'YYYY-MM-DD@HH:MM' sets a reminder via the Things URL scheme's
+    # per-todo 'update' action natively - schedule_todo_reliable's AppleScript
+    # path drops the time component, so this is routed to url_update instead
+    # (same as evening/tonight, including the auth-token requirement).
+    ("2031-03-15@11:45", ok(route="url_update", url_contains={"when": "2031-03-15@11:45"})),
+    ("2031-03-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
     (" ", write_error("VALIDATION_ERROR")),
@@ -710,6 +729,7 @@ add("bulk_update_todos", {"todo_ids": "T1,T2", "canceled": "1"}, write_error("VA
 add("bulk_update_todos", {"todo_ids": "T1,T2", "completed": True}, tool_error())
 
 add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "evening"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
+add("bulk_update_todos", {"todo_ids": "T1,T2", "when": "2031-03-15@11:45"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 
 
 # ===========================================================================
@@ -750,10 +770,22 @@ for w, exp in [
     ("someday", ok(route="applescript", contains=['list "Someday"'])),
     ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("2031-04-15", ok(route="applescript")),
+    # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
+    # IS supported for projects - live-probed against things:///add-project
+    # and things:///update-project, both of which set a project reminder
+    # natively. The plain AppleScript create path applies this via a
+    # follow-up 'update-project' URL-scheme call (requires the auth token -
+    # see the AUTH_TOKEN_NOT_CONFIGURED case below), so the route here is
+    # url_update (the URL-scheme detector prefers the URL call over the
+    # AppleScript create call - see _detect_route).
+    ("2031-04-15@08:00", ok(route="url_update", url_contains={"when": "2031-04-15@08:00"})),
+    ("2031-04-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", ok(route="applescript")),
 ]:
     add("add_project", {"title": "P", "when": w}, exp)
+
+add("add_project", {"title": "P", "when": "2031-04-15@08:00"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 
 for d, exp in [
     ("2031-04-15", ok(route="applescript", contains=["due date of newProject"])),
@@ -804,10 +836,19 @@ for w, exp in [
     ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
     ("evening", write_error("UNSUPPORTED_FOR_PROJECTS")),  # projects don't support Evening
     ("2031-05-15", ok(route="applescript")),
+    # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
+    # IS supported for projects - live-probed against things:///update-project,
+    # which sets a project reminder natively (same as update_todo's evening
+    # routing, including the auth-token requirement - see the
+    # AUTH_TOKEN_NOT_CONFIGURED case below).
+    ("2031-05-15@16:20", ok(route="url_update", url_contains={"when": "2031-05-15@16:20"})),
+    ("2031-05-15@25:99", write_error("INVALID_WHEN")),  # out-of-range hour/minute
     ("bogus", write_error("INVALID_WHEN")),
     ("", write_error("VALIDATION_ERROR")),
 ]:
     add("update_project", {"id": "PROJECTID1", "when": w}, exp)
+
+add("update_project", {"id": "PROJECTID1", "when": "2031-05-15@16:20"}, write_error("AUTH_TOKEN_NOT_CONFIGURED"), auth_token=None)
 
 for d, exp in [
     ("2031-05-15", ok(route="applescript", contains=["due date of targetProject"])),
@@ -1089,9 +1130,9 @@ def _detect_route(fake: RecordingAppleScriptManager) -> Optional[str]:
     an AppleScript execution for an unrelated pre-check."""
     if fake.url_scheme_calls:
         action = fake.url_scheme_calls[-1][0]
-        if action == "add":
+        if action in ("add", "add-project"):
             return "url_add"
-        if action == "update":
+        if action in ("update", "update-project"):
             return "url_update"
         if action == "json":
             return "url_json"
