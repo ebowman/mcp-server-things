@@ -47,7 +47,7 @@ class AppleScriptManager:
     # Class-level lock shared across all instances (delegated to executor)
     _applescript_lock = asyncio.Lock()
 
-    def __init__(self, timeout: int = 45, retry_count: int = 3, config: Optional[ThingsMCPConfig] = None):
+    def __init__(self, timeout: int = 45, retry_count: int = 0, config: Optional[ThingsMCPConfig] = None):
         """Initialize the AppleScript manager.
 
         Args:
@@ -187,4 +187,3 @@ class AppleScriptManager:
     def clear_cache(self) -> None:
         """Clear all cached results - no-op in hybrid implementation."""
         logger.info("Cache clearing requested but caching is disabled in hybrid implementation")
-

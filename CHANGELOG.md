@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **AppleScript retries are now opt-in and CLI retry settings reach the live server.** `--retry-count` now means retries after the initial attempt, defaults to zero, and no longer gets discarded during normal server startup. This avoids silently replaying potentially non-idempotent writes such as task creation while preserving explicit retries for users who choose them.
+
 ## [1.7.0] - 2026-08-19
 
 This release closes out two user-reported issues: [#9](https://github.com/ebowman/mcp-server-things/issues/9)
