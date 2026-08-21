@@ -1018,9 +1018,11 @@ move_record(
 # Move multiple todos (bulk operation - much faster)
 bulk_move_records(
     todo_ids="todo1,todo2,todo3",
-    destination="project:project456",
-    preserve_scheduling=true
+    destination="project:project456"
 )
+# Scheduling on move (no preserve_scheduling parameter exists):
+# moves into a project/area leave when/deadline untouched; moving to
+# "today" sets the start date to today (deadline untouched).
 ```
 
 ### Destination Formats

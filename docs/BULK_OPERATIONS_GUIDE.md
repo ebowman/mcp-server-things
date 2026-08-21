@@ -69,11 +69,16 @@ Move multiple todos to the same destination with concurrent execution.
 **Parameters**:
 - `todo_ids` (required): List of todo IDs to move
 - `destination` (required): Target location
-  - Lists: "inbox", "today", "anytime", "someday", "upcoming"
+  - Lists: "inbox", "today", "anytime", "someday", "logbook", "trash"
+    ("upcoming" is not a valid destination - schedule with update_todo(when=...) instead)
   - Projects: "project:PROJECT-UUID"
   - Areas: "area:AREA-UUID"
-- `preserve_scheduling`: Keep existing schedule (default: True)
 - `max_concurrent`: Concurrent operations (default: 5, range: 1-10)
+
+Scheduling on move (there is no `preserve_scheduling` parameter): moves into
+a project/area leave `when`/`deadline` untouched; moving to "today" sets the
+start date to today (deadline untouched); "logbook" completes the to-dos;
+"trash" trashes them.
 
 **Returns**:
 ```python
@@ -86,7 +91,6 @@ Move multiple todos to the same destination with concurrent execution.
     "total_failed": 1,
     "successful_moves": [{...}, ...],
     "failed_moves": [{...}, ...],
-    "preserve_scheduling": True,
     "completed_at": "2025-09-30T10:30:00"
 }
 ```
@@ -104,7 +108,6 @@ result = await tools.move_operations.bulk_move(
 result = await tools.move_operations.bulk_move(
     todo_ids=backlog_items,
     destination="project:ABC-123-DEF",
-    preserve_scheduling=True
 )
 
 # Move with high concurrency
@@ -195,10 +198,9 @@ result = await tools.move_operations.bulk_move(
    await bulk_move(large_list, "today", max_concurrent=7)
    ```
 
-4. **Use preserve_scheduling by default**
-   ```python
-   await bulk_move(todos, "today", preserve_scheduling=True)
-   ```
+4. **Scheduling is destination-driven** - project/area moves keep
+   `when`/`deadline`; "today" re-schedules to today. There is no
+   `preserve_scheduling` parameter.
 
 5. **Batch similar operations together**
    ```python
@@ -521,7 +523,6 @@ async def bulk_move(
     self,
     todo_ids: List[str],           # Required: IDs to move
     destination: str,              # Required: Target location
-    preserve_scheduling: bool = True,
     max_concurrent: int = 5
 ) -> Dict[str, Any]:
     """
@@ -530,7 +531,6 @@ async def bulk_move(
     Args:
         todo_ids: List of todo IDs
         destination: Target (list, project:ID, area:ID)
-        preserve_scheduling: Keep schedule
         max_concurrent: Concurrent ops (1-10)
 
     Returns:
@@ -575,7 +575,6 @@ async def bulk_move(
 ║ BEST PRACTICES                                             ║
 ║ • Use bulk for 3+ items with same changes                 ║
 ║ • Check updated_count AND failed_count                    ║
-║ • Use preserve_scheduling=True by default                 ║
 ║ • Batch size: 10-50 items optimal                         ║
 ║                                                            ║
 ║ COMMON DESTINATIONS                                        ║
