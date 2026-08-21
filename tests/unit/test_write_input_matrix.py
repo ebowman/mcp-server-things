@@ -1087,18 +1087,14 @@ add("update_area", {"id": "AREAID1", "tags": "a,b"}, ok(route="applescript", con
 # add_tags / remove_tags
 # ===========================================================================
 
-# NOTE (Discovered): neither add_tags nor remove_tags validates todo_id
-# for non-empty/non-whitespace at the server layer (unlike update_todo/
-# delete_todo/move_record, which all call
-# ParameterValidator.validate_non_empty_string on their id parameter) - an
-# empty or whitespace-only todo_id is sent straight through as
-# `to do id ""` / `to do id "   "` and Things' AppleScript error handling
-# (mocked here as unconditional success) determines the outcome, not this
-# server. Cases below assert the OBSERVED behavior (success, since the fake
-# manager never simulates an AppleScript-level failure for a bad id).
+# hq-a5j: add_tags/remove_tags now validate todo_id for non-empty/
+# non-whitespace at the write_operations layer (matching update_todo/
+# delete_todo, which call ParameterValidator.validate_non_empty_string on
+# their id parameter) - an empty or whitespace-only todo_id is rejected
+# with a structured VALIDATION_ERROR before any AppleScript call is made.
 add("add_tags", {"todo_id": "TODOID1", "tags": "urgent"}, ok(route="applescript", contains=["tag names of targetTodo to"]))
-add("add_tags", {"todo_id": "", "tags": "urgent"}, ok(route="applescript", contains=['to do id ""']))
-add("add_tags", {"todo_id": "   ", "tags": "urgent"}, ok(route="applescript", contains=['to do id "   "']))
+add("add_tags", {"todo_id": "", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
+add("add_tags", {"todo_id": "   ", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
 add("add_tags", {"todo_id": SPECIAL_CHARS, "tags": "urgent"}, ok(route="applescript"))
 
 add("add_tags", {"todo_id": "TODOID1", "tags": ""}, write_error("NO_VALID_TAGS"))
@@ -1107,8 +1103,8 @@ add("add_tags", {"todo_id": "TODOID1", "tags": "a,b"}, ok(route="applescript", c
 add("add_tags", {"todo_id": "TODOID1", "tags": "a, b"}, ok(route="applescript", contains=["set tag names of targetTodo to"]))
 
 add("remove_tags", {"todo_id": "RTID1", "tags": "urgent"}, ok(route="applescript", contains=["set tag names of targetTodo to"]))
-add("remove_tags", {"todo_id": "", "tags": "urgent"}, ok(route="applescript", contains=['to do id ""']))
-add("remove_tags", {"todo_id": "   ", "tags": "urgent"}, ok(route="applescript", contains=['to do id "   "']))
+add("remove_tags", {"todo_id": "", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
+add("remove_tags", {"todo_id": "   ", "tags": "urgent"}, write_error("VALIDATION_ERROR"))
 # tags='' / ' , ' parse to an empty list, current tags is also empty (no
 # seed) -> a no-op removal (0 removed, nothing not_present) rather than a
 # validation error - remove_tags applies no non-empty-tags precondition
@@ -1188,11 +1184,11 @@ add(
 add("create_tag", {"tag_name": "newtag"}, ok(route="applescript", contains=["make new tag with properties"]), tag_policy=TagCreationPolicy.ALLOW_ALL)
 add("create_tag", {"tag_name": "newtag"}, write_error("TAG_CREATION_RESTRICTED"), tag_policy=TagCreationPolicy.FAIL_ON_UNKNOWN)
 add("create_tag", {"tag_name": SPECIAL_CHARS}, ok(route="applescript", contains=['he said \\"hi\\"']), tag_policy=TagCreationPolicy.ALLOW_ALL)
-# tag_name has no minLength in the schema, so '' still passes pydantic and
-# reaches the AppleScript create path unchanged - Things itself rejects an
-# actually-empty name there (see TestCreateTag::test_empty_name_rejected),
-# so this remains a no-op AppleScript call rather than a blank tag.
-add("create_tag", {"tag_name": ""}, ok(route="applescript"), tag_policy=TagCreationPolicy.ALLOW_ALL)
+# hq-a5j: tag_name now has min_length=1 in the schema, so '' is rejected by
+# pydantic at the MCP tool boundary before the tool body ever runs (a
+# ToolError, not a structured write-error response) - see
+# TestCreateTag::test_empty_name_rejected.
+add("create_tag", {"tag_name": ""}, tool_error(), tag_policy=TagCreationPolicy.ALLOW_ALL)
 # hq-r87: a whitespace-only tag_name is now rejected by a runtime guard
 # before any AppleScript call is made (previously it reached AppleScript
 # unchanged, which Things silently trimmed to '', creating a real
@@ -1230,11 +1226,11 @@ for dest, exp in [
     add("move_record", {"todo_id": "TODOID1", "destination_list": dest}, exp)
 
 add("move_record", {"todo_id": "", "destination_list": "today"}, write_error("VALIDATION_ERROR"))
-# move_record's own todo_id validation only rejects a falsy (empty) string,
-# not a whitespace-only one - "   " passes _validate_move_inputs and
-# proceeds to the (mocked) AppleScript move (observed; distinct from
-# update_todo/delete_todo, which reject whitespace-only ids too).
-add("move_record", {"todo_id": "   ", "destination_list": "today"}, ok(route="applescript"))
+# hq-a5j: move_record's todo_id validation now rejects whitespace-only ids
+# too (previously only a falsy/empty string was rejected; "   " passed
+# _validate_move_inputs and proceeded to the AppleScript move), matching
+# update_todo/delete_todo.
+add("move_record", {"todo_id": "   ", "destination_list": "today"}, write_error("VALIDATION_ERROR"))
 add("move_record", {"todo_id": SPECIAL_CHARS, "destination_list": "today"}, ok(route="applescript"))
 
 

@@ -648,6 +648,12 @@ class WriteOperations:
     async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
         """Add tags to a todo using AppleScript."""
         try:
+            todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
+        except ValidationError as e:
+            logger.error(f"Validation error in add_tags: {e}")
+            return create_validation_error_response(e)
+
+        try:
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(",")] if tags else []
 
@@ -740,6 +746,12 @@ class WriteOperations:
         via `not_present`; there is nothing for the policy to filter or
         create.
         """
+        try:
+            todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
+        except ValidationError as e:
+            logger.error(f"Validation error in remove_tags: {e}")
+            return create_validation_error_response(e)
+
         try:
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(",")] if tags else []

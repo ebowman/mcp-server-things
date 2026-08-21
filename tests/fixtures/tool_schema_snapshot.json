@@ -389,6 +389,7 @@
     "name": "create_tag",
     "properties": {
       "tag_name": {
+        "minLength": 1,
         "type": "string"
       }
     },

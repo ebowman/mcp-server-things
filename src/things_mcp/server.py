@@ -407,7 +407,7 @@ class ThingsMCPServer:
         
         @self.mcp.tool()
         async def create_tag(
-            tag_name: str = Field(..., description="Name of the tag to create")
+            tag_name: str = Field(..., min_length=1, description="Name of the tag to create")
         ) -> Dict[str, Any]:
             """Create a new tag. Note: For human use only, AI should ask users to create tags."""
             # Check if AI can create tags based on configuration

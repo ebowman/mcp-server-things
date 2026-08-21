@@ -809,6 +809,18 @@ class TestMoveRecordErrors:
         )
         assert_write_error(result, "TODO_NOT_FOUND")
 
+    def test_whitespace_only_todo_id(self, mcp, sandbox):
+        """hq-a5j: move_record's todo_id validation now rejects a
+        whitespace-only id the same as an empty one (previously only a
+        falsy/empty string was rejected; '   ' passed _validate_move_inputs
+        and proceeded to the AppleScript move against a literal `to do id
+        "   "`)."""
+        result = mcp.call_sync(
+            "move_record", todo_id="   ", destination_list="today"
+        )
+        assert_write_error(result, "VALIDATION_ERROR")
+        assert result.get("field") == "todo_id", result
+
 
 # ---------------------------------------------------------------------------
 # 3. bulk_move_records

@@ -53,13 +53,16 @@ class MoveOperationsTools:
             # Validate inputs
             validation_result = await self._validate_move_inputs(todo_id, destination)
             if not validation_result["valid"]:
-                return {
+                error_response = {
                     "success": False,
                     "error": "VALIDATION_ERROR",
                     "message": validation_result["message"],
                     "todo_id": todo_id,
                     "destination": destination
                 }
+                if "field" in validation_result:
+                    error_response["field"] = validation_result["field"]
+                return error_response
             
             # Get current todo information before moving
             current_todo = await self._get_todo_info(todo_id)
@@ -247,10 +250,11 @@ class MoveOperationsTools:
     
     async def _validate_move_inputs(self, todo_id: str, destination: str) -> Dict[str, Any]:
         """Validate move operation inputs."""
-        if not todo_id or not isinstance(todo_id, str):
+        if not todo_id or not isinstance(todo_id, str) or not todo_id.strip():
             return {
                 "valid": False,
-                "message": "Todo ID must be a non-empty string"
+                "message": "Todo ID must be a non-empty string",
+                "field": "todo_id"
             }
         
         if not destination or not isinstance(destination, str):

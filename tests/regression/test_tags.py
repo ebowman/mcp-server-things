@@ -238,6 +238,15 @@ class TestAddTags:
         )
         assert result.get("success") is False, result
 
+    def test_whitespace_only_todo_id_rejected(self, mcp):
+        """hq-a5j: add_tags now validates todo_id for non-empty/
+        non-whitespace before any AppleScript call, matching update_todo/
+        delete_todo (previously '   ' passed straight through as a literal
+        `to do id "   "` AppleScript reference)."""
+        result = mcp.call_sync("add_tags", todo_id="   ", tags="whatever")
+        assert_write_error(result, "VALIDATION_ERROR")
+        assert result.get("field") == "todo_id", result
+
 
 # ---------------------------------------------------------------------------
 # 2. remove_tags
@@ -341,6 +350,15 @@ class TestRemoveTags:
         _delete_tag_by_name(upper_name)
         _delete_tag_by_name(lower_name)
 
+    def test_empty_todo_id_rejected(self, mcp):
+        """hq-a5j: remove_tags now validates todo_id for non-empty/
+        non-whitespace before any AppleScript call, matching update_todo/
+        delete_todo (previously '' passed straight through as a literal
+        `to do id ""` AppleScript reference)."""
+        result = mcp.call_sync("remove_tags", todo_id="", tags="whatever")
+        assert_write_error(result, "VALIDATION_ERROR")
+        assert result.get("field") == "todo_id", result
+
 
 # ---------------------------------------------------------------------------
 # 3. create_tag
@@ -386,9 +404,14 @@ class TestCreateTag:
         )
 
     def test_empty_name_rejected(self, monkeypatch, sandbox):
+        """hq-a5j: tag_name now has min_length=1 in the schema, so '' is
+        rejected by pydantic at the MCP tool boundary before the tool body
+        ever runs - a FastMCP ToolError (surfaced by the `mcp2` helper as
+        {"tool_error": ...}), not the TAG_CREATION_FAILED structured
+        write-error this used to return via the AppleScript-layer path."""
         server, mcp2 = _second_server(monkeypatch, ai_can_create_tags=True)
         result = mcp2.call_sync("create_tag", tag_name="")
-        assert_write_error(result, "TAG_CREATION_FAILED")
+        assert "tool_error" in result, result
 
     def test_whitespace_only_name_rejected(self, monkeypatch, sandbox):
         """hq-r87: create_tag('   ') (whitespace-only) is now rejected by a
