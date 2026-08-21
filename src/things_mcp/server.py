@@ -126,11 +126,18 @@ def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
     
-    def __init__(self, env_file: Optional[str] = None):
+    def __init__(
+        self,
+        env_file: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retry_count: Optional[int] = None,
+    ):
         """Initialize the Things MCP server.
         
         Args:
             env_file: Optional path to .env file
+            timeout: Optional AppleScript timeout override in seconds
+            retry_count: Optional number of retries after the initial attempt
         """
         self.mcp = FastMCP("things-mcp")
         
@@ -147,6 +154,11 @@ class ThingsMCPServer:
                 self.config = load_config_from_env()
         else:
             self.config = load_config_from_env()
+
+        if timeout is not None:
+            self.config.applescript_timeout = timeout
+        if retry_count is not None:
+            self.config.applescript_retry_count = retry_count
         boot_marker("config-loaded")
 
         # Configure logging based on config
@@ -168,7 +180,11 @@ class ThingsMCPServer:
             # Must never affect server startup.
             pass
 
-        self.applescript_manager = AppleScriptManager()
+        self.applescript_manager = AppleScriptManager(
+            timeout=self.config.applescript_timeout,
+            retry_count=self.config.applescript_retry_count,
+            config=self.config,
+        )
         boot_marker("applescript-manager-ready")
         self.tools = ThingsTools(self.applescript_manager, self.config)
         self.context_manager = ContextAwareResponseManager()

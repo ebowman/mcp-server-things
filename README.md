@@ -327,7 +327,7 @@ python -m things_mcp --test-applescript
 # Show version
 python -m things_mcp --version
 
-# Customize timeout and retry settings
+# Customize timeout and retry settings (the retry count is retries after the initial attempt)
 python -m things_mcp --timeout 60 --retry-count 5
 
 # Run with HTTP transport instead of stdio

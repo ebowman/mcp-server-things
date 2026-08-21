@@ -21,7 +21,7 @@ class AppleScriptExecutor:
     # This ensures only one AppleScript command executes at a time across the entire process
     _applescript_lock = asyncio.Lock()
 
-    def __init__(self, timeout: int = 45, retry_count: int = 3):
+    def __init__(self, timeout: int = 45, retry_count: int = 0):
         """Initialize the AppleScript executor.
 
         Args:
@@ -56,7 +56,9 @@ class AppleScriptExecutor:
         """Execute script with retry logic."""
         last_error = None
 
-        for attempt in range(self.retry_count):
+        attempts = self.retry_count + 1
+
+        for attempt in range(attempts):
             result = await self._execute_script(script)
 
             if result.get("success"):
@@ -64,14 +66,15 @@ class AppleScriptExecutor:
 
             last_error = result.get("error")
 
-            if attempt < self.retry_count - 1:
+            if attempt < self.retry_count:
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Script execution failed, retrying in {wait_time}s: {last_error}")
                 await asyncio.sleep(wait_time)
 
+        attempt_label = "attempt" if attempts == 1 else "attempts"
         return {
             "success": False,
-            "error": f"Failed after {self.retry_count} attempts: {last_error}"
+            "error": f"Failed after {attempts} {attempt_label}: {last_error}"
         }
 
     async def _execute_script(self, script: str) -> Dict[str, Any]:
