@@ -336,24 +336,7 @@ class TestModes:
         "mode",
         [
             "auto",
-            pytest.param(
-                "summary",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason=(
-                        "observed: context_manager.py's _summarize_todos() builds "
-                        "'recent_preview' items as {'id': ..., 'name': ...} "
-                        "(mirroring _summarize_projects/_summarize_search_results), "
-                        "not the documented SUMMARY field set "
-                        "{uuid, title, status, tags, dueDate} from CLAUDE.md's "
-                        "'Todo field lists per mode' - the preview items carry "
-                        "different key names entirely, not just a subset. Verified "
-                        "live via get_todos(mode='summary') and get_anytime("
-                        "mode='summary'), so this is a real doc/behavior "
-                        "contradiction, not a seed-timing flake."
-                    ),
-                ),
-            ),
+            "summary",
             "minimal",
             "standard",
             "detailed",
