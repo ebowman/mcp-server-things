@@ -543,6 +543,12 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
+            A successful response includes ``todo_id`` and ``verified``.
+            When verified is true, ``item`` is the final state returned by
+            ``get_todo_by_id``. If readback fails after the write, success
+            remains true, verified is false, and ``verification_error`` plus
+            a warning explain that callers must not retry automatically.
+
             Status semantics for completed/canceled (identical across update_todo,
             bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
             table): canceled='true' always wins regardless of completed (e.g.
@@ -684,7 +690,7 @@ class ThingsMCPServer:
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
 
-                return result
+                return await self._todo_write_receipt(id, result)
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
                 raise
@@ -937,9 +943,19 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to move"),
             destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
         ) -> Dict[str, Any]:
-            """Move a todo to a different list, project, or area."""
+            """Move a todo to a different list, project, or area.
+
+            A successful response includes ``todo_id`` and ``verified``.
+            When verified is true, ``item`` is the final state returned by
+            ``get_todo_by_id``. If readback fails after the write, success
+            remains true, verified is false, and ``verification_error`` plus
+            a warning explain that callers must not retry automatically.
+            """
             try:
-                return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
+                result = await self.tools.move_record(
+                    todo_id=todo_id, destination_list=destination_list
+                )
+                return await self._todo_write_receipt(todo_id, result)
             except Exception as e:
                 logger.error(f"Error moving todo: {e}")
                 raise
@@ -2398,6 +2414,59 @@ class ThingsMCPServer:
             A dict with 'success', 'error', 'message', plus any extra fields.
         """
         return _tools_write_error(code, message, **extra)
+
+    async def _todo_write_receipt(
+        self, todo_id: str, result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Attach the target id and final item state to a successful write."""
+        if not result.get("success"):
+            return result
+
+        try:
+            item = await self.tools.get_todo_by_id(todo_id)
+        except Exception as exc:
+            verification_error = self._read_error(
+                "readback_failed",
+                "Final item readback failed.",
+                details=str(exc),
+            )
+            return self._unverified_todo_write_receipt(
+                todo_id, result, verification_error
+            )
+
+        if isinstance(item, dict) and item.get("success") is False:
+            return self._unverified_todo_write_receipt(todo_id, result, item)
+
+        return {
+            **result,
+            "todo_id": todo_id,
+            "verified": True,
+            "item": item,
+        }
+
+    @staticmethod
+    def _unverified_todo_write_receipt(
+        todo_id: str,
+        result: Dict[str, Any],
+        verification_error: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Report readback failure without misreporting the completed write."""
+        warning = (
+            "Write succeeded, but final item state could not be verified; "
+            "do not retry automatically."
+        )
+        existing_warnings = result.get("warnings")
+        warnings = (
+            list(existing_warnings) if isinstance(existing_warnings, list) else []
+        )
+        warnings.append(warning)
+        return {
+            **result,
+            "todo_id": todo_id,
+            "verified": False,
+            "verification_error": verification_error,
+            "warnings": warnings,
+        }
 
     def _read_result(
         self,

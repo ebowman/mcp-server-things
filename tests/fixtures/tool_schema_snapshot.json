@@ -960,7 +960,7 @@
     "required": []
   },
   "move_record": {
-    "description_sha256": "59d07ed7cb7d6f1fddcdd8dec3986b5f66ad03f0b108f41dcf3f46cbd819b73c",
+    "description_sha256": "c933ecb42e9fbd034e005561ab538691a3a96f69c74d50a9b2cbff95c60d55ea",
     "has_output_schema": true,
     "name": "move_record",
     "properties": {
@@ -1338,7 +1338,7 @@
     ]
   },
   "update_todo": {
-    "description_sha256": "5886ed3b412d0d7312f726df13e3bb860cbc4533799be2d123b9689c167245a4",
+    "description_sha256": "a4b05cdb5f3f2f5f8ff887d10a831596bf7b77c7d0da6bde063dec5eb575f148",
     "has_output_schema": true,
     "name": "update_todo",
     "properties": {
