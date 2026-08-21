@@ -243,18 +243,11 @@ class ThingsMCPServer:
         def shutdown_handler():
             """Handle server shutdown."""
             try:
-                import sys
                 # Skip shutdown during pytest to prevent stream conflicts
                 if hasattr(sys, '_called_from_test') or 'pytest' in sys.modules:
                     return
-                    
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If we're in an async context, schedule the shutdown
-                    loop.create_task(shutdown_operation_queue())
-                else:
-                    # If not, run it directly
-                    loop.run_until_complete(shutdown_operation_queue())
+
+                self.stop()
             except Exception as e:
                 # Use safe logging during shutdown
                 try:
@@ -270,6 +263,16 @@ class ThingsMCPServer:
         if sys.platform != 'win32':
             signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
             signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
+
+    @staticmethod
+    def _stop_operation_queue() -> None:
+        """Run queue cleanup with or without an active event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(shutdown_operation_queue())
+        else:
+            loop.create_task(shutdown_operation_queue())
     
     async def _registered_tool_count(self) -> int:
         """Return the number of tools currently registered with the MCP server.
@@ -2581,11 +2584,7 @@ class ThingsMCPServer:
             
         try:
             # Shutdown operation queue
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(shutdown_operation_queue())
-            else:
-                loop.run_until_complete(shutdown_operation_queue())
+            self._stop_operation_queue()
         except Exception as e:
             try:
                 logger.error(f"Error stopping operation queue: {e}")

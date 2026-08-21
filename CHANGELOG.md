@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Clean stdio disconnects no longer emit event-loop shutdown errors.** Queue cleanup now creates a temporary event loop after FastMCP has closed its loop and reuses a running loop when one exists, across both the normal stop and `atexit` paths.
+
 ## [1.7.0] - 2026-08-19
 
 This release closes out two user-reported issues: [#9](https://github.com/ebowman/mcp-server-things/issues/9)
