@@ -420,6 +420,21 @@ class ThingsMCPServer:
                     existing_tags_hint="You can use get_tags to show the user existing tags they can use instead."
                 )
 
+            # Whitespace-only names (e.g. '   ') must be rejected the same
+            # way an empty name is: AppleScript's `make new tag with
+            # properties {name:"   "}` succeeds and Things silently trims
+            # the whitespace, creating a real tag with an empty title. An
+            # actually-empty name already fails at the AppleScript layer
+            # with TAG_CREATION_FAILED, so mirror that exact code/shape
+            # here rather than letting whitespace-only names reach
+            # AppleScript at all.
+            if tag_name is not None and tag_name.strip() == "" and tag_name != "":
+                return self._write_error(
+                    "TAG_CREATION_FAILED",
+                    "Tag creation failed",
+                    details=f"Failed to create tag '{tag_name}': tag name cannot be whitespace-only",
+                )
+
             # If AI can create tags, proceed
             try:
                 if self.tools.tag_validation_service:

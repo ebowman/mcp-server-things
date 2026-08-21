@@ -390,33 +390,24 @@ class TestCreateTag:
         result = mcp2.call_sync("create_tag", tag_name="")
         assert_write_error(result, "TAG_CREATION_FAILED")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed live: create_tag('   ') (whitespace-only) does NOT "
-            "reject the name the way create_tag('') does - AppleScript's "
-            "`make new tag with properties {name:\"   \"}` succeeds and "
-            "Things silently trims the whitespace, creating a real tag "
-            "with an empty title (things.tags() shows {'title': ''}). "
-            "create_tag has no whitespace-only guard (unlike e.g. "
-            "update_todo's notes/deadline clearing, which explicitly "
-            "treats whitespace-only as equivalent to empty - see "
-            "CLAUDE.md). This test encodes the expected/documented "
-            "contract (whitespace-only name is rejected same as empty) "
-            "and will XPASS-signal once create_tag adds that guard. The "
-            "blank-titled tag this creates is deleted in-test either way."
-        ),
-    )
     def test_whitespace_only_name_rejected(self, monkeypatch, sandbox):
+        """hq-r87: create_tag('   ') (whitespace-only) is now rejected by a
+        runtime guard in server.py's create_tag before any AppleScript call
+        is made, the same TAG_CREATION_FAILED code create_tag('') already
+        used (AppleScript's `make new tag with properties {name:"   "}`
+        would otherwise succeed and Things would silently trim the
+        whitespace, creating a real tag with an empty title -
+        things.tags() would show {'title': ''}). The finally-delete safety
+        net stays in case of regression."""
         server, mcp2 = _second_server(monkeypatch, ai_can_create_tags=True)
         result = mcp2.call_sync("create_tag", tag_name="   ")
         try:
-            assert result.get("success") is False, result
+            assert_write_error(result, "TAG_CREATION_FAILED")
         finally:
-            # Whitespace-only names are silently trimmed to '' by Things
-            # (see xfail reason) - clean up any blank-titled tag directly by
-            # uuid rather than by name (an empty name doesn't route through
-            # _delete_tag_by_name's title lookup cleanly).
+            # Safety net: if a blank-titled tag was created anyway (e.g. a
+            # regression), clean it up directly by uuid rather than by name
+            # (an empty name doesn't route through _delete_tag_by_name's
+            # title lookup cleanly).
             import things
 
             for t in things.tags() or []:

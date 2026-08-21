@@ -1164,6 +1164,21 @@ add(
     ok(route="applescript", contains=["set tag names of targetTodo to"]),
     tag_policy=TagCreationPolicy.ALLOW_ALL,
 )
+# hq-r87: whitespace-only tokens (e.g. from "  ,  ") never reach tag
+# validation/AppleScript at all - the MCP tool boundary's own
+# `_parse_tag_list` (server.py) already filters `if t.strip()` per token,
+# so "  ,  " parses to an empty tag list before add_tags' AppleScript-layer
+# code (tools_helpers/write_operations.py) ever sees it. add_tags then
+# reports its own "nothing left to apply" NO_VALID_TAGS (a read-only
+# existing-tags lookup capture happens first, but no mutation) - confirming
+# no blank-titled tag can be created via this path, unlike the pre-fix
+# create_tag('   ') bug this bead fixes.
+add(
+    "add_tags",
+    {"todo_id": "TODOID1", "tags": "  ,  "},
+    write_error("NO_VALID_TAGS", no_capture=False),
+    tag_policy=TagCreationPolicy.ALLOW_ALL,
+)
 
 
 # ===========================================================================
@@ -1173,11 +1188,21 @@ add(
 add("create_tag", {"tag_name": "newtag"}, ok(route="applescript", contains=["make new tag with properties"]), tag_policy=TagCreationPolicy.ALLOW_ALL)
 add("create_tag", {"tag_name": "newtag"}, write_error("TAG_CREATION_RESTRICTED"), tag_policy=TagCreationPolicy.FAIL_ON_UNKNOWN)
 add("create_tag", {"tag_name": SPECIAL_CHARS}, ok(route="applescript", contains=['he said \\"hi\\"']), tag_policy=TagCreationPolicy.ALLOW_ALL)
-# tag_name has no minLength in the schema - '' and whitespace-only both
-# pass pydantic and reach the AppleScript create path unchanged (observed;
-# not one of the bead's cited bugs, filed separately - see Discovered).
+# tag_name has no minLength in the schema, so '' still passes pydantic and
+# reaches the AppleScript create path unchanged - Things itself rejects an
+# actually-empty name there (see TestCreateTag::test_empty_name_rejected),
+# so this remains a no-op AppleScript call rather than a blank tag.
 add("create_tag", {"tag_name": ""}, ok(route="applescript"), tag_policy=TagCreationPolicy.ALLOW_ALL)
-add("create_tag", {"tag_name": "   "}, ok(route="applescript"), tag_policy=TagCreationPolicy.ALLOW_ALL)
+# hq-r87: a whitespace-only tag_name is now rejected by a runtime guard
+# before any AppleScript call is made (previously it reached AppleScript
+# unchanged, which Things silently trimmed to '', creating a real
+# blank-titled tag).
+add(
+    "create_tag",
+    {"tag_name": "   "},
+    write_error("TAG_CREATION_FAILED"),
+    tag_policy=TagCreationPolicy.ALLOW_ALL,
+)
 
 
 # ===========================================================================
