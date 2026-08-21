@@ -41,8 +41,11 @@ xfail - the live suite owns xfails per GBL_COMMON.md; comments cite the
 owning bead):
   - hq-z5d: move_record destination handling for 'someday'/'anytime'
     fallback quirks are exercised as observed, not asserted as "correct".
-  - hq-exe: add_checklist_items/prepend/replace enforce no cap on item
-    count - 101 items is accepted (ok), not rejected.
+  - hq-exe (FIXED): add_todo/add_checklist_items/prepend_checklist_items/
+    replace_checklist_items now reject a request with more than 100
+    checklist items with TOO_MANY_CHECKLIST_ITEMS before any write; exactly
+    100 items is still accepted. See CASES below for the 100-ok/101-rejected
+    pairs for each of the four tools.
   - hq-r87: a whitespace-only tag name (e.g. "  spacey  ") is accepted
     as a distinct tag after stripping - not rejected.
   - hq-nb1 (FIXED): all four TagCreationPolicy states are now reachable
@@ -573,8 +576,8 @@ add("add_todo", {"title": "T", "heading": "SomeHeading"}, write_error("VALIDATIO
 
 add("add_todo", {"title": "T", "checklist_items": []}, ok(route="applescript"))
 add("add_todo", {"title": "T", "checklist_items": ["one"]}, ok(route="url_add", url_contains={"checklist-items": "one"}))
-add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(100)]}, ok(route="url_add"))
-add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(101)]}, ok(route="url_add"))  # hq-exe: no cap enforced
+add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(100)]}, ok(route="url_add"))  # hq-exe: exactly 100 is accepted
+add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(101)]}, write_error("TOO_MANY_CHECKLIST_ITEMS"))  # hq-exe: 101 is rejected, no URL call made
 
 
 # ===========================================================================
@@ -1290,8 +1293,8 @@ for tool, url_key in [
 ]:
     add(tool, {"todo_id": "TODOID1", "items": ["one"]}, ok(route="url_update", url_contains={url_key: "one"}))
     add(tool, {"todo_id": "TODOID1", "items": ["a", "b", "c"]}, ok(route="url_update", url_contains={url_key: "a"}))
-    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(100)]}, ok(route="url_update"))
-    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(101)]}, ok(route="url_update"))  # hq-exe: no cap enforced
+    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(100)]}, ok(route="url_update"))  # hq-exe: exactly 100 is accepted
+    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(101)]}, write_error("TOO_MANY_CHECKLIST_ITEMS"))  # hq-exe: 101 is rejected, no URL call made
     add(tool, {"todo_id": "TODOID1", "items": [SPECIAL_CHARS]}, ok(route="url_update"))
     add(tool, {"todo_id": "TODOID1", "items": [UNICODE_EMOJI]}, ok(route="url_update"))
     add(tool, {"todo_id": "TODOID1", "items": [NEWLINE_TEXT]}, ok(route="url_update"))

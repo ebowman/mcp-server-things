@@ -9,9 +9,9 @@ own display order - the exact contract this file relies on for asserting
 append/prepend/replace ordering.
 
 NOTE: the 101-item over-cap case is intentionally NOT duplicated here - it
-is covered by the strict xfail in test_todo_create_delete.py
-(TestAddTodoChecklist::test_checklist_items_101_rejected_and_nothing_created,
-bug hq-exe: the documented 100-item cap is not enforced anywhere).
+is covered by test_todo_create_delete.py
+(TestAddTodoChecklist::test_checklist_items_101_rejected_and_nothing_created;
+the 100-item cap is enforced with TOO_MANY_CHECKLIST_ITEMS since hq-exe).
 
 Error-code notes (confirmed by reading src, not guessed):
   - server.py's add_checklist_items/prepend_checklist_items tool wrappers

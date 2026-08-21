@@ -1177,7 +1177,7 @@ replace_checklist_items(
 
 **Format Requirements:**
 - Items are passed as a list of strings: `["item1", "item2", "item3"]`
-- Maximum 100 checklist items per todo
+- Maximum 100 checklist items per todo - enforced (hq-exe): `add_todo(checklist_items=...)`, `add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items` all reject a request with more than 100 items before any write, returning `{"success": false, "error": "TOO_MANY_CHECKLIST_ITEMS", "field": "checklist_items"|"items", "message": "checklist supports at most 100 items, got N"}`; exactly 100 is accepted. This is a per-request limit only - `add_checklist_items`/`prepend_checklist_items` do not count pre-existing items already on the target to-do (Things has no cheap way to read that count), only the items list submitted in the current call.
 - Items can be marked complete/incomplete in Things 3 UI
 
 **Implementation Details:**
