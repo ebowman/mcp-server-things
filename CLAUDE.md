@@ -1039,13 +1039,26 @@ bulk_move_records(
 **`"logbook"` completes the to-do rather than performing a true "move"** -
 Things has no `move ... to list "logbook"` target; the only documented way
 an item reaches the Logbook is completion (`set status of theTodo to
-completed`), which is what this destination actually does. **`"upcoming"`**
-is accepted by validation and listed here as documented, but is currently
-broken - see `test_move_to_upcoming` in
-`tests/regression/test_bulk_and_move.py` (tracked separately, bead hq-cag);
-Things' AppleScript dictionary rejects `move ... to list "upcoming"` with
-"Cannot move to-do" since Upcoming is a computed/virtual list with no direct
-move target.
+completed`), which is what this destination actually does.
+
+**`"upcoming"` is not a valid move destination** (bead hq-cag). Things has
+no direct "Upcoming" move target - an item is Upcoming by having a future
+start date, not by belonging to a distinct list, and Things' own AppleScript
+move verb rejects `move ... to list "upcoming"` with "Cannot move to-do".
+`move_record(destination_list="upcoming")` and
+`bulk_move_records(destination="upcoming")` are rejected at validation
+(`VALIDATION_ERROR` / `INVALID_DESTINATION` respectively, nothing moves) with
+a message pointing at the correct alternative - schedule the to-do for a
+future date instead:
+
+```python
+# WRONG - rejected, 'upcoming' is not a move destination
+move_record(todo_id="123", destination_list="upcoming")
+
+# CORRECT - schedule a future date; the to-do then appears in Upcoming
+update_todo(id="123", when="2026-09-01")
+update_todo(id="123", when="tomorrow")
+```
 
 ### Status Filtering
 

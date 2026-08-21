@@ -935,7 +935,7 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def move_record(
             todo_id: str = Field(..., description="ID of the todo to move"),
-            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID")
+            destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, logbook, trash), project:ID, or area:ID. 'upcoming' is NOT a valid destination - use update_todo(id=..., when='<YYYY-MM-DD>') to schedule a future date instead")
         ) -> Dict[str, Any]:
             """Move a todo to a different list, project, or area."""
             try:
@@ -947,7 +947,7 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def bulk_move_records(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
-            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, upcoming, logbook), project:ID, or area:ID"),
+            destination: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, logbook, trash), project:ID, or area:ID. 'upcoming' is NOT a valid destination - use update_todo(id=..., when='<YYYY-MM-DD>') to schedule a future date instead"),
             max_concurrent: int = Field(5, description="Maximum concurrent operations (1-10)", ge=1, le=10)
         ) -> Dict[str, Any]:
             """Move multiple todos to the same destination efficiently. The move operation handles scheduling automatically based on the destination."""

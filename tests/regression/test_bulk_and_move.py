@@ -649,38 +649,27 @@ class TestMoveRecordDestinations:
             found = _in_today()
         assert found, "expected todo to be a member of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): "
-            "move_record(destination_list='upcoming') is accepted by "
-            "MoveOperationsTools._validate_destination (which lists "
-            "'upcoming' in valid_lists) and reaches "
-            "_build_list_move_script's `move theTodo to list \"upcoming\"`, "
-            "but Things' AppleScript dictionary itself rejects this move "
-            "with 'Cannot move to-do' (Upcoming is a computed/virtual list "
-            "with no direct move target) - surfaced as APPLESCRIPT_ERROR. "
-            "This test encodes the documented behavior (destination "
-            "'upcoming' should succeed per CLAUDE.md's Destination Formats "
-            "table, which lists it as valid) and is expected to fail until "
-            "the AppleScript move verb (or the destination validator) is "
-            "fixed to handle 'upcoming' consistently."
-        ),
-    )
     def test_move_to_upcoming(self, mcp, sandbox):
-        """'upcoming' as a bare destination has no natural date attached -
-        Things' `move ... to list "upcoming"` is exercised for its
-        AppleScript success/failure shape; membership in things.upcoming()
-        (which requires a future start_date) is not asserted since moving
-        to the bare Upcoming list without a date does not guarantee one is
-        set. Read-back only confirms the todo still exists and the move
-        call itself reported success."""
-        todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move upcoming " + ts()))
+        """'upcoming' is not a valid move destination (bead hq-cag): Things
+        has no direct Upcoming move target - an item is Upcoming by having
+        a future start date, and Things' AppleScript move verb itself
+        rejects `move ... to list "upcoming"`. move_record now rejects it
+        at validation with a structured error steering callers to
+        update_todo(when=<date>) instead of guessing an arbitrary future
+        date. The to-do must remain untouched (still in its original
+        project)."""
+        todo_id, original_title = _new_todo(mcp, sandbox, title=sandbox_title("move upcoming " + ts()))
         result = mcp.call_sync("move_record", todo_id=todo_id, destination_list="upcoming")
-        assert result.get("success") is True, result
+        assert_write_error(result, "VALIDATION_ERROR")
+        message = result.get("message", "")
+        assert "when=" in message or "update_todo" in message, result
 
-        record = read_back(todo_id, lambda r: r is not None)
+        record = read_back(
+            todo_id, lambda r: r is not None and r.get("project") == sandbox.project_id
+        )
         assert record is not None, record
+        assert record.get("title") == original_title, record
+        assert record.get("project") == sandbox.project_id, record
 
     def test_move_to_anytime(self, mcp, sandbox):
         import things

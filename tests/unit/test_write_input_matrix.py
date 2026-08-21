@@ -1187,7 +1187,9 @@ add("create_tag", {"tag_name": "   "}, ok(route="applescript"), tag_policy=TagCr
 for dest, exp in [
     ("inbox", ok(route="applescript", contains=['move theTodo to list "inbox"'])),
     ("today", ok(route="applescript", contains=['move theTodo to list "today"'])),
-    ("upcoming", ok(route="applescript", contains=['move theTodo to list "upcoming"'])),
+    # hq-cag: 'upcoming' is rejected at validation (Things has no direct
+    # Upcoming move target) - VALIDATION_ERROR with no AppleScript call.
+    ("upcoming", write_error("VALIDATION_ERROR")),
     ("anytime", ok(route="applescript", contains=['move theTodo to list "anytime"'])),
     ("someday", ok(route="applescript", contains=['move theTodo to list "someday"'])),
     # hq-edj: 'logbook' completes the to-do (the only documented way an
@@ -1224,7 +1226,10 @@ add("bulk_move_records", {"todo_ids": "a,b,c", "destination": "today"}, ok(route
 for dest, exp in [
     ("inbox", ok(route="applescript")),
     ("today", ok(route="applescript")),
-    ("upcoming", ok(route="applescript")),
+    # hq-cag: 'upcoming' is rejected once up front by bulk_move's own
+    # _validate_destination call - INVALID_DESTINATION, no per-todo move
+    # attempted (nothing moves).
+    ("upcoming", write_error("INVALID_DESTINATION")),
     ("anytime", ok(route="applescript")),
     ("someday", ok(route="applescript")),
     # hq-edj: same fix as move_record above - bulk_move delegates each id
