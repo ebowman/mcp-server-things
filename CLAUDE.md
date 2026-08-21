@@ -423,6 +423,19 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
 
+#### Implicit budget truncation (`truncated` / `truncation_hint`)
+
+Independent of `limit`/`offset`, every list tool that routes through `ContextAwareResponseManager.optimize_response` (`context_manager.py`) - `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday`/`get_todos`/`get_projects`/etc. - enforces an internal ~80KB response-size budget. On a large enough result set (e.g. a database with a very large Anytime list, or `mode='detailed'`/`include_projects=true` on an already-large list), the response can exceed that budget even when the caller passed no `limit` at all. When that happens (bead hq-cal.2):
+
+- The returned `items` are a **deterministic prefix of the full result set, in its original order** (the order the underlying tool produced it in, i.e. things.py order) - never a relevance-ranked or reordered subset.
+- The envelope carries two extra top-level keys, sibling to `items`/`count`/`total`:
+  - `truncated: true`
+  - `truncation_hint`: a short string explaining how to reach the rest, e.g. `"Response exceeded the size budget; 40 of 1177 items returned. Use a smaller mode (minimal/summary), a limit, or a more specific tool/filter to reach the remaining items."`
+- `count` is still `len(items)` and `total` is still the full pre-truncation count, same as ever - `count < total` is exactly the signal that truncation, not an empty/short result, occurred.
+- When truncation does **not** fire, `truncated`/`truncation_hint` are **absent entirely** (not `false`/`null`) - untruncated envelopes are unchanged from pre-hq-cal.2 behavior.
+
+An item missing from `items` under a truncated response is not necessarily gone or unreachable - it may simply not have fit in this page. To reach it: retry with a smaller `mode` (`minimal`/`summary` are far smaller per item and less likely to truncate), pass a `limit`, use a more targeted tool/filter (e.g. `get_todos(project_uuid=...)` instead of a broad list), or look it up directly via `get_todo_by_id`.
+
 #### Structured error contract
 
 When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-range `limit`, an unknown tag, an id that doesn't resolve to the expected type, etc.) it returns a structured error **instead of** the items envelope above, in one canonical shape:

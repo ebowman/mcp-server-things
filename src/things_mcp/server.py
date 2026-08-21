@@ -2611,6 +2611,18 @@ class ThingsMCPServer:
         result["limit"] = limit
         result["offset"] = offset
 
+        # hq-cal.2: surface context_manager.optimize_response's implicit budget-truncation
+        # signal (meta['truncated']/meta['truncation_hint']) at the top level of the
+        # structured envelope, sibling of items/count/total, so callers can tell a
+        # response was silently size-limited rather than being the full matching set.
+        # Only emitted when truncation actually fired - absent (not False) otherwise,
+        # per CLAUDE.md's Structured Output docs, to keep untruncated envelopes
+        # byte-stable with pre-hq-cal.2 behavior.
+        if meta.get("truncated"):
+            result["truncated"] = True
+            if meta.get("truncation_hint"):
+                result["truncation_hint"] = meta["truncation_hint"]
+
         return result
 
     def _get_policy_description(self, policy) -> str:
