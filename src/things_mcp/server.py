@@ -2547,12 +2547,18 @@ class ThingsMCPServer:
             items = result["data"]
         else:
             # Summary-style responses (and other non-list-bearing dicts) don't carry a
-            # full item list - use whatever preview list is present (e.g.
-            # 'recent_preview', 'recent_projects', 'most_common') without inventing one,
-            # to avoid materializing full items in summary mode.
+            # full item list - use whatever preview list is present, to avoid
+            # materializing full items in summary mode. The key name varies per
+            # ProgressiveDisclosureEngine summarizer method (context_manager.py):
+            # todos -> 'recent_preview', projects -> 'recent_projects',
+            # search results -> 'result_preview' (hq-cal.4 - previously missing here,
+            # so search_todos/search_advanced(mode='summary') always reported
+            # items=[] even though result_preview was populated), plus 'tags'/'top'
+            # for other summary shapes seen elsewhere.
             preview = (
                 result.get("recent_preview")
                 or result.get("recent_projects")
+                or result.get("result_preview")
                 or result.get("tags")
                 or result.get("top")
                 or []
