@@ -65,6 +65,7 @@ THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 # doesn't fall through to the real things.py package against a sentinel id
 # that doesn't exist in the developer's database.
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+READ_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.read_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -232,6 +233,15 @@ def _patched_things_lookups():
         patch(THINGS_AREAS_PATCH, return_value=[]),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
+        patch(
+            READ_OPS_THINGS_GET_PATCH,
+            side_effect=lambda uuid: {
+                "uuid": uuid,
+                "type": "to-do",
+                "title": "Receipt todo",
+                "status": "incomplete",
+            },
+        ),
     ]
 
 
@@ -885,4 +895,3 @@ def test_parameter_reaches_backend(tool: str, param: str):
         f"Captured scripts:\n{fake.all_scripts_text()}\n"
         f"Captured URL calls: {fake.url_scheme_calls}"
     )
-

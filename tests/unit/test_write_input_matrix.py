@@ -88,6 +88,7 @@ THINGS_PROJECTS_PATCH = "things_mcp.scheduling.todo_operations.things.projects"
 THINGS_AREAS_PATCH = "things_mcp.scheduling.todo_operations.things.areas"
 THINGS_TASKS_PATCH = "things_mcp.scheduling.todo_operations.things.tasks"
 WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.get"
+READ_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.read_operations.things.get"
 
 SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
@@ -295,6 +296,15 @@ def _patched_things_lookups():
         patch(THINGS_AREAS_PATCH, return_value=[]),
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
+        patch(
+            READ_OPS_THINGS_GET_PATCH,
+            side_effect=lambda uuid: {
+                "uuid": uuid,
+                "type": "to-do",
+                "title": "Receipt todo",
+                "status": "incomplete",
+            },
+        ),
     ]
 
 

@@ -45,6 +45,9 @@ def _make_server_with_mock_tools(**overrides):
     server = ThingsMCPServer()
     mock_tools = MagicMock()
     mock_tools.tag_validation_service = None
+    mock_tools.get_todo_by_id = AsyncMock(
+        return_value={"uuid": "TODO-1", "type": "to-do", "title": "Receipt todo"}
+    )
     for method_name, return_value in overrides.items():
         setattr(mock_tools, method_name, AsyncMock(return_value=return_value))
     server.tools = mock_tools
