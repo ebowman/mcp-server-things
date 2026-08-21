@@ -8,28 +8,26 @@ Policy notes (read from config.py, not assumed):
     the shared-server tests (mirrors test_todo_create_delete.py's
     `test_tags_policy_behavior` pattern).
   - Per-policy matrix (bead step 3): a SECOND `ThingsMCPServer` is built
-    per policy, with its own `_MCPCallHelper`-style Client, by setting the
-    `THINGS_MCP_AI_CAN_CREATE_TAGS` env var via `monkeypatch.setenv` before
-    construction (see `_second_server` helper below).
+    per policy, with its own `_MCPCallHelper`-style Client, by setting
+    either the `THINGS_MCP_AI_CAN_CREATE_TAGS` or
+    `THINGS_MCP_TAG_CREATION_POLICY` env var via `monkeypatch.setenv`
+    before construction (see `_second_server` helper below).
 
-  Discovered (see also the report): `config.py`'s
-  `validate_tag_creation_policy`/`set_ai_can_create_tags_from_policy`
-  field-validator pair makes `THINGS_MCP_TAG_CREATION_POLICY` alone a
-  dead env var - pydantic validates `ai_can_create_tags` (declared first)
-  before `tag_creation_policy`, so `tag_creation_policy`'s validator
-  always finds `ai_can_create_tags` already present in `info.data`
-  (defaulting to False) and unconditionally overrides to
-  ALLOW_ALL/FILTER_WARN based on THAT field alone - confirmed live via
-  `THINGS_MCP_TAG_CREATION_POLICY=filter_silent` (and even via a
-  `.env`-file equivalent through `env_file=`) still yielding
-  `TagCreationPolicy.FILTER_WARN`, while `THINGS_MCP_AI_CAN_CREATE_TAGS`
-  reaches it correctly. So only two policies are reachable via env
-  override: ALLOW_ALL (`THINGS_MCP_AI_CAN_CREATE_TAGS=true`) and
-  FILTER_WARN (`=false` / unset, the default). FILTER_SILENT and
-  FAIL_ON_UNKNOWN cannot currently be selected via any env var/env_file -
-  the matrix below is therefore built only for the two reachable policies,
-  and this gap is filed as discovered work rather than fixed here (out of
-  scope for this bead).
+  hq-nb1 (FIXED): `config.py`'s prior `validate_tag_creation_policy`/
+  `set_ai_can_create_tags_from_policy` field-validator pair coupled the two
+  fields via pydantic's field-declaration order - `ai_can_create_tags`
+  (declared first) was always validated before `tag_creation_policy`, so
+  `tag_creation_policy`'s validator always found `ai_can_create_tags`
+  already present in `info.data` and unconditionally overrode the policy
+  to ALLOW_ALL/FILTER_WARN based on THAT field alone, making
+  `THINGS_MCP_TAG_CREATION_POLICY` a dead env var - `filter_silent`/
+  `fail_on_unknown` were unreachable via env or env_file. The fix replaced
+  both field_validators with a single `model_validator(mode='after')`
+  that reconciles the two fields with explicit-value precedence (an
+  explicitly-set `tag_creation_policy` wins). All four policies
+  (ALLOW_ALL, FILTER_SILENT, FILTER_WARN, FAIL_ON_UNKNOWN) are now
+  reachable via `THINGS_MCP_TAG_CREATION_POLICY`, and the matrix below
+  covers all four via `_second_server(monkeypatch, tag_policy=...)`.
 """
 import time
 
@@ -42,6 +40,7 @@ from regression.helpers import (
     sandbox_title,
     ts,
 )
+from things_mcp.config import TagCreationPolicy
 
 pytestmark = pytest.mark.live
 
@@ -100,18 +99,33 @@ def _extra_tag_safety_net(sandbox):
         _delete_tag_by_name(name)
 
 
-def _second_server(monkeypatch, ai_can_create_tags: bool):
-    """Build a second, independent ThingsMCPServer with
-    THINGS_MCP_AI_CAN_CREATE_TAGS overridden, plus its own _MCPCallHelper
-    (mirrors conftest.py's _MCPCallHelper - a second fastmcp Client bound
-    to this server's .mcp, not server.tools directly, so these tests still
-    exercise the real MCP tool boundary same as the rest of the suite).
+def _second_server(monkeypatch, ai_can_create_tags: bool = None, tag_policy=None):
+    """Build a second, independent ThingsMCPServer with either
+    THINGS_MCP_AI_CAN_CREATE_TAGS or THINGS_MCP_TAG_CREATION_POLICY
+    overridden via env, plus its own _MCPCallHelper (mirrors conftest.py's
+    _MCPCallHelper - a second fastmcp Client bound to this server's .mcp,
+    not server.tools directly, so these tests still exercise the real MCP
+    tool boundary same as the rest of the suite).
+
+    Exactly one of `ai_can_create_tags` / `tag_policy` must be given.
+    `tag_policy` (a TagCreationPolicy) sets THINGS_MCP_TAG_CREATION_POLICY -
+    since the hq-nb1 fix this env var now reliably reaches all four
+    policies (previously it was a dead env var; see module docstring).
+
     Returns (server, mcp_helper).
     """
     from regression.conftest import _MCPCallHelper
     from things_mcp.server import ThingsMCPServer
 
-    monkeypatch.setenv("THINGS_MCP_AI_CAN_CREATE_TAGS", "true" if ai_can_create_tags else "false")
+    assert (ai_can_create_tags is None) != (tag_policy is None), (
+        "exactly one of ai_can_create_tags/tag_policy must be given"
+    )
+    monkeypatch.delenv("THINGS_MCP_AI_CAN_CREATE_TAGS", raising=False)
+    monkeypatch.delenv("THINGS_MCP_TAG_CREATION_POLICY", raising=False)
+    if tag_policy is not None:
+        monkeypatch.setenv("THINGS_MCP_TAG_CREATION_POLICY", tag_policy.value)
+    else:
+        monkeypatch.setenv("THINGS_MCP_AI_CAN_CREATE_TAGS", "true" if ai_can_create_tags else "false")
     server = ThingsMCPServer()
     return server, _MCPCallHelper(server)
 
@@ -169,7 +183,13 @@ class TestAddTags:
         result = mcp.call_sync("add_tags", todo_id=todo_id, tags=unknown_tag)
 
         if policy == TagCreationPolicy.FAIL_ON_UNKNOWN:
-            assert_write_error(result, "NO_VALID_TAGS")
+            # _prepare_tags (write_operations.py) surfaces the policy
+            # layer's own errors (populated by TagValidationService._apply_policy
+            # under FAIL_ON_UNKNOWN) as TAG_VALIDATION_FAILED and returns
+            # immediately - add_tags' own downstream NO_VALID_TAGS check
+            # (`if not valid_tags`) is never reached in this case, since
+            # error_response is non-None already.
+            assert_write_error(result, "TAG_VALIDATION_FAILED")
             return
 
         if policy == TagCreationPolicy.ALLOW_ALL:
@@ -462,11 +482,11 @@ class TestCreateTag:
         assert matches == [], matches
 
     def test_add_todo_unknown_tag_under_each_reachable_policy(self, monkeypatch, sandbox):
-        """add_todo(tags=<unknown>) under ALLOW_ALL vs FILTER_WARN (the only
-        two policies reachable via env override - see module docstring's
-        Discovered note). Each server gets its own tracked to-do, trashed
-        via a raw AppleScript delete since it's outside the shared sandbox
-        session teardown's tracking list."""
+        """add_todo(tags=<unknown>) under all four policies (ALLOW_ALL,
+        FILTER_WARN, FILTER_SILENT, FAIL_ON_UNKNOWN), all reachable via env
+        override since the hq-nb1 fix. Each server gets its own tracked
+        to-do, trashed via a raw AppleScript delete since it's outside the
+        shared sandbox session teardown's tracking list."""
         from regression.conftest import _delete_via_applescript
 
         # ALLOW_ALL: unknown tag is created and applied.
@@ -517,6 +537,47 @@ class TestCreateTag:
             assert result_warn.get("tag_warnings") or "tag_info" in result_warn, result_warn
         finally:
             _delete_via_applescript(todo_id_warn)
+
+        # FILTER_SILENT: unknown tag filtered, no warnings surfaced.
+        server_silent, mcp_silent = _second_server(
+            monkeypatch, tag_policy=TagCreationPolicy.FILTER_SILENT
+        )
+        unknown_silent = f"hq-gbl-reg-polytag-silent-{ts()}"
+        title_silent = sandbox_title("policy filter_silent")
+        result_silent = mcp_silent.call_sync(
+            "add_todo",
+            title=title_silent,
+            tags=f"{sandbox.tag_name},{unknown_silent}",
+            list_id=sandbox.project_id,
+        )
+        assert result_silent.get("success") is True, result_silent
+        todo_id_silent = result_silent.get("todo_id")
+        assert todo_id_silent
+        try:
+            record = read_back(
+                todo_id_silent, lambda r: r is not None and r.get("title") == title_silent
+            )
+            assert record is not None
+            applied = record.get("tags") or []
+            assert applied == [sandbox.tag_name], applied
+            assert not result_silent.get("tag_warnings"), result_silent
+        finally:
+            _delete_via_applescript(todo_id_silent)
+
+        # FAIL_ON_UNKNOWN: the whole operation is rejected, no to-do created.
+        server_fail, mcp_fail = _second_server(
+            monkeypatch, tag_policy=TagCreationPolicy.FAIL_ON_UNKNOWN
+        )
+        unknown_fail = f"hq-gbl-reg-polytag-fail-{ts()}"
+        title_fail = sandbox_title("policy fail_on_unknown")
+        result_fail = mcp_fail.call_sync(
+            "add_todo",
+            title=title_fail,
+            tags=f"{sandbox.tag_name},{unknown_fail}",
+            list_id=sandbox.project_id,
+        )
+        assert_write_error(result_fail, "TAG_VALIDATION_FAILED")
+        assert result_fail.get("todo_id") is None, result_fail
 
 
 # ---------------------------------------------------------------------------

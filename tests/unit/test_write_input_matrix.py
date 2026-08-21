@@ -45,13 +45,14 @@ owning bead):
     count - 101 items is accepted (ok), not rejected.
   - hq-r87: a whitespace-only tag name (e.g. "  spacey  ") is accepted
     as a distinct tag after stripping - not rejected.
-  - hq-nb1: the granular TagCreationPolicy env knobs
-    (filter_silent/filter_warn) are dead - THINGS_MCP_AI_CAN_CREATE_TAGS
-    only toggles the ALLOW_ALL/FAIL_ON_UNKNOWN 2-state switch. This file
-    covers those two reachable states only; FILTER_SILENT/FILTER_WARN are
-    exercised by constructing ThingsMCPConfig(tag_creation_policy=...)
-    directly (bypassing the dead env path) where the bead explicitly
-    contemplates that construction pattern.
+  - hq-nb1 (FIXED): all four TagCreationPolicy states are now reachable
+    both via THINGS_MCP_TAG_CREATION_POLICY (env) and via
+    ThingsMCPConfig(tag_creation_policy=...) (constructor) - see
+    config.py's model_validator(mode='after') reconciliation. This file's
+    CASES continue to construct servers via
+    ThingsMCPConfig(tag_creation_policy=...) (through `_make_server`'s
+    `tag_policy` kwarg) since that's the simplest in-process path; the env
+    var path is covered separately in tests/unit/test_config_tag_policy.py.
 """
 
 from __future__ import annotations
@@ -377,29 +378,17 @@ def _make_server(auth_token: Optional[str] = "SENTINELauthtokenABC", tag_policy:
     ai_can_create_tags=True by default (ALLOW_ALL) so ordinary write cases
     aren't incidentally blocked by tag policy - tag-policy-specific CASES
     below construct their own server with a different config. `tag_policy`,
-    if given, constructs ThingsMCPConfig(tag_creation_policy=...) directly
-    (hq-nb1: the granular FILTER_SILENT/FILTER_WARN env knobs are dead, so
-    this is the only way to reach those states in-process).
+    if given, constructs ThingsMCPConfig(tag_creation_policy=...) directly -
+    an explicitly-set tag_creation_policy now takes precedence over the
+    ai_can_create_tags default and reaches all four policy states (hq-nb1
+    fix: config.py's model_validator(mode='after') reconciles the two
+    fields with explicit-value precedence instead of declaration-order
+    precedence).
     """
     server = ThingsMCPServer()
     fake = RecordingAppleScriptManager(auth_token=auth_token)
     if tag_policy is not None:
-        # ThingsMCPConfig's ai_can_create_tags/tag_creation_policy
-        # field_validators are coupled by construction-time cross-field
-        # logic (ai_can_create_tags declared first): passing
-        # tag_creation_policy=X at construction, however it's combined with
-        # ai_can_create_tags, only ever lands on ALLOW_ALL (if
-        # ai_can_create_tags=True) or FILTER_WARN (if False/omitted) -
-        # FAIL_ON_UNKNOWN/FILTER_SILENT are unreachable via the constructor
-        # at all (a real config-coupling gap beyond hq-nb1's dead-env-knob
-        # note - filed separately, see Discovered). Constructing with
-        # ai_can_create_tags=True and then overwriting tag_creation_policy
-        # via plain attribute assignment (pydantic v2 does not re-run
-        # field_validators on assignment) is the only way to reach every
-        # policy state directly.
-        config = ThingsMCPConfig(ai_can_create_tags=True)
-        config.tag_creation_policy = tag_policy
-        config.ai_can_create_tags = (tag_policy == TagCreationPolicy.ALLOW_ALL)
+        config = ThingsMCPConfig(tag_creation_policy=tag_policy)
     else:
         config = ThingsMCPConfig(ai_can_create_tags=True)
     server.tools = ThingsTools(fake, config)
@@ -1116,10 +1105,12 @@ add("remove_tags", {"todo_id": "RTID1", "tags": "a,b"}, ok(route="applescript", 
 
 
 # ===========================================================================
-# tag policy: default (FAIL_ON_UNKNOWN via ai_can_create_tags=False),
+# tag policy: default (FILTER_WARN - the declared default since hq-nb1),
 # ALLOW_ALL (via config directly, matching the default constructor param
-# path add_tags/add_todo use), and the two granular states hq-nb1 makes
-# unreachable via env - covered by constructing ThingsMCPConfig directly.
+# path add_tags/add_todo use), and the two granular states (FILTER_SILENT/
+# FILTER_WARN), all four reachable via ThingsMCPConfig(tag_creation_policy=...)
+# since the hq-nb1 fix (previously only ALLOW_ALL/FAIL_ON_UNKNOWN were
+# reachable via the ai_can_create_tags-derived path).
 # ===========================================================================
 
 add(

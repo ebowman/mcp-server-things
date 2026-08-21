@@ -106,7 +106,13 @@ class TestBulkUpdateTodos:
 
     @pytest.mark.asyncio
     async def test_bulk_update_todos_with_tags(self, tools_with_mocks):
-        """Test bulk update with tags (tags will be filtered if they don't exist)."""
+        """Test bulk update with tags (tags will be filtered if they don't exist).
+
+        `tools_with_mocks`'s default ThingsMCPConfig() resolves to
+        FILTER_WARN (the corrected declared default - see config.py's
+        comment on the tag_creation_policy Field, hq-nb1), so unknown tags
+        are filtered rather than rejected, matching this test's original
+        intent."""
         todo_ids = ["todo-1", "todo-2"]
         tags = ["work", "urgent"]
 
@@ -126,7 +132,7 @@ class TestBulkUpdateTodos:
             assert result["updated_count"] == 2
 
             # Note: Tags may be filtered by tag validation service if they don't exist
-            # This is expected behavior based on config.ai_can_create_tags setting
+            # This is expected behavior based on config.tag_creation_policy setting
 
     @pytest.mark.asyncio
     async def test_bulk_update_todos_with_title_and_notes(self, tools_with_mocks):
