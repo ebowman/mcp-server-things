@@ -716,24 +716,6 @@ class TestMoveRecordDestinations:
             found = _in_someday()
         assert found, "expected todo to be a member of things.someday()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): "
-            "move_record(destination_list='logbook') passes "
-            "_validate_destination (which lists 'logbook' in valid_lists) "
-            "but MoveOperationsTools._execute_move's destination-routing "
-            "if/elif chain only recognizes "
-            "['inbox','today','upcoming','anytime','someday'] as built-in "
-            "list moves - 'logbook' (and 'trash', see test_move_to_trash) "
-            "fall through to the else branch and return INVALID_DESTINATION "
-            "even though validation accepted them. This test encodes the "
-            "documented behavior (CLAUDE.md's Destination Formats table "
-            "lists 'logbook' as valid) and is expected to fail until "
-            "_execute_move's routing is extended to cover logbook/trash "
-            "(or validation is narrowed to match what's actually routed)."
-        ),
-    )
     def test_move_to_logbook(self, mcp, sandbox):
         """Moving to 'logbook' changes status/trashed - read back via
         things.get(uuid, trashed=None) and things.logbook() membership."""
@@ -756,21 +738,6 @@ class TestMoveRecordDestinations:
         record = things.get(todo_id, trashed=None)
         assert record is not None and record.get("status") in ("completed", "canceled"), record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): same "
-            "_execute_move routing gap as test_move_to_logbook above - "
-            "'trash' passes _validate_destination but is not one of the "
-            "five destinations _execute_move actually routes to "
-            "_build_list_move_script, so it falls through to "
-            "INVALID_DESTINATION instead of moving the to-do to the Trash. "
-            "This test encodes the documented behavior (CLAUDE.md's "
-            "Destination Formats table lists 'trash' implicitly via "
-            "move_record's own tool description) and is expected to fail "
-            "until _execute_move's routing is fixed."
-        ),
-    )
     def test_move_to_trash(self, mcp, sandbox):
         """Moving to 'trash' sets trashed=True - read back via
         things.get(uuid, trashed=None). Already tracked (via _new_todo
@@ -916,30 +883,18 @@ class TestBulkMoveRecordsDestinations:
             found = _all_in_today()
         assert found, "expected all todos to be members of things.today()"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (discovered in hq-gbl.9, no prior bead): same "
-            "_execute_move routing gap as move_record's own "
-            "test_move_to_trash - bulk_move_records delegates each id to "
-            "move_record, so every one of the 3 ids deterministically "
-            "fails with INVALID_DESTINATION ('trash' passes "
-            "_validate_destination but is not routed by _execute_move's "
-            "if/elif chain). Not a concurrency race (unlike test_to_area/"
-            "test_to_today/max_concurrent_10) - 100% reproducible, so no "
-            "retry helper is used here. Expected to fail until "
-            "_execute_move's routing is fixed to cover 'trash'."
-        ),
-    )
     def test_to_trash(self, mcp, sandbox):
+        """Uses _bulk_move_tolerating_concurrency_race - see its docstring
+        and module docstring for the observed unserialized-AppleScript-call
+        race in MoveOperationsTools.bulk_move (Discovered, not fixed here;
+        the docstring explicitly names 'trash' as one of the destinations
+        this race was reproduced against).
+        """
         import things
 
         todo_ids, _ = _new_todos(mcp, sandbox, 3, prefix="bulk move trash")
-        result = mcp.call_sync(
-            "bulk_move_records", todo_ids=",".join(todo_ids), destination="trash"
-        )
-        assert result.get("success") is True, result
-        assert result.get("total_successful") == 3, result
+        result = _bulk_move_tolerating_concurrency_race(mcp, todo_ids, "trash")
+        assert not (result.get("failed_moves") or []), result
 
         def _all_trashed():
             for todo_id in todo_ids:

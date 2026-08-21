@@ -178,7 +178,12 @@ class RecordingAppleScriptManager:
                 "output": "id123, Some title, some notes, open, inbox",
             }
 
-        if "move theTodo to list" in script or "set project of theTodo to" in script or "set area of theTodo to" in script:
+        if (
+            "move theTodo to list" in script
+            or "set project of theTodo to" in script
+            or "set area of theTodo to" in script
+            or "set status of theTodo to completed" in script
+        ):
             return {"success": True, "output": "MOVED to destination"}
 
         if "successCount" in script:
@@ -1185,11 +1190,11 @@ for dest, exp in [
     ("upcoming", ok(route="applescript", contains=['move theTodo to list "upcoming"'])),
     ("anytime", ok(route="applescript", contains=['move theTodo to list "anytime"'])),
     ("someday", ok(route="applescript", contains=['move theTodo to list "someday"'])),
-    # hq-z5d: 'logbook'/'trash' pass _validate_destination's valid_lists
-    # check but are not in _execute_move's built-in-list branch, so they
-    # fall through to INVALID_DESTINATION - observed, not "correct".
-    ("logbook", write_error("INVALID_DESTINATION", no_capture=False)),
-    ("trash", write_error("INVALID_DESTINATION", no_capture=False)),
+    # hq-edj: 'logbook' completes the to-do (the only documented way an
+    # item reaches the Logbook); 'trash' uses the same `move ... to list`
+    # verb as the other built-in lists.
+    ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
     ("project:PROJ123", ok(route="applescript", contains=['project id "PROJ123"'])),
     ("area:AREA123", ok(route="applescript", contains=['area id "AREA123"'])),
     ("project:", write_error("VALIDATION_ERROR")),
@@ -1222,15 +1227,10 @@ for dest, exp in [
     ("upcoming", ok(route="applescript")),
     ("anytime", ok(route="applescript")),
     ("someday", ok(route="applescript")),
-    # 'logbook'/'trash' pass bulk_move's own destination validation (its
-    # valid_lists includes them) but fail per-todo inside _execute_move
-    # (same INVALID_DESTINATION gap as move_record, hq-z5d-adjacent) - the
-    # overall call still reports success=False, but via the bulk
-    # successful/failed-moves envelope, not the top-level pre-write
-    # validation error shape, and a script/URL call for the (failed)
-    # attempt IS made per todo.
-    ("logbook", write_error("INVALID_DESTINATION", no_capture=False)),
-    ("trash", write_error("INVALID_DESTINATION", no_capture=False)),
+    # hq-edj: same fix as move_record above - bulk_move delegates each id
+    # to move_record, so 'logbook'/'trash' now succeed per-todo too.
+    ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
     ("project:PROJ123", ok(route="applescript", contains=["PROJ123"])),
     ("area:AREA123", ok(route="applescript", contains=["AREA123"])),
     ("project:", write_error("INVALID_DESTINATION")),

@@ -1031,7 +1031,21 @@ bulk_move_records(
 | Today | `"today"` | `move_record(todo_id="123", destination_list="today")` |
 | Anytime | `"anytime"` | `move_record(todo_id="123", destination_list="anytime")` |
 | Someday | `"someday"` | `move_record(todo_id="123", destination_list="someday")` |
+| Logbook | `"logbook"` | `move_record(todo_id="123", destination_list="logbook")` |
+| Trash | `"trash"` | `move_record(todo_id="123", destination_list="trash")` |
 | Project | `"project:{id}"` | `move_record(todo_id="123", destination_list="project:xyz")` |
+| Area | `"area:{id}"` | `move_record(todo_id="123", destination_list="area:xyz")` |
+
+**`"logbook"` completes the to-do rather than performing a true "move"** -
+Things has no `move ... to list "logbook"` target; the only documented way
+an item reaches the Logbook is completion (`set status of theTodo to
+completed`), which is what this destination actually does. **`"upcoming"`**
+is accepted by validation and listed here as documented, but is currently
+broken - see `test_move_to_upcoming` in
+`tests/regression/test_bulk_and_move.py` (tracked separately, bead hq-cag);
+Things' AppleScript dictionary rejects `move ... to list "upcoming"` with
+"Cannot move to-do" since Upcoming is a computed/virtual list with no direct
+move target.
 
 ### Status Filtering
 

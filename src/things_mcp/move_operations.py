@@ -377,9 +377,14 @@ class MoveOperationsTools:
         """Execute the actual move operation using AppleScript."""
         try:
             # Build the move script based on destination type
-            if destination in ["inbox", "today", "upcoming", "anytime", "someday"]:
-                # Moving to a built-in list
+            if destination in ["inbox", "today", "upcoming", "anytime", "someday", "trash"]:
+                # Moving to a built-in list (including Trash - same `move ... to
+                # list` verb Things exposes for Trash as for the other lists)
                 script = await self._build_list_move_script(todo_id, destination)
+            elif destination == "logbook":
+                # Things has no `move ... to list "logbook"` target - the only
+                # documented way an item reaches the Logbook is completion.
+                script = await self._build_complete_move_script(todo_id)
             elif destination.startswith("project:"):
                 # Moving to a project
                 project_id = destination[8:]  # Remove "project:" prefix
@@ -448,6 +453,34 @@ class MoveOperationsTools:
             f"        set theTodo to to do id \"{todo_id}\"",
             f"        move theTodo to list \"{list_name}\"",
             f"        return \"MOVED to {list_name}\"",
+            "    on error errMsg",
+            "        return \"ERROR: \" & errMsg",
+            "    end try",
+            "end tell"
+        ]
+
+        return "\n".join(lines)
+
+    async def _build_complete_move_script(
+        self,
+        todo_id: str
+    ) -> str:
+        """Build AppleScript for moving a todo to the Logbook.
+
+        Things has no `move ... to list "logbook"` target - the only
+        documented way an item reaches the Logbook is completion (Things
+        moves completed to-dos there automatically). This sets the to-do's
+        status to completed, which is what actually produces Logbook
+        membership; it is not a true "move" but is exposed as the
+        'logbook' destination for symmetry with the other built-in lists.
+        """
+
+        lines = [
+            "tell application \"Things3\"",
+            "    try",
+            f"        set theTodo to to do id \"{todo_id}\"",
+            "        set status of theTodo to completed",
+            "        return \"MOVED to logbook\"",
             "    on error errMsg",
             "        return \"ERROR: \" & errMsg",
             "    end try",
