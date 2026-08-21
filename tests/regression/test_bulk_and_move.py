@@ -56,20 +56,19 @@ bulk_move_records wrappers):
     the tool body ever runs (a FastMCP ToolError, surfaced by the `mcp`
     helper as {"tool_error": ...}, not a structured error dict).
 
-Known live quirks (documented, not fixed here - see CLAUDE.md/
-tests/regression/test_update_todo.py's own notes):
-  - when='today' via the AppleScript scheduler (bulk_update_todos'
-    reliable_scheduler.schedule_todo_reliable, same underlying path as
-    add_todo/update_todo's 'today' case) leaves start='Someday' with
-    start_date=today rather than start='Anytime' (bead hq-x9z) - asserted
-    here on start_date, not start, per the brief.
-  - move_record destination='today' shares the same underlying quirk via
-    Things' own `move ... to list "today"` verb producing an
-    'unconfirmed_scheduled' state that things.today() explicitly predicts
-    as a same-day member (see test_update_todo.py's
-    test_when_today_in_things_today_list) - membership in things.today()
-    is asserted directly rather than start/start_date, sidestepping the
-    quirk entirely.
+bead hq-x9z (fixed): when='today' via the AppleScript scheduler
+(bulk_update_todos' reliable_scheduler.schedule_todo_reliable, same
+underlying path as add_todo/update_todo's 'today' case) used to leave
+start='Someday' with start_date=today rather than start='Anytime'. Fixed
+by routing the today-path through `move theTodo to list "Today"` instead
+of the `schedule` verb - see test_when_today_start_date below, which now
+asserts start='Anytime' directly.
+
+move_record destination='today' was never affected by hq-x9z - it always
+used Things' own `move ... to list "today"` verb (not the `schedule`
+scheduler path), producing the same 'unconfirmed_scheduled'-turned-Anytime
+state confirmed live for the scheduler fix above; membership in
+things.today() is asserted directly (see test_move_to_today below).
 
 preserve_scheduling: CLAUDE.md documents a `preserve_scheduling` flag on
 bulk_move_records ("preserve_scheduling=true"), but neither the
@@ -269,9 +268,9 @@ class TestBulkUpdateSingleField:
             assert record is not None and record.get("deadline") == deadline, record
 
     def test_when_today_start_date(self, mcp, sandbox):
-        """Documents hq-x9z: bulk_update_todos(when='today') leaves
-        start='Someday' with start_date=today - asserted on start_date
-        (unambiguous), not start, per the brief."""
+        """hq-x9z fixed: bulk_update_todos(when='today') now yields
+        start='Anytime' with start_date=today (previously start='Someday'
+        due to the AppleScript `schedule` verb quirk)."""
         from datetime import date
 
         todo_ids, _ = _new_todos(mcp, sandbox, 2, prefix="bulk when today")
@@ -285,6 +284,7 @@ class TestBulkUpdateSingleField:
                 todo_id, lambda r: r is not None and r.get("start_date") == today_str
             )
             assert record is not None and record.get("start_date") == today_str, record
+            assert record.get("start") == "Anytime", record
 
     def test_when_anytime_lands_anytime(self, mcp, sandbox):
         todo_ids, _ = _new_todos(mcp, sandbox, 1, prefix="bulk when anytime")
@@ -542,11 +542,11 @@ class TestMoveRecordDestinations:
         assert found, "expected todo to be a member of things.inbox()"
 
     def test_move_to_today(self, mcp, sandbox):
-        """Membership in things.today() is asserted directly rather than
-        start/start_date, sidestepping the same 'unconfirmed_scheduled'
-        quirk documented for update_todo/bulk_update_todos when='today'
-        (hq-x9z) - things.today() explicitly predicts this exact state as
-        a same-day member, so this is not an xfail."""
+        """move_record's `move ... to list "today"` verb was never
+        affected by the hq-x9z `schedule`-verb quirk (it doesn't use
+        `schedule` at all) - it yields start='Anytime', start_date=today,
+        same as the scheduler's now-fixed when='today' path. Membership in
+        things.today() is asserted directly."""
         import things
 
         todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move today " + ts()))

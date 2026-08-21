@@ -32,14 +32,12 @@ Error-code notes (confirmed by reading source, not assumed):
     substring match), VALIDATION_ERROR (title='') - all confirmed in
     tools_helpers/write_operations.py's update_area().
 
-Known live quirks (documented, not fixed here - see CLAUDE.md /
-tests/regression/test_update_todo.py's own notes): when='today' via the
-AppleScript scheduler leaves start='Someday' with start_date=today rather
-than start='Anytime' (bead hq-x9z). This applies to update_project's `when`
-path too (shared scheduler), asserted here as xfail(strict=True) citing the
-same bead where the AppleScript scheduler is used, or verified via
-things.py start_date and list-membership predicates matching
-test_update_todo.py's approach.
+bead hq-x9z (fixed): when='today' via the AppleScript scheduler used to
+leave start='Someday' with start_date=today rather than start='Anytime'.
+Fixed by routing the today-path through `move theTodo to list "Today"`
+instead of the `schedule` verb - this applies to update_project's `when`
+path too (shared scheduler). See test_when_today_start_is_anytime_not_someday
+below and test_update_todo.py's own notes.
 """
 import time
 
@@ -498,20 +496,11 @@ class TestUpdateProjectMoves:
         )
         assert record is not None and record.get("area") == second_area_id, record
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (bead hq-x9z): update_project(when='today') shares "
-            "the AppleScript scheduler with update_todo, which leaves "
-            "start='Someday' with start_date=today rather than "
-            "start='Anytime' - the project is therefore not a member of "
-            "things.py's Anytime-style membership predicate this test "
-            "checks for. Encodes the documented behavior (should be "
-            "unambiguously 'Anytime'-scheduled) and is expected to fail "
-            "until hq-x9z is fixed."
-        ),
-    )
     def test_when_today_start_is_anytime_not_someday(self, mcp, sandbox):
+        """hq-x9z fixed: update_project(when='today') shares the
+        scheduler's today-path fix with update_todo - it now uses `move
+        theTodo to list "Today"` instead of the `schedule` verb, yielding
+        start='Anytime' with start_date=today. No longer an xfail."""
         from datetime import date
 
         project_id, _, _ = _new_project(mcp, sandbox)

@@ -74,7 +74,16 @@ class TestDateScheduling:
 
     @pytest.mark.asyncio
     async def test_schedule_relative_today(self, scheduler, mock_applescript_manager):
-        """Test scheduling for 'today' using relative date."""
+        """Test scheduling for 'today' using relative date.
+
+        bead hq-x9z: 'today' must NOT use the `schedule` verb at all - live
+        probing showed `schedule theTodo for (current date)` (in any order
+        relative to a list move) always leaves the to-do in Things'
+        unconfirmed/Someday state, invisible to things.anytime(). The fix
+        is a plain `move theTodo to list "Today"`, which live-probed to
+        yield start='Anytime' and membership in both things.today() and
+        things.anytime().
+        """
         mock_applescript_manager.execute_applescript.return_value = {
             'success': True,
             'output': 'scheduled_relative'
@@ -86,9 +95,21 @@ class TestDateScheduling:
         assert result['method'] == 'applescript_relative'
         assert result['reliability'] == '95%'
 
+        emitted_script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert 'move theTodo to list "Today"' in emitted_script
+        assert 'schedule theTodo for' not in emitted_script
+        assert 'current date' not in emitted_script
+
     @pytest.mark.asyncio
     async def test_schedule_relative_tomorrow(self, scheduler, mock_applescript_manager):
-        """Test scheduling for 'tomorrow' using relative date."""
+        """Test scheduling for 'tomorrow' using relative date.
+
+        Unlike 'today' (see test_schedule_relative_today above), 'tomorrow'
+        is unaffected by hq-x9z - Things' own start='Someday' + future
+        start_date is the normal/expected representation for a future date
+        (things.upcoming() explicitly keys off exactly that state), so the
+        `schedule` verb is still used unchanged.
+        """
         mock_applescript_manager.execute_applescript.return_value = {
             'success': True,
             'output': 'scheduled_relative'
@@ -98,6 +119,11 @@ class TestDateScheduling:
 
         assert result['success']
         assert result['method'] == 'applescript_relative'
+
+        emitted_script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert 'schedule theTodo for targetDate' in emitted_script
+        assert '(current date) + 1 * days' in emitted_script
+        assert 'move theTodo to list "Today"' not in emitted_script
 
     @pytest.mark.asyncio
     async def test_schedule_specific_date(self, scheduler, mock_applescript_manager, next_week_str):
@@ -112,6 +138,32 @@ class TestDateScheduling:
         assert result['success']
         # Could be either date_objects or direct method
         assert result['method'] in ['applescript_date_objects', 'applescript_direct', 'list_fallback']
+
+        emitted_script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert 'schedule theTodo for targetDate' in emitted_script
+        assert 'move theTodo to list "Today"' not in emitted_script
+
+    @pytest.mark.asyncio
+    async def test_schedule_specific_date_equal_to_today(self, scheduler, mock_applescript_manager, today_str):
+        """bead hq-x9z: an explicit ISO date that resolves to today's date
+        (e.g. update_todo(when=<today's YYYY-MM-DD>)) hits the same
+        `schedule` verb quirk as the literal 'today' relative-date case -
+        live-probed to also leave start='Someday'. Must use the same
+        move-to-Today-list fix, not the `schedule` verb.
+        """
+        mock_applescript_manager.execute_applescript.return_value = {
+            'success': True,
+            'output': 'scheduled_objects'
+        }
+
+        result = await scheduler.schedule_todo_reliable('test-id', today_str)
+
+        assert result['success']
+        assert result['method'] == 'applescript_date_objects'
+
+        emitted_script = mock_applescript_manager.execute_applescript.call_args[0][0]
+        assert 'move theTodo to list "Today"' in emitted_script
+        assert 'schedule theTodo for' not in emitted_script
 
     @pytest.mark.asyncio
     async def test_schedule_someday(self, scheduler, mock_applescript_manager):

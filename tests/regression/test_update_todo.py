@@ -5,16 +5,13 @@ Every test creates its own tracked to-do via mcp.call_sync('add_todo',
 list_id=sandbox.project_id) so each case starts from a clean, known-good
 state, then exercises update_todo against it.
 
-Known live quirks (documented, not fixed here - see CLAUDE.md/
-REGRESSION_SPIKE_FINDINGS.md and tests/regression/test_seed_oracle.py's
-XFAILS):
-  - when='today' via the AppleScript 'schedule' verb (used by both add_todo
-    and update_todo) leaves start='Someday' with start_date=today, rather
-    than start='Anytime' (bead hq-x9z) - the URL-scheme when='today' path
-    (checklist/heading/evening adds) does not share this quirk, but
-    update_todo's when path is always the AppleScript scheduler.
-  These are asserted as xfail(strict=True) with the bead id in the reason,
-  per the brief, rather than loosening the oracle.
+bead hq-x9z (fixed): when='today' used to go through the AppleScript
+'schedule' verb (used by both add_todo and update_todo), which left
+start='Someday' with start_date=today rather than start='Anytime'. Fixed
+by routing the today-path through `move theTodo to list "Today"` instead
+of `schedule` - update_todo's when='today' now yields start='Anytime',
+matching the URL-scheme when='today' path (checklist/heading/evening
+adds). See TestUpdateTodoWhen below.
 
 Error-code notes (confirmed by reading scheduling/todo_operations.py):
   - list_id/list_title resolution: NOT_FOUND (unknown), AMBIGUOUS_TARGET
@@ -248,18 +245,14 @@ class TestUpdateTodoWhen:
         assert record is not None, f"{keyword}: todo never read back"
 
     def test_when_today_membership(self, mcp, sandbox):
-        """Documents observed bug hq-x9z: update_todo(when='today') (the
-        AppleScript scheduler, shared with add_todo's 'today' seed class)
-        leaves start='Someday' with start_date=today rather than
-        start='Anytime'. Asserted on start_date (unambiguous) per the
-        brief; the things.today() membership half is verified separately
-        below (things.today()'s own predicate explicitly includes this
-        exact 'unconfirmed scheduled' state - start_date in the past/today
-        AND start='Someday' - as a prediction, so start='Someday' does NOT
-        make this to-do absent from things.today(); it only makes it
-        absent from things.anytime(), which is the actual hq-x9z
-        list-membership inconsistency - see
-        test_when_anytime_in_things_anytime_list below for that half)."""
+        """hq-x9z fixed: update_todo(when='today') (the AppleScript
+        scheduler, shared with add_todo's 'today' seed class) now uses
+        `move theTodo to list "Today"` instead of the `schedule` verb, and
+        yields start='Anytime' with start_date=today - matching the
+        URL-scheme when='today' path. things.today() membership is
+        verified separately below (test_when_today_in_things_today_list);
+        things.anytime() membership is verified below
+        (test_when_today_in_things_anytime_list)."""
         from datetime import date
 
         todo_id, _ = _new_todo(mcp, sandbox)
@@ -271,15 +264,12 @@ class TestUpdateTodoWhen:
             todo_id, lambda r: r is not None and r.get("start_date") == today_str
         )
         assert record is not None and record.get("start_date") == today_str, record
-        assert record.get("start") == "Someday", record
+        assert record.get("start") == "Anytime", record
 
     def test_when_today_in_things_today_list(self, mcp, sandbox):
-        """Not an xfail: things.today()'s own implementation
-        (things/api.py's today()) explicitly unions in
-        'unconfirmed_scheduled_tasks' (start_date in the past/today AND
-        start='Someday') as a same-day prediction - exactly the state
-        update_todo(when='today') produces - so membership here is
-        expected, confirmed live rather than assumed."""
+        """update_todo(when='today') (fixed as of hq-x9z to yield
+        start='Anytime', start_date=today) is a member of things.today() -
+        confirmed live rather than assumed."""
         import things
 
         todo_id, _ = _new_todo(mcp, sandbox)
@@ -297,6 +287,29 @@ class TestUpdateTodoWhen:
             time.sleep(0.25)
             found = _in_today()
         assert found, "expected todo to be a member of things.today()"
+
+    def test_when_today_in_things_anytime_list(self, mcp, sandbox):
+        """hq-x9z fixed: update_todo(when='today') now yields
+        start='Anytime', so it must also be a member of things.anytime() -
+        previously this was the actual hq-x9z bug (absent from
+        things.anytime() while present in things.today())."""
+        import things
+
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="today")
+        assert result.get("success") is True, result
+
+        read_back(todo_id, lambda r: r is not None and r.get("start_date") is not None)
+
+        def _in_anytime():
+            return any(t["uuid"] == todo_id for t in things.anytime() or [])
+
+        deadline = time.monotonic() + 20
+        found = _in_anytime()
+        while not found and time.monotonic() < deadline:
+            time.sleep(0.25)
+            found = _in_anytime()
+        assert found, "expected todo to be a member of things.anytime()"
 
     def test_when_anytime_in_things_anytime_list(self, mcp, sandbox):
         import things

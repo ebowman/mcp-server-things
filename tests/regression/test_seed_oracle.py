@@ -209,15 +209,12 @@ ORACLE: Dict[str, Dict[str, Set[str]]] = {
         # checklist/notes classes, plus in_area/in_project_b) lands here.
         # 'evening' (URL-scheme 'add' path) reliably lands here too -
         # confirmed live: start='Anytime', start_date == today. Plain
-        # `when='today'` (AppleScript 'schedule' verb, used for the
-        # 'today' seed class) instead produces start='Someday' with
-        # start_date == today (Things' "unconfirmed" scheduled state), so
-        # it does NOT match things.anytime() even though the SAME
-        # when='today' sent via the URL scheme (e.g. with checklist_items)
-        # yields start='Anytime' and does appear in get_anytime, and
-        # Things' own Anytime list contains Today items. That is a product
-        # inconsistency (bead hq-x9z), not an oracle fact - 'today' is
-        # expected in must and recorded as a strict xfail in XFAILS.
+        # `when='today'` (AppleScript path, used for the 'today' seed
+        # class) is fixed as of hq-x9z: it now uses `move theTodo to list
+        # "Today"` instead of the `schedule` verb, which live-probing
+        # confirmed also yields start='Anytime', start_date == today - so
+        # 'today' is a normal (non-xfail) member of get_anytime, same as
+        # the URL-scheme when='today' path.
         # Per CLAUDE.md, when='anytime' schedules into the Anytime list -
         # 'anytime_in_project' is documented here as such.
         "must": {
@@ -374,11 +371,10 @@ ORACLE: Dict[str, Dict[str, Set[str]]] = {
 # ---------------------------------------------------------------------------
 
 XFAILS: Dict[Tuple[str, str, str], str] = {
-    ("get_anytime", "today", "must"):
-        "AppleScript `schedule ... for (current date)` path leaves "
-        "start='Someday' (unconfirmed) so the to-do is in get_today but "
-        "absent from get_anytime, while the URL-scheme when=today path "
-        "sets start='Anytime' - list-membership inconsistency, bead hq-x9z",
+    # (empty) - hq-x9z fixed: when='today' now uses `move theTodo to list
+    # "Today"` instead of the `schedule` verb, so it yields start='Anytime'
+    # like the URL-scheme when='today' path and is a normal member of
+    # get_anytime. No current XFAILS entries.
 }
 
 
