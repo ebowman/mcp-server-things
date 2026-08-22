@@ -505,6 +505,158 @@ class TestGetSomedayIncludeProjectTasks:
         assert inherited_item.get("inheritedSomeday") is True
 
 
+class TestDueInDaysActivatingInDaysModeAndLimit:
+    """hq-wsa.3: get_due_in_days/get_activating_in_days gained mode+limit
+    params and now route through context_manager.optimize_response instead
+    of shipping the raw, unfiltered convert_todo list. Verify mode actually
+    shapes fields, limit truncates client-side while total stays pre-limit,
+    and requested_mode echoes the caller's actual request (these two tools
+    left the no-mode-parameter group)."""
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_minimal_mode_excludes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "minimal"}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+        assert sc["mode"] == "minimal"
+        assert sc["requested_mode"] == "minimal"
+        assert sc["count"] == 3
+        assert sc["total"] == 3
+        for item in sc["items"]:
+            assert "notes" not in item, f"minimal mode must exclude notes, got {item}"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_standard_mode_includes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(2)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "standard"}
+            )
+
+        sc = result.structured_content
+        assert sc["mode"] == "standard"
+        assert sc["requested_mode"] == "standard"
+        for item in sc["items"]:
+            assert item.get("notes") == "Some notes"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_limit_truncates_but_total_is_pre_limit(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(10)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 30, "mode": "standard", "limit": 4}
+            )
+
+        sc = result.structured_content
+        assert sc["count"] == 4
+        assert len(sc["items"]) == 4
+        assert sc["total"] == 10, "total must be the pre-limit count, not len(items)"
+        assert sc["limit"] == 4
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_requested_mode_none_when_omitted(self):
+        todos = [dict(SAMPLE_TODO, uuid="id0")]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_due_in_days", {"days": 7})
+
+        sc = result.structured_content
+        assert sc["requested_mode"] is None
+        assert sc["mode"] != "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_invalid_mode_returns_structured_error(self):
+        server = _make_server_with_mock_tools(get_todos_due_in_days=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "bogus"}
+            )
+
+        sc = result.structured_content
+        assert sc["success"] is False
+        assert sc["error"] == "invalid_mode"
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_minimal_mode_excludes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 7, "mode": "minimal"}
+            )
+
+        sc = result.structured_content
+        assert sc["mode"] == "minimal"
+        assert sc["requested_mode"] == "minimal"
+        for item in sc["items"]:
+            assert "notes" not in item
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_limit_truncates_but_total_is_pre_limit(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(8)]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 30, "mode": "standard", "limit": 3}
+            )
+
+        sc = result.structured_content
+        assert sc["count"] == 3
+        assert len(sc["items"]) == 3
+        assert sc["total"] == 8
+        assert sc["limit"] == 3
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_requested_mode_none_when_omitted(self):
+        todos = [dict(SAMPLE_TODO, uuid="id0")]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_activating_in_days", {"days": 7})
+
+        sc = result.structured_content
+        assert sc["requested_mode"] is None
+        assert sc["mode"] != "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_invalid_mode_returns_structured_error(self):
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 7, "mode": "bogus"}
+            )
+
+        sc = result.structured_content
+        assert sc["success"] is False
+        assert sc["error"] == "invalid_mode"
+
+
 class TestSearchTodosSummaryModePreview:
     """hq-cal.4: search_todos(mode='summary')'s structured_content['items'] must
     be populated from the search summarizer's 'result_preview' key (which

@@ -176,6 +176,8 @@ class SmartDefaultManager:
         'get_logbook': 50,  # Already has limit
         'search_todos': 50,     # Search can return many results
         'search_advanced': 50,  # Advanced search needs limiting
+        'get_due_in_days': 40,        # Overdue backlog can grow large; mirrors get_anytime
+        'get_activating_in_days': 40,  # Same rationale as get_due_in_days
     }
     
     # Default modes by method (AUTO mode for intelligent selection)
@@ -193,6 +195,8 @@ class SmartDefaultManager:
         'search_todos': ResponseMode.AUTO,     # Search results vary widely in size
         'search_advanced': ResponseMode.AUTO,  # Advanced search results unpredictable
         'get_project_headings': ResponseMode.AUTO,  # Headings per project are usually few
+        'get_due_in_days': ResponseMode.AUTO,        # Result size varies with the window/backlog
+        'get_activating_in_days': ResponseMode.AUTO,  # Same rationale as get_due_in_days
     }
     
     def apply_smart_defaults(self, method_name: str, params: Dict[str, Any]) -> Dict[str, Any]:

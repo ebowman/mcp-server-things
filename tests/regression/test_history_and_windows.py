@@ -22,13 +22,21 @@ Validation-shape notes (confirmed by reading server.py, not assumed):
     tool_error. `status`/`type` are each Field(pattern="^(...)$") -
     invalid values -> tool_error too (not runtime read errors).
   - get_due_in_days / get_activating_in_days: `days` is
-    Field(ge=1, le=365) - 0/366 -> tool_error.
+    Field(ge=1, le=365) - 0/366 -> tool_error. `limit` is
+    Field(ge=1, le=500) - 0/501 -> tool_error (added hq-wsa.3). `mode` is a
+    plain Optional[str], hand-validated via the shared `_validate_mode`
+    helper - an invalid mode string IS a read_error('invalid_mode', ...),
+    unlike `days`/`limit`.
 
-None of these five tools' hand-validated parameters route through the
-lower_snake read-error contract (that shape is reserved for tools like
-get_todos with `limit: Any`) - every validation failure exercised here is
-a FastMCP schema rejection surfaced by the `mcp` fixture as
-{"tool_error": "..."}.
+None of get_logbook/get_trash/get_recent's hand-validated parameters route
+through the lower_snake read-error contract (that shape is reserved for
+tools like get_todos with `limit: Any`) - every validation failure
+exercised for those three is a FastMCP schema rejection surfaced by the
+`mcp` fixture as {"tool_error": "..."}. get_due_in_days/
+get_activating_in_days are a partial exception since hq-wsa.3: `days`/
+`limit` are still schema tool_errors, but `mode` now goes through
+`_validate_mode` and returns a structured read_error('invalid_mode', ...)
+on an invalid value, matching get_anytime/get_someday/get_upcoming.
 
 Large-DB caution (hq-ov3, mirrored from test_list_tools.py): the live
 Logbook has years of completed/canceled history. Paging is capped at 4
@@ -539,10 +547,12 @@ class TestGetDueInDays:
         assert "tool_error" not in result, result
         assert result.get("days") == days, result
         assert result.get("include_overdue") == include_overdue, result
-        # get_due_in_days has no 'mode' parameter, so requested_mode must be
-        # None while 'mode' reports the effective ('standard') shape - hq-lsb.
+        # hq-wsa.3: get_due_in_days gained mode+limit and left the no-mode
+        # group - omitted mode is requested_mode=None (nothing asked for),
+        # while 'mode' reports the concrete AUTO-resolved shape (never the
+        # literal 'auto').
         assert result.get("requested_mode") is None, result
-        assert result.get("mode") == "standard", result
+        assert result.get("mode") != "auto", result
         return {i.get("uuid") for i in result.get("items", [])}
 
     def test_days_1_membership(self, mcp, seeded):
@@ -601,6 +611,68 @@ class TestGetDueInDays:
         )
         assert result.get("error") != "internal_error", result
 
+    def test_mode_minimal_excludes_notes(self, mcp, seeded):
+        """hq-wsa.3: mode='minimal' actually shapes the returned fields -
+        notes must be absent (minimal is a smaller field set than the
+        previously-always-full rows)."""
+        result = mcp.call_sync("get_due_in_days", days=60, mode="minimal")
+        assert "tool_error" not in result, result
+        assert result.get("mode") == "minimal", result
+        assert result.get("requested_mode") == "minimal", result
+        items = result.get("items", [])
+        assert items, "expected at least one item in a 60-day due window"
+        for item in items:
+            assert "notes" not in item, f"minimal mode must exclude notes, got {item}"
+
+    def test_mode_detailed_includes_notes_field(self, mcp, seeded):
+        """detailed mode retains the full field set (notes present, even if
+        empty-string, on at least the seeded 'deadline_today' item)."""
+        result = mcp.call_sync("get_due_in_days", days=60, mode="detailed")
+        assert "tool_error" not in result, result
+        assert result.get("mode") == "detailed", result
+        assert result.get("requested_mode") == "detailed", result
+        uuids = {i.get("uuid"): i for i in result.get("items", [])}
+        target = seeded.uuid("deadline_today")
+        assert target in uuids, "deadline_today missing under mode=detailed"
+        assert "notes" in uuids[target], (
+            f"detailed mode must include notes key, got {sorted(uuids[target].keys())}"
+        )
+
+    def test_limit_truncates_but_total_is_pre_limit(self, mcp, seeded):
+        """limit truncates items client-side after the full window is
+        fetched; total must reflect the full pre-limit window size, not
+        len(items)."""
+        unbounded = mcp.call_sync("get_due_in_days", days=60, mode="minimal")
+        assert "tool_error" not in unbounded, unbounded
+        full_total = unbounded.get("total")
+        assert isinstance(full_total, int) and full_total >= 2, (
+            f"expected at least 2 items in the 60-day due window, got total={full_total}"
+        )
+
+        limited = mcp.call_sync("get_due_in_days", days=60, mode="minimal", limit=1)
+        assert "tool_error" not in limited, limited
+        assert limited.get("limit") == 1, limited
+        assert len(limited.get("items", [])) == 1, limited
+        assert limited.get("count") == 1, limited
+        assert limited.get("total") == full_total, (
+            f"total must stay pre-limit ({full_total}), got {limited.get('total')}"
+        )
+
+    @pytest.mark.parametrize("bad_limit", [0, 501])
+    def test_limit_out_of_range_is_schema_rejection(self, mcp, bad_limit):
+        result = mcp.call_sync("get_due_in_days", days=7, limit=bad_limit)
+        assert "tool_error" in result, (
+            f"get_due_in_days(limit={bad_limit}): expected schema tool_error, got {result!r}"
+        )
+
+    def test_invalid_mode_is_structured_read_error(self, mcp):
+        """Unlike out-of-range days/limit (schema tool_error), an invalid
+        mode string is a hand-validated read_error('invalid_mode', ...)."""
+        result = mcp.call_sync("get_due_in_days", days=7, mode="bogus")
+        assert "tool_error" not in result, result
+        assert result.get("success") is False, result
+        assert result.get("error") == "invalid_mode", result
+
 
 # ---------------------------------------------------------------------------
 # get_activating_in_days
@@ -612,11 +684,12 @@ class TestGetActivatingInDays:
         result = mcp.call_sync("get_activating_in_days", days=days)
         assert "tool_error" not in result, result
         assert result.get("days") == days, result
-        # get_activating_in_days has no 'mode' parameter, so requested_mode
-        # must be None while 'mode' reports the effective ('standard')
-        # shape - hq-lsb.
+        # hq-wsa.3: get_activating_in_days gained mode+limit and left the
+        # no-mode group - omitted mode is requested_mode=None (nothing
+        # asked for), while 'mode' reports the concrete AUTO-resolved shape
+        # (never the literal 'auto').
         assert result.get("requested_mode") is None, result
-        assert result.get("mode") == "standard", result
+        assert result.get("mode") != "auto", result
         return {i.get("uuid") for i in result.get("items", [])}
 
     def test_days_7_absent(self, mcp, seeded):
@@ -671,3 +744,56 @@ class TestGetActivatingInDays:
             f"get_activating_in_days(days={days}): expected schema tool_error, got {result!r}"
         )
         assert result.get("error") != "internal_error", result
+
+    def test_mode_minimal_excludes_notes(self, mcp, seeded):
+        """hq-wsa.3: mode='minimal' actually shapes the returned fields."""
+        result = mcp.call_sync("get_activating_in_days", days=30, mode="minimal")
+        assert "tool_error" not in result, result
+        assert result.get("mode") == "minimal", result
+        assert result.get("requested_mode") == "minimal", result
+        items = result.get("items", [])
+        assert items, "expected at least one item in a 30-day activating window"
+        for item in items:
+            assert "notes" not in item, f"minimal mode must exclude notes, got {item}"
+
+    def test_mode_detailed_includes_notes_field(self, mcp, seeded):
+        result = mcp.call_sync("get_activating_in_days", days=30, mode="detailed")
+        assert "tool_error" not in result, result
+        assert result.get("mode") == "detailed", result
+        assert result.get("requested_mode") == "detailed", result
+        uuids = {i.get("uuid"): i for i in result.get("items", [])}
+        target = seeded.uuid("activating_plus10d")
+        assert target in uuids, "activating_plus10d missing under mode=detailed"
+        assert "notes" in uuids[target], (
+            f"detailed mode must include notes key, got {sorted(uuids[target].keys())}"
+        )
+
+    def test_limit_truncates_but_total_is_pre_limit(self, mcp, seeded):
+        unbounded = mcp.call_sync("get_activating_in_days", days=30, mode="minimal")
+        assert "tool_error" not in unbounded, unbounded
+        full_total = unbounded.get("total")
+        assert isinstance(full_total, int) and full_total >= 2, (
+            f"expected at least 2 items in the 30-day activating window, got total={full_total}"
+        )
+
+        limited = mcp.call_sync("get_activating_in_days", days=30, mode="minimal", limit=1)
+        assert "tool_error" not in limited, limited
+        assert limited.get("limit") == 1, limited
+        assert len(limited.get("items", [])) == 1, limited
+        assert limited.get("count") == 1, limited
+        assert limited.get("total") == full_total, (
+            f"total must stay pre-limit ({full_total}), got {limited.get('total')}"
+        )
+
+    @pytest.mark.parametrize("bad_limit", [0, 501])
+    def test_limit_out_of_range_is_schema_rejection(self, mcp, bad_limit):
+        result = mcp.call_sync("get_activating_in_days", days=7, limit=bad_limit)
+        assert "tool_error" in result, (
+            f"get_activating_in_days(limit={bad_limit}): expected schema tool_error, got {result!r}"
+        )
+
+    def test_invalid_mode_is_structured_read_error(self, mcp):
+        result = mcp.call_sync("get_activating_in_days", days=7, mode="bogus")
+        assert "tool_error" not in result, result
+        assert result.get("success") is False, result
+        assert result.get("error") == "invalid_mode", result

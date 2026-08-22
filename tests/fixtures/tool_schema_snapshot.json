@@ -411,7 +411,7 @@
     ]
   },
   "get_activating_in_days": {
-    "description_sha256": "8a35fd938451e6d0f038113d8898863eac935e79e6602145bb9dc8a8a2e63768",
+    "description_sha256": "a2cb0c8a75d82f3fa52d409b1711558c4a73ef207cfa2dc66b2308856ea70465",
     "has_output_schema": true,
     "name": "get_activating_in_days",
     "properties": {
@@ -420,6 +420,30 @@
         "maximum": 365,
         "minimum": 1,
         "type": "integer"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
       }
     },
     "required": []
@@ -484,7 +508,7 @@
     "required": []
   },
   "get_due_in_days": {
-    "description_sha256": "db849968127f0fe31bc5042ffb168cd6bdfc2a8cd87370743ae323145749f46e",
+    "description_sha256": "26a1963f00a1634f27b4597558586caba77f79bf13e13feecc264bbee0f9ffaf",
     "has_output_schema": true,
     "name": "get_due_in_days",
     "properties": {
@@ -497,6 +521,30 @@
       "include_overdue": {
         "default": true,
         "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
       }
     },
     "required": []

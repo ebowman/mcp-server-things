@@ -386,8 +386,8 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_trash(include_projects?)` - Get trashed todos
 
 ### Date-Range Queries
-- `get_due_in_days(days, include_overdue?)` - Get todos due within specified days; includes already-overdue todos by default (`include_overdue=true`)
-- `get_activating_in_days(days)` - Get todos activating within days
+- `get_due_in_days(days, include_overdue?, mode?, limit?)` - Get todos due within specified days; includes already-overdue todos by default (`include_overdue=true`)
+- `get_activating_in_days(days, mode?, limit?)` - Get todos activating within days
 
 ### Search & Tags
 - `search_todos(query, status?, offset?)` - Basic search; matches incomplete todos by default (`status='incomplete'`), pass `status=None` to search all statuses

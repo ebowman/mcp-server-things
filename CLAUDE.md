@@ -432,7 +432,7 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_due_in_days`, `get_activating_in_days`, `get_tags`, `get_tagged_items`, `get_recent`, `get_trash`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`).
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_tags`, `get_tagged_items`, `get_recent`, `get_trash`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`). `get_due_in_days` and `get_activating_in_days` accept `mode`/`limit` like the other date-window list tools (hq-wsa.3) and are no longer in this no-mode group - see "Due/activating date-window tools" below.
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
@@ -518,9 +518,10 @@ Known, currently-out-of-scope exceptions to this contract:
 
 ### Due/activating date-window tools
 
-`get_due_in_days(days, include_overdue?)` and `get_activating_in_days(days)` both query a
-forward window of `today <= date <= today + days`, and both apply the Someday-project
-filter described above.
+`get_due_in_days(days, include_overdue?, mode?, limit?)` and
+`get_activating_in_days(days, mode?, limit?)` both query a forward window of
+`today <= date <= today + days`, and both apply the Someday-project filter described
+above.
 
 - `get_activating_in_days` always excludes todos that are already active (`start_date` in
   the past) - it only returns todos whose start date falls within the forward window,
@@ -531,6 +532,14 @@ filter described above.
   (`today <= deadline <= today + days`).
 - Boundary dates are inclusive on both ends: a deadline/start_date of exactly today or
   exactly the target date is included.
+- Both tools support `mode` (`auto`/`summary`/`minimal`/`standard`/`detailed`/`raw`) and
+  `limit` (1-500) like the other list tools (hq-wsa.3) - `mode` shapes which fields come
+  back (e.g. `notes` is absent under `minimal`/`summary`), and `limit` truncates the
+  result client-side after the full window is fetched, so `total` in the response
+  envelope always reflects the pre-limit count of the full matching window (useful for
+  capping a large overdue backlog). Both default to `mode='auto'` (AUTO resolves based on
+  result size, same as `get_anytime`/`get_someday`) and no limit when `limit` is omitted -
+  pass `limit` explicitly to cap the response size.
 
 ```python
 # Historical behavior: due soon + already overdue
@@ -541,6 +550,9 @@ get_due_in_days(days=7, include_overdue=false)
 
 # Todos that will become active in the next 7 days (excludes already-active todos)
 get_activating_in_days(days=7)
+
+# Cap a large overdue backlog to the 20 most pressing items, minimal fields only
+get_due_in_days(days=30, mode='minimal', limit=20)
 ```
 
 ### List tools: headings never returned, projects opt-in

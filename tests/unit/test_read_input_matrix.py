@@ -401,6 +401,18 @@ add("get_due_in_days", {"include_overdue": True}, ok())
 add("get_due_in_days", {"include_overdue": True}, ok())
 add("get_due_in_days", {"include_overdue": False}, ok())
 add("get_due_in_days", {"include_overdue": False, "days": 5}, ok())
+add("get_due_in_days", {"mode": "auto"}, ok())
+add("get_due_in_days", {"mode": "summary"}, ok())
+add("get_due_in_days", {"mode": "minimal"}, ok())
+add("get_due_in_days", {"mode": "standard"}, ok())
+add("get_due_in_days", {"mode": "detailed"}, ok())
+add("get_due_in_days", {"mode": "raw"}, ok())
+add("get_due_in_days", {"mode": "bogus"}, read_error("invalid_mode"))
+add("get_due_in_days", {"limit": 1}, ok())
+add("get_due_in_days", {"limit": 500}, ok())
+add("get_due_in_days", {"limit": 501}, tool_error())
+add("get_due_in_days", {"limit": 0}, tool_error())
+add("get_due_in_days", {"limit": -1}, tool_error())
 
 # --- get_activating_in_days --------------------------------------------------------
 add("get_activating_in_days", {}, ok())
@@ -409,6 +421,18 @@ add("get_activating_in_days", {"days": 365}, ok())
 add("get_activating_in_days", {"days": 366}, tool_error())
 add("get_activating_in_days", {"days": 0}, tool_error())
 add("get_activating_in_days", {"days": -1}, tool_error())
+add("get_activating_in_days", {"mode": "auto"}, ok())
+add("get_activating_in_days", {"mode": "summary"}, ok())
+add("get_activating_in_days", {"mode": "minimal"}, ok())
+add("get_activating_in_days", {"mode": "standard"}, ok())
+add("get_activating_in_days", {"mode": "detailed"}, ok())
+add("get_activating_in_days", {"mode": "raw"}, ok())
+add("get_activating_in_days", {"mode": "bogus"}, read_error("invalid_mode"))
+add("get_activating_in_days", {"limit": 1}, ok())
+add("get_activating_in_days", {"limit": 500}, ok())
+add("get_activating_in_days", {"limit": 501}, tool_error())
+add("get_activating_in_days", {"limit": 0}, tool_error())
+add("get_activating_in_days", {"limit": -1}, tool_error())
 
 # --- get_tags --------------------------------------------------------
 add("get_tags", {}, ok())
@@ -563,17 +587,17 @@ def _case_id(case: Tuple[str, Dict[str, Any], Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-# Tools with no 'mode' parameter at all (get_logbook, get_due_in_days,
-# get_activating_in_days, get_tags, get_tagged_items, get_recent, get_trash)
-# report requested_mode=None (nothing was requested), while 'mode' still
-# reports the effective/concrete shape of the returned items (hq-lsb fix -
-# ThingsMCPServer._read_result's list branch now always sets
-# 'requested_mode', matching the dict branch; hq-cal.3 fixed the one dict-
-# branch caller, get_trash, that had been left out).
+# Tools with no 'mode' parameter at all (get_logbook, get_tags,
+# get_tagged_items, get_recent, get_trash) report requested_mode=None
+# (nothing was requested), while 'mode' still reports the effective/concrete
+# shape of the returned items (hq-lsb fix - ThingsMCPServer._read_result's
+# list branch now always sets 'requested_mode', matching the dict branch;
+# hq-cal.3 fixed the one dict-branch caller, get_trash, that had been left
+# out). get_due_in_days/get_activating_in_days gained mode+limit params in
+# hq-wsa.3 and left this group - they now follow the has-mode contract like
+# get_anytime/get_someday.
 NO_MODE_PARAM_TOOLS = {
     "get_logbook",
-    "get_due_in_days",
-    "get_activating_in_days",
     "get_tags",
     "get_tagged_items",
     "get_recent",
