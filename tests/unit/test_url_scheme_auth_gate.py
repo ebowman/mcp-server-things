@@ -23,6 +23,28 @@ from things_mcp.services.applescript_manager import (
 from things_mcp.scheduling.todo_operations import TodoOperations
 
 
+def _no_candidates_found(*, tmp_path, monkeypatch):
+    """Redirect AppleScriptManager's auth-token candidate paths (project
+    root + home) to empty tmp_path directories, so tests are hermetic
+    against a real .things-auth/~/.things-auth possibly present on the
+    machine running the suite (hq-wsa.4: reload-on-miss now re-runs
+    _load_auth_token() at the gate, not just at __init__, so tests that
+    merely set `.auth_token = None` on a real AppleScriptManager and then
+    exercise the gate must also neutralize the real candidate paths or the
+    reload will pick the real token back up)."""
+    fake_project_dir = tmp_path / "project"
+    fake_project_dir.mkdir(exist_ok=True)
+    fake_home_dir = tmp_path / "home"
+    fake_home_dir.mkdir(exist_ok=True)
+
+    fake_module_file = fake_project_dir / "src" / "things_mcp" / "services" / "applescript_manager.py"
+    fake_module_file.parent.mkdir(parents=True, exist_ok=True)
+
+    import things_mcp.services.applescript_manager as asm_module
+    monkeypatch.setattr(asm_module, "__file__", str(fake_module_file))
+    monkeypatch.setattr(asm_module.Path, "home", staticmethod(lambda: fake_home_dir))
+
+
 # ---------------------------------------------------------------------------
 # _load_auth_token edge case: empty/whitespace-only token file treated as
 # missing (falls through to the next candidate path).
@@ -53,9 +75,10 @@ class TestLoadAuthTokenEmptyFile:
         monkeypatch.setattr(asm_module.Path, "home", staticmethod(lambda: fake_home_dir))
 
         manager = AppleScriptManager.__new__(AppleScriptManager)
-        token = manager._load_auth_token()
+        token, trace = manager._load_auth_token()
 
         assert token == "real-token-456"
+        assert trace[-1]["status"] == "matched"
 
     def test_whitespace_only_body_strips_to_empty(self):
         """_load_auth_token must treat a whitespace-only file body as an
@@ -67,10 +90,11 @@ class TestLoadAuthTokenEmptyFile:
         assert not raw_empty
 
     @pytest.mark.asyncio
-    async def test_manager_with_empty_string_auth_token_is_gated(self):
+    async def test_manager_with_empty_string_auth_token_is_gated(self, tmp_path, monkeypatch):
         """Simulates the outcome of loading an empty/whitespace token file:
         self.auth_token ends up as "" (falsy), which must still gate
         'update' actions exactly like auth_token=None."""
+        _no_candidates_found(tmp_path=tmp_path, monkeypatch=monkeypatch)
         manager = AppleScriptManager()
         manager.auth_token = ""
 
@@ -80,6 +104,11 @@ class TestLoadAuthTokenEmptyFile:
         assert result["success"] is False
         assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
         assert result["message"] == "Things URL-scheme auth token not configured"
+        assert result["checked_paths"] == [
+            {"path": str(tmp_path / "project" / ".things-auth"), "status": "missing"},
+            {"path": str(tmp_path / "project" / "things-auth.txt"), "status": "missing"},
+            {"path": "~/.things-auth", "status": "missing"},
+        ]
         mock_create.assert_not_called()
 
 
@@ -89,7 +118,8 @@ class TestLoadAuthTokenEmptyFile:
 
 class TestExecuteUrlSchemeAuthGate:
     @pytest.mark.asyncio
-    async def test_update_without_token_returns_structured_error_no_open(self):
+    async def test_update_without_token_returns_structured_error_no_open(self, tmp_path, monkeypatch):
+        _no_candidates_found(tmp_path=tmp_path, monkeypatch=monkeypatch)
         manager = AppleScriptManager()
         manager.auth_token = None
 
@@ -100,11 +130,15 @@ class TestExecuteUrlSchemeAuthGate:
         assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
         assert result["message"] == "Things URL-scheme auth token not configured"
         assert "hint" in result and result["hint"]
+        assert result["checked_paths"] and all(
+            entry["status"] == "missing" for entry in result["checked_paths"]
+        )
         # open/execute_script must never be invoked.
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_project_without_token_returns_structured_error(self):
+    async def test_update_project_without_token_returns_structured_error(self, tmp_path, monkeypatch):
+        _no_candidates_found(tmp_path=tmp_path, monkeypatch=monkeypatch)
         manager = AppleScriptManager()
         manager.auth_token = None
 

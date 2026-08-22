@@ -176,6 +176,8 @@ class SmartDefaultManager:
         'get_logbook': 50,  # Already has limit
         'search_todos': 50,     # Search can return many results
         'search_advanced': 50,  # Advanced search needs limiting
+        'get_due_in_days': 40,        # Overdue backlog can grow large; mirrors get_anytime
+        'get_activating_in_days': 40,  # Same rationale as get_due_in_days
     }
     
     # Default modes by method (AUTO mode for intelligent selection)
@@ -193,6 +195,8 @@ class SmartDefaultManager:
         'search_todos': ResponseMode.AUTO,     # Search results vary widely in size
         'search_advanced': ResponseMode.AUTO,  # Advanced search results unpredictable
         'get_project_headings': ResponseMode.AUTO,  # Headings per project are usually few
+        'get_due_in_days': ResponseMode.AUTO,        # Result size varies with the window/backlog
+        'get_activating_in_days': ResponseMode.AUTO,  # Same rationale as get_due_in_days
     }
     
     def apply_smart_defaults(self, method_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -312,13 +316,28 @@ class ProgressiveDisclosureEngine:
         }
 
     def _summarize_projects(self, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Create project-specific summary."""
-        active_count = len([p for p in projects if p.get('status') == 'open'])
-        completed_count = len([p for p in projects if p.get('status') == 'completed'])
+        """Create project-specific summary.
+
+        Builds a dynamic status_breakdown from the rows' actual status
+        values (same pattern as _summarize_todos), since things.py/
+        convert_project emit status == 'incomplete' for open projects,
+        never 'open' - counting against a literal 'open' string (the
+        previous implementation) always reported active == 0 (hq-wsa.1).
+        """
+        status_counts: Dict[str, int] = {}
+        for project in projects:
+            status = project.get('status', 'incomplete')
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        active_count = status_counts.get('incomplete', 0)
+        completed_count = status_counts.get('completed', 0)
+        canceled_count = status_counts.get('canceled', 0)
 
         return {
             "active": active_count,
             "completed": completed_count,
+            "canceled": canceled_count,
+            "status_breakdown": status_counts,
             "recent_projects": [
                 self._build_summary_preview_row(p) for p in projects[:3]
             ]
@@ -377,7 +396,6 @@ class ProgressiveDisclosureEngine:
         return {
             "search_results_breakdown": status_counts,
             "result_preview": recent_items,
-            "total_matches": len(results),
             "suggestion": "Use mode='minimal' or 'standard' to see more details, or add filters to narrow results"
         }
     

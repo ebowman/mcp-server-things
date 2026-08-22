@@ -296,6 +296,164 @@ class TestURLSchemeExecution:
             assert "\t" not in url
 
 
+def _redirect_auth_candidates(tmp_path, monkeypatch):
+    """Redirect AppleScriptManager's auth-token candidate paths (project
+    root + home) to empty tmp_path directories, returning
+    (fake_project_dir, fake_home_dir). Hermetic against a real
+    .things-auth/~/.things-auth possibly present on the machine running the
+    suite - mirrors the helper of the same purpose in
+    test_url_scheme_auth_gate.py."""
+    fake_project_dir = tmp_path / "project"
+    fake_project_dir.mkdir(exist_ok=True)
+    fake_home_dir = tmp_path / "home"
+    fake_home_dir.mkdir(exist_ok=True)
+
+    fake_module_file = fake_project_dir / "src" / "things_mcp" / "services" / "applescript_manager.py"
+    fake_module_file.parent.mkdir(parents=True, exist_ok=True)
+
+    import things_mcp.services.applescript_manager as asm_module
+    monkeypatch.setattr(asm_module, "__file__", str(fake_module_file))
+    monkeypatch.setattr(asm_module.Path, "home", staticmethod(lambda: fake_home_dir))
+    return fake_project_dir, fake_home_dir
+
+
+class TestAuthTokenReloadOnMiss:
+    """hq-wsa.4: a token file created after the manager was constructed is
+    picked up on the next gated call, without constructing a new manager or
+    restarting the server."""
+
+    @pytest.mark.asyncio
+    async def test_token_file_appearing_after_init_is_picked_up_without_new_manager(
+        self, tmp_path, monkeypatch
+    ):
+        fake_project_dir, _ = _redirect_auth_candidates(tmp_path, monkeypatch)
+
+        # No token file exists yet at construction time.
+        manager = AppleScriptManager()
+        assert manager.auth_token is None
+
+        with patch('asyncio.create_subprocess_exec') as mock_create:
+            result = await manager.execute_url_scheme("update", {"id": "abc123"})
+        assert result["success"] is False
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        mock_create.assert_not_called()
+
+        # Token file appears after construction (simulating the user
+        # configuring it at runtime, with the server left running).
+        (fake_project_dir / ".things-auth").write_text("late-token-789")
+
+        # Same manager instance, no restart - the next gated call must pick
+        # it up.
+        with patch('asyncio.create_subprocess_exec') as mock_create:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager.execute_url_scheme("update", {"id": "abc123"})
+
+        assert result["success"] is True
+        assert "auth-token=late-token-789" in result["url"]
+        assert manager.auth_token == "late-token-789"
+
+    @pytest.mark.asyncio
+    async def test_already_loaded_token_is_not_reloaded(self, tmp_path, monkeypatch):
+        """reload_auth_token_if_missing is a no-op once a token is loaded -
+        it must not re-read the filesystem (and must not be fooled by a
+        DIFFERENT token file appearing later) once auth_token is truthy."""
+        fake_project_dir, _ = _redirect_auth_candidates(tmp_path, monkeypatch)
+        (fake_project_dir / ".things-auth").write_text("original-token")
+
+        manager = AppleScriptManager()
+        assert manager.auth_token == "original-token"
+
+        # Change the file on disk after construction - since a token is
+        # already loaded, reload_auth_token_if_missing must leave it alone.
+        (fake_project_dir / ".things-auth").write_text("different-token")
+
+        reloaded = manager.reload_auth_token_if_missing()
+        assert reloaded == "original-token"
+        assert manager.auth_token == "original-token"
+
+    def test_empty_then_valid_home_candidate_resolves_via_reload(self, tmp_path, monkeypatch):
+        """Combines the empty-file-falls-through behavior with reload: an
+        empty project-root file at construction time (no token loaded),
+        then a valid ~/.things-auth appearing later, is picked up by
+        reload_auth_token_if_missing()."""
+        fake_project_dir, fake_home_dir = _redirect_auth_candidates(tmp_path, monkeypatch)
+        (fake_project_dir / ".things-auth").write_text("   \n")
+
+        manager = AppleScriptManager()
+        assert manager.auth_token is None
+
+        (fake_home_dir / ".things-auth").write_text("home-token-999")
+
+        reloaded = manager.reload_auth_token_if_missing()
+        assert reloaded == "home-token-999"
+        assert manager.auth_token == "home-token-999"
+
+
+class TestAuthTokenCheckedPathsTrace:
+    """hq-wsa.4: _load_auth_token's resolution trace, and its presence on
+    the AUTH_TOKEN_NOT_CONFIGURED envelope - path + status only, never the
+    token value itself."""
+
+    def test_trace_shape_all_missing(self, tmp_path, monkeypatch):
+        _redirect_auth_candidates(tmp_path, monkeypatch)
+
+        manager = AppleScriptManager.__new__(AppleScriptManager)
+        token, trace = manager._load_auth_token()
+
+        assert token is None
+        assert [entry["status"] for entry in trace] == ["missing", "missing", "missing"]
+        for entry in trace:
+            assert set(entry.keys()) == {"path", "status"}
+
+    def test_trace_shape_empty_then_matched(self, tmp_path, monkeypatch):
+        fake_project_dir, fake_home_dir = _redirect_auth_candidates(tmp_path, monkeypatch)
+        (fake_project_dir / ".things-auth").write_text("   \n")
+        (fake_home_dir / ".things-auth").write_text("real-token")
+
+        manager = AppleScriptManager.__new__(AppleScriptManager)
+        token, trace = manager._load_auth_token()
+
+        assert token == "real-token"
+        statuses = [entry["status"] for entry in trace]
+        # .things-auth (empty) -> things-auth.txt (missing) -> ~/.things-auth (matched)
+        assert statuses == ["empty", "missing", "matched"]
+        # Never leak the token value itself into the trace.
+        for entry in trace:
+            assert "real-token" not in str(entry)
+
+    def test_trace_shape_unreadable(self, tmp_path, monkeypatch):
+        fake_project_dir, _ = _redirect_auth_candidates(tmp_path, monkeypatch)
+        bad_file = fake_project_dir / ".things-auth"
+        bad_file.mkdir()  # A directory, not a file - read_text() raises.
+
+        manager = AppleScriptManager.__new__(AppleScriptManager)
+        token, trace = manager._load_auth_token()
+
+        assert token is None
+        assert trace[0]["status"] == "unreadable"
+
+    @pytest.mark.asyncio
+    async def test_checked_paths_on_auth_gate_error(self, tmp_path, monkeypatch):
+        _redirect_auth_candidates(tmp_path, monkeypatch)
+        manager = AppleScriptManager()
+
+        with patch('asyncio.create_subprocess_exec') as mock_create:
+            result = await manager.execute_url_scheme("update", {"id": "abc123"})
+
+        assert result["success"] is False
+        assert result["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
+        assert "hint" in result and result["hint"]
+        assert "checked_paths" in result
+        assert [entry["status"] for entry in result["checked_paths"]] == [
+            "missing", "missing", "missing"
+        ]
+        mock_create.assert_not_called()
+
+
 class TestThingsAvailabilityCheck:
     """Test Things 3 availability checking."""
     

@@ -207,13 +207,14 @@ class TestStructuredContentShape:
     async def test_get_tag_usage_structured_content(self):
         """get_tag_usage rows are tags (not todos); verify items/count/total shape
         is applied on top of its existing custom mode shaping."""
+        tag_rows = [
+            {"title": "work", "uuid": "t1", "open_count": 3, "total_count": 5},
+            {"title": "home", "uuid": "t2", "open_count": 1, "total_count": 1},
+        ]
         usage_payload = {
             "tag_count": 2,
             "unused_count": 0,
-            "tags": [
-                {"title": "work", "uuid": "t1", "open_count": 3, "total_count": 5},
-                {"title": "home", "uuid": "t2", "open_count": 1, "total_count": 1},
-            ],
+            "tags": list(tag_rows),
         }
         server = _make_server_with_mock_tools(get_tag_usage=usage_payload)
 
@@ -225,7 +226,12 @@ class TestStructuredContentShape:
         assert REQUIRED_LIST_KEYS.issubset(sc.keys())
         assert sc["total"] == 2
         assert sc["count"] == 2
-        assert sc["items"] == usage_payload["tags"]
+        assert sc["items"] == tag_rows
+
+        # hq-wsa.2: 'tags' was the source key items was populated from - it must
+        # not survive in the final envelope alongside 'items' (double serialization).
+        assert "tags" not in sc
+        assert "data" not in sc
 
     @pytest.mark.asyncio
     async def test_get_trash_preserves_pagination_fields(self):
@@ -499,6 +505,158 @@ class TestGetSomedayIncludeProjectTasks:
         assert inherited_item.get("inheritedSomeday") is True
 
 
+class TestDueInDaysActivatingInDaysModeAndLimit:
+    """hq-wsa.3: get_due_in_days/get_activating_in_days gained mode+limit
+    params and now route through context_manager.optimize_response instead
+    of shipping the raw, unfiltered convert_todo list. Verify mode actually
+    shapes fields, limit truncates client-side while total stays pre-limit,
+    and requested_mode echoes the caller's actual request (these two tools
+    left the no-mode-parameter group)."""
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_minimal_mode_excludes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "minimal"}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert REQUIRED_LIST_KEYS.issubset(sc.keys())
+        assert sc["mode"] == "minimal"
+        assert sc["requested_mode"] == "minimal"
+        assert sc["count"] == 3
+        assert sc["total"] == 3
+        for item in sc["items"]:
+            assert "notes" not in item, f"minimal mode must exclude notes, got {item}"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_standard_mode_includes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(2)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "standard"}
+            )
+
+        sc = result.structured_content
+        assert sc["mode"] == "standard"
+        assert sc["requested_mode"] == "standard"
+        for item in sc["items"]:
+            assert item.get("notes") == "Some notes"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_limit_truncates_but_total_is_pre_limit(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(10)]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 30, "mode": "standard", "limit": 4}
+            )
+
+        sc = result.structured_content
+        assert sc["count"] == 4
+        assert len(sc["items"]) == 4
+        assert sc["total"] == 10, "total must be the pre-limit count, not len(items)"
+        assert sc["limit"] == 4
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_requested_mode_none_when_omitted(self):
+        todos = [dict(SAMPLE_TODO, uuid="id0")]
+        server = _make_server_with_mock_tools(get_todos_due_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_due_in_days", {"days": 7})
+
+        sc = result.structured_content
+        assert sc["requested_mode"] is None
+        assert sc["mode"] != "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_due_in_days_invalid_mode_returns_structured_error(self):
+        server = _make_server_with_mock_tools(get_todos_due_in_days=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_due_in_days", {"days": 7, "mode": "bogus"}
+            )
+
+        sc = result.structured_content
+        assert sc["success"] is False
+        assert sc["error"] == "invalid_mode"
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_minimal_mode_excludes_notes(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 7, "mode": "minimal"}
+            )
+
+        sc = result.structured_content
+        assert sc["mode"] == "minimal"
+        assert sc["requested_mode"] == "minimal"
+        for item in sc["items"]:
+            assert "notes" not in item
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_limit_truncates_but_total_is_pre_limit(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(8)]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 30, "mode": "standard", "limit": 3}
+            )
+
+        sc = result.structured_content
+        assert sc["count"] == 3
+        assert len(sc["items"]) == 3
+        assert sc["total"] == 8
+        assert sc["limit"] == 3
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_requested_mode_none_when_omitted(self):
+        todos = [dict(SAMPLE_TODO, uuid="id0")]
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_activating_in_days", {"days": 7})
+
+        sc = result.structured_content
+        assert sc["requested_mode"] is None
+        assert sc["mode"] != "auto"
+
+    @pytest.mark.asyncio
+    async def test_get_activating_in_days_invalid_mode_returns_structured_error(self):
+        server = _make_server_with_mock_tools(get_todos_activating_in_days=[])
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "get_activating_in_days", {"days": 7, "mode": "bogus"}
+            )
+
+        sc = result.structured_content
+        assert sc["success"] is False
+        assert sc["error"] == "invalid_mode"
+
+
 class TestSearchTodosSummaryModePreview:
     """hq-cal.4: search_todos(mode='summary')'s structured_content['items'] must
     be populated from the search summarizer's 'result_preview' key (which
@@ -534,6 +692,145 @@ class TestSearchTodosSummaryModePreview:
 
         # total reflects the full pre-preview match count, not the preview size.
         assert sc["total"] == 10
+
+    @pytest.mark.asyncio
+    async def test_search_todos_summary_mode_no_total_matches_key_when_limited(self):
+        """hq-wsa.5: _summarize_search_results previously emitted
+        'total_matches': len(results) - but the data reaching it is already
+        limit/offset-truncated (server.py passes the final window down), so
+        a limit=1 call yielded total_matches=1 even though the true,
+        pre-limit match count (correctly reported by the envelope's
+        separately-injected 'total') was much larger. total_matches must be
+        gone from the summary envelope entirely; 'total' remains the
+        authoritative, correct, pre-limit count."""
+        # Build a truncated window: only 1 todo reaches the summarizer even
+        # though the underlying search matched many more (mocked total below).
+        todos = [dict(SAMPLE_TODO, uuid="only-id", title="milk")]
+        server = _make_server_with_mock_tools(search_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "search_todos", {"query": "milk", "mode": "summary", "limit": 1}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert "total_matches" not in sc, (
+            f"total_matches must never appear in search summary envelopes: {sc!r}"
+        )
+        # total is the authoritative pre-limit count; with only 1 mocked
+        # todo behind the mocked tools layer, total == 1 here (there is no
+        # separate pre-limit source in this mock), which is exactly the
+        # point: a stale 'total_matches': len(results) could never diverge
+        # from 'total' in a way a caller could detect without a real
+        # pre-limit total behind it - it's a dead, misleading duplicate key
+        # that must be dropped rather than threaded through.
+        assert sc["total"] == 1
+        assert sc["count"] == 1
+
+
+class TestNoDuplicatedPayloadKey:
+    """hq-wsa.2: 'items' is the one canonical payload array in every structured
+    envelope - the source key it was populated from ('data' from
+    optimize_response, or whichever summary-preview key matched:
+    'recent_preview'/'recent_projects'/'result_preview'/'tags'/'top') must never
+    also survive in the final envelope (previously the same list object was
+    aliased under both keys - byte-identical double serialization)."""
+
+    LEGACY_KEYS = {"data", "recent_preview", "recent_projects", "result_preview", "top"}
+
+    @pytest.mark.asyncio
+    async def test_get_todos_standard_mode_no_legacy_data_key(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_todos", {"mode": "standard"})
+
+        sc = result.structured_content
+        assert sc["items"] == todos
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_todos_summary_mode_no_legacy_preview_key(self):
+        """AUTO/summary-shaped responses (create_summary_response) must not carry
+        'recent_preview' alongside 'items'."""
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(10)]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_todos", {"mode": "summary"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_projects_summary_mode_no_legacy_preview_key(self):
+        projects = [dict(SAMPLE_PROJECT, uuid=f"proj{i}") for i in range(5)]
+        server = _make_server_with_mock_tools(get_projects=projects)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "summary"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_tag_usage_no_legacy_tags_key(self):
+        """Direct duplicate of TestStructuredContentShape's assertion, kept here
+        as a representative-tool check grouped with the other legacy-key tests."""
+        usage_payload = {
+            "tag_count": 1,
+            "unused_count": 0,
+            "tags": [{"title": "work", "uuid": "t1", "open_count": 1, "total_count": 1}],
+        }
+        server = _make_server_with_mock_tools(get_tag_usage=usage_payload)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_tag_usage", {"mode": "standard"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert "tags" not in sc
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    def test_read_result_pops_data_key_directly(self):
+        """Direct unit test of _read_result: a synthetic {'data': [...], 'meta':
+        {...}} payload must not carry 'data' in the returned envelope."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "data": [{"uuid": "1", "title": "a"}],
+            "meta": {"mode": "standard", "count": 1},
+        }
+
+        result = server._read_result(synthetic_response, mode="standard", total=1)
+
+        assert result["items"] == [{"uuid": "1", "title": "a"}]
+        assert "data" not in result
+
+    def test_read_result_pops_result_preview_key_directly(self):
+        """Direct unit test of _read_result: a synthetic summary-shaped payload
+        carrying 'result_preview' must not retain that key once 'items' is
+        populated from it."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "success": True,
+            "count": 3,
+            "mode": "summary",
+            "result_preview": [{"uuid": "1", "title": "a"}],
+        }
+
+        result = server._read_result(synthetic_response, mode="auto", total=3)
+
+        assert result["items"] == [{"uuid": "1", "title": "a"}]
+        assert "result_preview" not in result
 
 
 class TestServerCapabilitiesTotalTools:

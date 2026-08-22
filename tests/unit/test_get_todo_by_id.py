@@ -21,7 +21,7 @@ Fixtures are anonymised copies of rows captured live via things.py on
 """
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, call
 
 from things_mcp.tools import ThingsTools
 
@@ -197,14 +197,21 @@ class TestGetTodoById:
 
     @pytest.mark.asyncio
     async def test_heading_dispatches_to_convert_todo(self, tools):
+        # Headings get a one-hop transitive-trashed check against their own
+        # project (hq-wsa.7), so things.get() is called twice: once for the
+        # heading itself, once for its project (`item['project']`).
         with patch(GET_PATCH, return_value=dict(HEADING)) as mock_get:
             result = await tools.get_todo_by_id(HEADING["uuid"])
 
-        mock_get.assert_called_once_with(HEADING["uuid"])
+        assert mock_get.call_args_list == [
+            call(HEADING["uuid"]),
+            call(HEADING["project"]),
+        ]
         assert result["type"] == "heading"
         assert result["uuid"] == HEADING["uuid"]
         assert result["projectTitle"] == "Complete Weekly Review"
         assert "trashed" not in result
+        assert "trashedViaParent" not in result
 
     @pytest.mark.asyncio
     async def test_area_dispatches_to_convert_area(self, tools):
@@ -240,3 +247,180 @@ class TestGetTodoById:
         with patch(GET_PATCH, return_value=None):
             with pytest.raises(ValueError, match="Todo not found"):
                 await tools.get_todo_by_id("does-not-exist")
+
+
+START_BUCKET_PATCH = (
+    "things_mcp.tools_helpers.read_operations.ReadOperations._read_start_bucket"
+)
+
+
+class TestGetTodoByIdEveningField:
+    """get_todo_by_id detects This Evening scheduling via a narrow, read-only
+    raw-SQL side channel (TMTask.startBucket), since things.py's own SELECT
+    never exposes it (hq-wsa.9). `_read_start_bucket` itself is mocked here -
+    its own sqlite access is exercised live in tests/regression."""
+
+    @pytest.mark.asyncio
+    async def test_start_bucket_one_reports_evening_true(self, tools):
+        assert TODO.get("start_date")  # sanity: fixture has a start_date
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, return_value=1) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert result["evening"] is True
+
+    @pytest.mark.asyncio
+    async def test_start_bucket_zero_omits_evening_key(self, tools):
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, return_value=0) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_helper_raising_omits_evening_key_but_lookup_succeeds(self, tools):
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, side_effect=RuntimeError("db locked")) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert "evening" not in result
+        assert result["uuid"] == TODO["uuid"]
+
+    @pytest.mark.asyncio
+    async def test_no_start_date_skips_helper_entirely(self, tools):
+        todo_no_start_date = {**TODO, "start_date": None}
+        with patch(GET_PATCH, return_value=dict(todo_no_start_date)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(todo_no_start_date["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_project_never_calls_helper(self, tools):
+        with patch(GET_PATCH, return_value=dict(PROJECT)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(PROJECT["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_area_never_calls_helper(self, tools):
+        with patch(GET_PATCH, return_value=dict(AREA)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(AREA["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_heading_never_calls_helper(self, tools):
+        # Headings dispatch through convert_todo but are excluded from the
+        # evening check by the item_type == 'to-do' guard.
+        with patch(GET_PATCH, return_value=dict(HEADING)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(HEADING["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+
+class TestGetTodoByIdTransitiveTrashed:
+    """get_todo_by_id resolves trashed state transitively through a to-do's
+    or heading's containing project (hq-wsa.7). Things marks only the
+    trashed container itself, so a child of a trashed project carries no
+    trashed key of its own - without this hop a consumer would conclude
+    the child is live when it's actually unreachable. Direct trash (the
+    item's own `trashed` column) still takes precedence and is reported
+    without `trashedViaParent`."""
+
+    @pytest.mark.asyncio
+    async def test_child_of_trashed_project_reports_trashed_via_parent(self, tools):
+        todo = {**TODO, "project": PROJECT["uuid"]}
+        trashed_project = {**PROJECT, "trashed": True}
+
+        def fake_get(uuid):
+            if uuid == todo["uuid"]:
+                return dict(todo)
+            if uuid == PROJECT["uuid"]:
+                return dict(trashed_project)
+            raise AssertionError(f"unexpected things.get({uuid!r})")
+
+        with patch(GET_PATCH, side_effect=fake_get):
+            result = await tools.get_todo_by_id(todo["uuid"])
+
+        assert result["trashed"] is True
+        assert result["trashedViaParent"] is True
+
+    @pytest.mark.asyncio
+    async def test_heading_child_of_trashed_project_reports_trashed_via_parent(self, tools):
+        # Two-hop case: to-do -> heading (no project of its own) -> project.
+        todo = {**TODO, "heading": HEADING["uuid"], "project": None}
+        heading = dict(HEADING)  # HEADING["project"] already points at a project uuid
+        trashed_project = {**PROJECT, "uuid": HEADING["project"], "trashed": True}
+
+        def fake_get(uuid):
+            if uuid == todo["uuid"]:
+                return dict(todo)
+            if uuid == HEADING["uuid"]:
+                return dict(heading)
+            if uuid == HEADING["project"]:
+                return dict(trashed_project)
+            raise AssertionError(f"unexpected things.get({uuid!r})")
+
+        with patch(GET_PATCH, side_effect=fake_get):
+            result = await tools.get_todo_by_id(todo["uuid"])
+
+        assert result["trashed"] is True
+        assert result["trashedViaParent"] is True
+
+    @pytest.mark.asyncio
+    async def test_child_of_live_project_reports_neither_key(self, tools):
+        todo = {**TODO, "project": PROJECT["uuid"]}
+        live_project = dict(PROJECT)  # trashed omitted/falsy
+
+        def fake_get(uuid):
+            if uuid == todo["uuid"]:
+                return dict(todo)
+            if uuid == PROJECT["uuid"]:
+                return dict(live_project)
+            raise AssertionError(f"unexpected things.get({uuid!r})")
+
+        with patch(GET_PATCH, side_effect=fake_get):
+            result = await tools.get_todo_by_id(todo["uuid"])
+
+        assert "trashed" not in result
+        assert "trashedViaParent" not in result
+
+    @pytest.mark.asyncio
+    async def test_direct_trashed_todo_keeps_current_shape_even_with_trashed_parent(self, tools):
+        # Direct trash (item's own `trashed` column) is reported without
+        # trashedViaParent, and short-circuits before the container hop.
+        todo = {**TRASHED_TODO, "project": PROJECT["uuid"]}
+
+        with patch(GET_PATCH, return_value=dict(todo)) as mock_get:
+            result = await tools.get_todo_by_id(todo["uuid"])
+
+        mock_get.assert_called_once_with(todo["uuid"])
+        assert result["trashed"] is True
+        assert "trashedViaParent" not in result
+
+    @pytest.mark.asyncio
+    async def test_container_lookup_raises_omits_both_keys_but_lookup_succeeds(self, tools):
+        todo = {**TODO, "project": PROJECT["uuid"]}
+
+        def fake_get(uuid):
+            if uuid == todo["uuid"]:
+                return dict(todo)
+            raise RuntimeError("Things database is unreadable")
+
+        with patch(GET_PATCH, side_effect=fake_get):
+            result = await tools.get_todo_by_id(todo["uuid"])
+
+        assert result["uuid"] == todo["uuid"]
+        assert "trashed" not in result
+        assert "trashedViaParent" not in result

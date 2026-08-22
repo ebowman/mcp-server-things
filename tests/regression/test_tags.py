@@ -763,7 +763,21 @@ class TestGetTagUsage:
         if mode == "summary":
             assert "tag_count" in result, result
             assert "unused_count" in result, result
-            assert "top" in result, result
+            # hq-wsa.2: the summary preview payload lives in the canonical
+            # 'items' key (up to 5 rows); the legacy 'top' source key (and
+            # 'tags', the minimal/standard/detailed source key) are popped
+            # from the envelope once 'items' is populated from them, so
+            # neither should be present here.
+            assert "top" not in result, result
+            assert "tags" not in result, result
+            items = result.get("items", [])
+            assert isinstance(items, list)
+            assert len(items) <= 5, items
+            if items:
+                sample = items[0]
+                assert "title" in sample, sample
+                assert "open_count" in sample, sample
+                assert "total_count" in sample, sample
         else:
             items = result.get("items", [])
             assert isinstance(items, list)

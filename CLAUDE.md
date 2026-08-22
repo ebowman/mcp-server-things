@@ -78,7 +78,7 @@ result = self.applescript_manager.execute_script(script)
 2. **Large data timeouts**: Use response modes (summary, minimal) and pagination
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
-5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
+5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`. The evening state round-trips through `get_todo_by_id` only (hq-wsa.9): a to-do scheduled for This Evening reports `evening: true` in the result; other to-dos omit the key. things.py itself never exposes this state (identical `start`/`startDate` to a plain `when='today'` to-do), so `get_todo_by_id` reads it via a narrow, read-only, single-item raw-SQL side channel (`TMTask.startBucket`, mode=ro URI) - other read tools (`get_today`, `get_todos`, etc.) do not carry this field.
 6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`, `when` with a `@HH:MM` time component) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
 7. **`when='YYYY-MM-DD@HH:MM'` sets a reminder, and requires the Things auth token on update paths** (hq-4gn): this form is accepted on `add_todo`, `update_todo`, `bulk_update_todos`, `add_project`, and `update_project`, and - like `when='evening'` - is routed via the Things URL scheme rather than AppleScript, since AppleScript's `schedule` command (and `locale_aware_dates.normalize_date_input`, used by the AppleScript scheduling path) has no way to honor the time component and would otherwise silently drop it (no reminder set). `add_todo(when='<date>@<time>')` works without a token (routed via `things:///add`); `update_todo`/`bulk_update_todos`/`add_project`/`update_project` with a `when` in this form require the Things URL-scheme auth token (routed via `things:///update`/`things:///update-project`/`things:///add-project` as appropriate), checked before any AppleScript write so a missing token never partially applies other fields in the same call. Unlike `when='evening'` (rejected for projects with `UNSUPPORTED_FOR_PROJECTS`), the time-component form IS supported for projects - Things sets a project reminder the same way it does for to-dos. An out-of-range hour/minute (e.g. `'25:99'`) is rejected with `INVALID_WHEN` before any write.
 
@@ -432,7 +432,7 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_due_in_days`, `get_activating_in_days`, `get_tags`, `get_tagged_items`, `get_recent`, `get_trash`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`).
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_tags`, `get_tagged_items`, `get_recent`, `get_trash`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`). `get_due_in_days` and `get_activating_in_days` accept `mode`/`limit` like the other date-window list tools (hq-wsa.3) and are no longer in this no-mode group - see "Due/activating date-window tools" below.
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
@@ -444,7 +444,11 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 `get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.
 
+**Transitive trashed state (hq-wsa.7):** Things marks only the trashed *container* itself, not its descendants - a to-do or heading filed under a trashed project carries no `trashed` key of its own in things.py, even though it is unreachable in the Things UI. `get_todo_by_id` resolves this transitively for to-dos and headings: if the item itself is not directly trashed but its containing project is (resolved via the item's own `project`, or - for a to-do under a heading - via the heading's `project`, at most two `things.get()` calls), the result reports **both** `trashed: true` and `trashedViaParent: true`, so callers can distinguish "this exact item was trashed" from "this item is unreachable because its parent was trashed". Direct trash keeps today's shape (`trashed: true` only, no `trashedViaParent` key). Areas cannot be trashed in Things, so there is no area hop; if the container lookup itself fails (e.g. the Things database is unreadable), both keys are simply omitted rather than failing the whole lookup. This transitive check is single-item-lookup only - list tools (`get_today`, `get_todos`, etc.) already exclude trashed items via things.py's own filtering and are not affected.
+
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
+
+**`items` is the single canonical payload array (hq-wsa.2)**: summary-mode previews live only in `items` - there is no separate preview key (`recent_preview`/`recent_projects`/`result_preview`, or `get_tag_usage`'s `tags` rows list) alongside it in the final envelope - and `data` (the key `context_manager.optimize_response` uses internally) is never present in a tool's `structured_content` either; every such source key is popped once `items` has been populated from it, so the item payload is never carried twice.
 
 #### Implicit budget truncation (`truncated` / `truncation_hint`)
 
@@ -516,9 +520,10 @@ Known, currently-out-of-scope exceptions to this contract:
 
 ### Due/activating date-window tools
 
-`get_due_in_days(days, include_overdue?)` and `get_activating_in_days(days)` both query a
-forward window of `today <= date <= today + days`, and both apply the Someday-project
-filter described above.
+`get_due_in_days(days, include_overdue?, mode?, limit?)` and
+`get_activating_in_days(days, mode?, limit?)` both query a forward window of
+`today <= date <= today + days`, and both apply the Someday-project filter described
+above.
 
 - `get_activating_in_days` always excludes todos that are already active (`start_date` in
   the past) - it only returns todos whose start date falls within the forward window,
@@ -529,6 +534,14 @@ filter described above.
   (`today <= deadline <= today + days`).
 - Boundary dates are inclusive on both ends: a deadline/start_date of exactly today or
   exactly the target date is included.
+- Both tools support `mode` (`auto`/`summary`/`minimal`/`standard`/`detailed`/`raw`) and
+  `limit` (1-500) like the other list tools (hq-wsa.3) - `mode` shapes which fields come
+  back (e.g. `notes` is absent under `minimal`/`summary`), and `limit` truncates the
+  result client-side after the full window is fetched, so `total` in the response
+  envelope always reflects the pre-limit count of the full matching window (useful for
+  capping a large overdue backlog). Both default to `mode='auto'` (AUTO resolves based on
+  result size, same as `get_anytime`/`get_someday`) and no limit when `limit` is omitted -
+  pass `limit` explicitly to cap the response size.
 
 ```python
 # Historical behavior: due soon + already overdue
@@ -539,6 +552,9 @@ get_due_in_days(days=7, include_overdue=false)
 
 # Todos that will become active in the next 7 days (excludes already-active todos)
 get_activating_in_days(days=7)
+
+# Cap a large overdue backlog to the 20 most pressing items, minimal fields only
+get_due_in_days(days=30, mode='minimal', limit=20)
 ```
 
 ### List tools: headings never returned, projects opt-in
@@ -631,6 +647,19 @@ repeating-instance) project also resolve correctly, e.g. via
 `reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
 is only present on the small subset of to-dos/projects that actually carry a
 reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
+
+`evening` (bool, hq-wsa.9) is **not** part of any of the field sets above and
+is not emitted by any list tool - it is a `get_todo_by_id`-only optional
+field, present as `evening: true` only when the returned to-do is scheduled
+for This Evening (`when='evening'`), omitted otherwise. Unlike every other
+field here, it is not sourced from things.py's own SELECT at all (things.py
+has no concept of it - a This-Evening to-do is otherwise indistinguishable
+from a plain `when='today'` to-do, both reporting only `start`/`startDate`);
+`get_todo_by_id` instead reads it via a narrow, read-only (`mode=ro` URI),
+single-uuid raw-SQL query against `TMTask.startBucket`, scoped to that one
+tool so this side channel never spreads to list tools. Any failure reading it
+(missing/locked database, schema change, etc.) silently omits the key rather
+than failing the lookup.
 
 `ToolsHelpers.convert_project` emits the same STANDARD/DETAILED-mode field set
 as convert_todo where the concepts overlap - `start`, `startDate`, `index`,
@@ -1011,6 +1040,8 @@ Full 3x3 truth table (`completed` x `canceled`, each `"true"` / `"false"` / omit
 - `completed`/`canceled` accept only an actual boolean or the strings `"true"`/`"false"` (case-insensitive, e.g. `"True"`/`"FALSE"` are fine). Any other value (`"yes"`, `"1"`, `"no"`, etc.) is rejected with a structured `{"success": false, "error": "VALIDATION_ERROR", "field": "completed"|"canceled", "message": ...}` error rather than being silently coerced - a prior looser parser turned any non-`"true"` string into `False`, which could unintentionally reopen a completed/canceled item.
 - Via the MCP tool interface, `completed`/`canceled` are typed `Optional[str]` - pass the strings `"true"`/`"false"` (case-insensitive), not JSON booleans; a literal JSON `true`/`false` is rejected by pydantic before it ever reaches this validation. Passing an actual Python `bool` only works for in-process/direct `ThingsTools`/`TodoOperations` callers, not through the MCP tool schema.
 
+**Completion cascade is one-directional, not symmetric (hq-wsa.7):** completing a project (`update_project(id=..., completed="true")`) cascades - Things marks the project's child to-dos completed too, matching what the Things app itself does. Reopening a project (`update_project(id=..., completed="false")`) does **not** cascade back to those child to-dos - they stay completed. This is an upstream Things/AppleScript behavior, not a bug in this server: our AppleScript write is a single `set status of targetProject to open` (or equivalent) with no loop over the project's children, and Things itself does not reopen previously-completed children when its parent project is reopened. If you need the children reopened too, update them explicitly (e.g. `bulk_update_todos(todo_ids=..., completed="false")` on the specific to-dos, after determining which ones should be reopened).
+
 ### Reading Project Headings
 
 `get_project_headings(project_id, mode?)` returns the heading structure of a project, in
@@ -1169,8 +1200,19 @@ with `checklist_items` uses `things:///add`, which does **not** need a
 token, so todo creation with a checklist is unaffected. Configure a token via
 Things: Settings > General > Enable Things URLs > Manage, then save it to
 `.things-auth`, `things-auth.txt`, or `~/.things-auth` (checked in that
-order) and restart the server - the token is loaded once at startup. Run
-`mcp-server-things doctor` to check whether a token is configured.
+order) - no restart required. The server reloads the token from disk on the
+next auth-gated call whenever none is currently loaded (hq-wsa.4), so a
+token file created (or fixed) after the server started is picked up
+automatically. Run `mcp-server-things doctor` to check whether a token is
+configured.
+
+**Checklist-only edits do not bump `modificationDate`** (hq-wsa.8): Things
+tracks checklist item changes on the item itself, not on the parent to-do's
+`modificationDate` (only a heading move or other task-row edit does that).
+Change-detection consumers polling `modificationDate` will not observe
+`add_checklist_items`/`prepend_checklist_items`/`replace_checklist_items`
+writes - compare checklist content via `get_todo_by_id(include_items=true)`
+instead.
 
 ```python
 # Add items to existing todo (appends to end)
@@ -1213,9 +1255,19 @@ replace_checklist_items(
   on `add_todo` id disambiguation); a lookup that times out returns
   `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
-- The auth token is loaded once at server startup; a token file added or
-  edited afterwards requires a server restart to take effect. An
-  empty/whitespace-only token file is treated as missing.
+- Checklist items created via `add_todo(checklist_items=...)` do not bump the
+  new to-do's `modificationDate` on subsequent checklist-only edits - see
+  "Checklist-only edits do not bump `modificationDate`" above
+- The auth token is loaded at server startup, then reloaded automatically
+  from disk on the next auth-gated call whenever none is currently loaded
+  (hq-wsa.4) - a token file added or fixed after startup takes effect on
+  the next such call, no server restart required. Once a token is
+  successfully loaded it is never unloaded or re-read for the life of the
+  process. An empty/whitespace-only token file is treated as missing.
+  `health_check`/`get_server_capabilities` report the current
+  `auth_token_configured` state; `AUTH_TOKEN_NOT_CONFIGURED` errors include
+  a `checked_paths` field (path + status per candidate, never the token
+  value) alongside `hint`.
 
 ### Known Limitations
 

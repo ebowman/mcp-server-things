@@ -273,12 +273,18 @@ To configure one:
    - `.things-auth` in the project root
    - `things-auth.txt` in the project root
    - `~/.things-auth` in your home directory
-3. Restart the server - the token is loaded once at startup, so a token
-   file added or edited after the server starts is not picked up until the
-   next restart.
+3. No restart required - the token is loaded at startup, then reloaded from
+   disk automatically the next time an auth-gated tool is called while no
+   token is currently loaded, so a token file added or fixed after the
+   server starts is picked up on its next use. Once a token is
+   successfully loaded it stays loaded for the life of the process.
 
 An empty or whitespace-only token file is treated the same as a missing one
-(the loader falls through to the next candidate path).
+(the loader falls through to the next candidate path). `health_check` and
+`get_server_capabilities` report the current `auth_token_configured` state,
+and an `AUTH_TOKEN_NOT_CONFIGURED` error includes a `checked_paths` field
+showing which candidate paths were checked and why each was rejected
+(`missing` / `empty` / `unreadable`) - never the token value itself.
 
 ### HTTP Transport
 
@@ -359,13 +365,13 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `add_todo(title, ...)` - Create new todo
 - `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
-- `get_todo_by_id(todo_id)` - Get specific todo
+- `get_todo_by_id(todo_id)` - Get specific todo. A to-do/heading that is itself untrashed but whose containing project is trashed reports `trashed: true` plus `trashedViaParent: true` (Things marks only the trashed container, not its descendants); direct trash keeps `trashed: true` alone.
 - `delete_todo(todo_id)` - Delete a to-do or a project (auto-detects the id type; headings/areas/tags cannot be deleted via any public Things 3 API)
 
 ### Project Management
 - `get_projects(include_items?)` - List projects
 - `add_project(title, ..., todos?)` - Create new project; a `##`-prefixed line in `todos` creates a real heading (via the Things URL scheme's `json` action), with subsequent lines nesting under it
-- `update_project(id, ...)` - Update existing project
+- `update_project(id, ...)` - Update existing project. Completing a project (`completed="true"`) cascades to its child to-dos (Things marks them completed too), but reopening a project (`completed="false"`) does **not** cascade back - child to-dos already completed stay completed. This is upstream Things behavior, not a bug here; reopen specific to-dos explicitly (e.g. `bulk_update_todos`) if needed.
 - `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings can only be created at project-creation time (`add_project`'s `##` lines) and cannot be renamed/deleted via any public Things 3 API.
 
 ### Area Management
@@ -386,8 +392,8 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_trash(include_projects?)` - Get trashed todos
 
 ### Date-Range Queries
-- `get_due_in_days(days, include_overdue?)` - Get todos due within specified days; includes already-overdue todos by default (`include_overdue=true`)
-- `get_activating_in_days(days)` - Get todos activating within days
+- `get_due_in_days(days, include_overdue?, mode?, limit?)` - Get todos due within specified days; includes already-overdue todos by default (`include_overdue=true`)
+- `get_activating_in_days(days, mode?, limit?)` - Get todos activating within days
 
 ### Search & Tags
 - `search_todos(query, status?, offset?)` - Basic search; matches incomplete todos by default (`status='incomplete'`), pass `status=None` to search all statuses

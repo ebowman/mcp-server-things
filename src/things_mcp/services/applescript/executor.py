@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+import weakref
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,52 @@ class AppleScriptExecutor:
     multiple AppleScript commands are executed concurrently. The lock ensures
     that only one AppleScript executes at a time, preventing potential conflicts
     and ensuring reliable operation with Things 3.
+
+    Serialization is guaranteed WITHIN each event loop - which is where
+    concurrent osascript calls actually originate (e.g. bulk fan-outs gather
+    tasks on a single loop). Across loops, callers are inherently sequential
+    (asyncio.run() blocks the calling thread until the loop finishes), so
+    process-wide serialization is preserved in every real usage even though
+    each loop gets its own Lock instance.
+
+    Locks are keyed per-event-loop (mirroring hq-5xa's operation_queue fix)
+    rather than using a single class-level asyncio.Lock(), because CPython's
+    asyncio.Lock only binds its internal loop reference on a CONTENDED
+    acquire (a second waiter queueing while the lock is held) - an
+    uncontended acquire never binds. A class-level lock that experiences a
+    contended acquire on loop A becomes permanently bound to loop A; any
+    later contended acquire from a *different* loop B then raises
+    "RuntimeError: ... is bound to a different event loop" instead of
+    serializing. Keying by the running loop in a WeakKeyDictionary avoids
+    this entirely - each loop gets its own Lock, created lazily on first
+    use. Note: a lock entry for an abandoned loop is not reclaimed by this
+    alone and may persist for the life of the process - same bounded,
+    inert-entry retention caveat as the operation_queue's WeakKeyDictionary
+    (the Lock object itself holds no resources and is simply unheld).
     """
 
-    # Class-level lock shared across all instances to prevent race conditions
-    # This ensures only one AppleScript command executes at a time across the entire process
-    _applescript_lock = asyncio.Lock()
+    # Per-event-loop locks, keyed by the running loop. Lazily populated by
+    # _get_lock() at acquire time - see class docstring above and hq-yxu.
+    _locks_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Get or create the AppleScript serialization lock for the
+        currently running event loop.
+
+        Each event loop gets its own Lock instance, so repeated calls within
+        the same loop return the same Lock (preserving intra-loop
+        serialization), while calls from a different loop transparently get
+        a fresh, unbound Lock instead of raising on a lock whose internal
+        loop reference was bound to a foreign loop by a prior contended
+        acquire.
+        """
+        loop = asyncio.get_running_loop()
+        lock = cls._locks_by_loop.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._locks_by_loop[loop] = lock
+        return lock
 
     def __init__(self, timeout: int = 45, retry_count: int = 3):
         """Initialize the AppleScript executor.
@@ -135,7 +177,7 @@ class AppleScriptExecutor:
         """
         lock_start_time = time.time()
 
-        async with self._applescript_lock:
+        async with self._get_lock():
             # Log if we waited more than 100ms for the lock
             lock_wait_time = time.time() - lock_start_time
             if lock_wait_time > 0.1:

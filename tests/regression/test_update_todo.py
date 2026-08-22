@@ -392,15 +392,26 @@ class TestUpdateTodoWhenTimeNoAuthToken:
     def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
         """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires the
         auth token, checked BEFORE any AppleScript write - a title passed in
-        the same call must not be applied either."""
+        the same call must not be applied either.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         from datetime import date, timedelta
 
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, original_title = _new_todo(mcp, sandbox)
         when_date = (date.today() + timedelta(days=10)).strftime("%Y-%m-%d")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = f"SHOULD-NOT-APPLY-{ts()}"
             result = mcp.call_sync(
                 "update_todo",
@@ -412,6 +423,7 @@ class TestUpdateTodoWhenTimeNoAuthToken:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         record = read_back(todo_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record
@@ -757,12 +769,23 @@ class TestUpdateTodoAuthTokenNotConfigured:
         None for the duration of this test only, restoring it in a finally
         block. The URL-scheme call this triggers must never actually reach
         Things (the auth check runs before any write), so this is safe to
-        run even without a real token configured."""
+        run even without a real token configured.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, original_title = _new_todo(mcp, sandbox)
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = f"SHOULD-NOT-APPLY-{ts()}"
             result = mcp.call_sync(
                 "update_todo",
@@ -774,6 +797,7 @@ class TestUpdateTodoAuthTokenNotConfigured:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         record = read_back(todo_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record
@@ -815,6 +839,36 @@ class TestUpdateTodoEvening:
             found = _in_today()
         assert found, "expected evening-scheduled todo to be a member of things.today()"
 
+    def test_evening_read_back_via_get_todo_by_id(self, mcp, sandbox, live_server):
+        """hq-wsa.9: get_todo_by_id reports evening:true iff the to-do is
+        actually scheduled for This Evening (TMTask.startBucket == 1, read
+        via a narrow read-only raw-SQL side channel since things.py itself
+        never exposes it), and omits the key once rescheduled away from
+        evening."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="evening")
+        assert result.get("success") is True, result
+
+        deadline = time.monotonic() + 20
+        item = _get_item(mcp, todo_id)
+        while item.get("evening") is not True and time.monotonic() < deadline:
+            time.sleep(0.25)
+            item = _get_item(mcp, todo_id)
+        assert item.get("evening") is True, item
+
+        result = mcp.call_sync("update_todo", id=todo_id, when="today")
+        assert result.get("success") is True, result
+
+        deadline = time.monotonic() + 20
+        item = _get_item(mcp, todo_id)
+        while "evening" in item and time.monotonic() < deadline:
+            time.sleep(0.25)
+            item = _get_item(mcp, todo_id)
+        assert "evening" not in item, item
+
     def test_evening_plus_list_id_moves_exactly_once(self, mcp, sandbox, live_server):
         if not live_server.applescript_manager.auth_token:
             pytest.skip("Things auth token not configured")
@@ -846,11 +900,21 @@ class TestUpdateTodoEvening:
 
 class TestUpdateTodoEveningNoAuthToken:
     def test_evening_without_auth_token_shape(self, mcp, sandbox, live_server):
+        """hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, original_title = _new_todo(mcp, sandbox)
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = f"SHOULD-NOT-APPLY-{ts()}"
             result = mcp.call_sync(
                 "update_todo", id=todo_id, when="evening", title=should_not_apply
@@ -859,6 +923,7 @@ class TestUpdateTodoEveningNoAuthToken:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         record = read_back(todo_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record

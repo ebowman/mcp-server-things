@@ -535,6 +535,48 @@ class TestSummaryPreviewRowShape:
         assert row['status'] == 'open'
         assert row['tags'] == ['work']
         assert row['dueDate'] == '2026-09-01'
+        # hq-wsa.1: SAMPLE_PROJECT_ITEM's fixture status ('open') does not
+        # match the real things.py/convert_project status value
+        # ('incomplete') - so this single-item, status='open' case
+        # necessarily reports active=0 here. See
+        # test_summarize_projects_active_counts_incomplete_status below for
+        # the real-shape ('incomplete') case that hq-wsa.1 actually fixes.
+        assert summary['active'] == 0
+        assert summary['completed'] == 0
+        assert summary['canceled'] == 0
+        assert summary['status_breakdown'] == {'open': 1}
+
+    def test_summarize_projects_active_counts_incomplete_status(self):
+        """hq-wsa.1: things.py/convert_project emit status == 'incomplete'
+        for open projects, never 'open' - active must count 'incomplete'
+        rows, not a literal 'open' string that live data never produces."""
+        engine = _engine()
+        incomplete_project = dict(SAMPLE_PROJECT_ITEM, uuid='project-2', status='incomplete')
+        summary = engine.progressive_engine._summarize_projects([incomplete_project])
+        assert summary['active'] == 1
+        assert summary['completed'] == 0
+        assert summary['canceled'] == 0
+        assert summary['status_breakdown'] == {'incomplete': 1}
+
+    def test_summarize_projects_mixed_status_breakdown(self):
+        """Mixed incomplete/completed/canceled set -> correct per-status
+        counts and a dynamic status_breakdown reflecting all three."""
+        engine = _engine()
+        rows = [
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-incomplete-1', status='incomplete'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-incomplete-2', status='incomplete'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-completed-1', status='completed'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-canceled-1', status='canceled'),
+        ]
+        engine_summary = engine.progressive_engine._summarize_projects(rows)
+        assert engine_summary['active'] == 2
+        assert engine_summary['completed'] == 1
+        assert engine_summary['canceled'] == 1
+        assert engine_summary['status_breakdown'] == {
+            'incomplete': 2,
+            'completed': 1,
+            'canceled': 1,
+        }
 
     def test_summarize_search_results_preview_row_exact_keys(self):
         """Search preview rows mix todo and project rows depending on the
@@ -551,6 +593,25 @@ class TestSummaryPreviewRowShape:
         assert 'name' not in row
         assert row['uuid'] == 'todo-1'
         assert row['title'] == 'Sample todo'
+
+    def test_summarize_search_results_no_total_matches_key(self):
+        """hq-wsa.5: _summarize_search_results must not emit 'total_matches'.
+        The data it receives is already limit/offset-truncated by the time it
+        gets here (server.py passes the final window down), so
+        'total_matches': len(results) was always a post-limit count masquerading
+        as a total - misleading whenever limit was in play. The envelope's
+        separately-injected 'total' is the authoritative pre-limit count and is
+        not touched by this function at all. Uses a truncated single-item
+        window (as if limit=1 had been applied upstream) to make the point
+        concrete: len(results) here is 1, which is exactly the wrong number to
+        expose as any kind of 'total'."""
+        engine = _engine()
+        truncated_window = [SAMPLE_ITEM]  # stands in for a limit=1-truncated window
+        summary = engine.progressive_engine._summarize_search_results(truncated_window)
+        assert 'total_matches' not in summary
+        # window-scoped keys describing the returned window are fine to keep
+        assert 'search_results_breakdown' in summary
+        assert 'result_preview' in summary
 
     def test_summarize_todos_preview_omits_null_fields(self):
         """Field-filtering never invents keys - a preview row for an item

@@ -492,15 +492,26 @@ class TestUpdateProjectFields:
     def test_when_time_without_auth_token_shape(self, mcp, sandbox, live_server):
         """hq-4gn: like when='evening', when='YYYY-MM-DD@HH:MM' requires
         the auth token, checked BEFORE any AppleScript write - a title
-        passed in the same call must not be applied either."""
+        passed in the same call must not be applied either.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         from datetime import date, timedelta
 
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         project_id, original_title, _ = _new_project(mcp, sandbox)
         when_date = (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
             result = mcp.call_sync(
                 "update_project",
@@ -512,6 +523,7 @@ class TestUpdateProjectFields:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         record = read_back(project_id, lambda r: r is not None)
         assert record is not None and record.get("title") == original_title, record
@@ -1117,6 +1129,21 @@ class TestGetProjects:
                 mode,
                 by_uuid[sandbox.project_id],
             )
+
+    def test_get_projects_summary_active_counts_incomplete(self, mcp, sandbox):
+        """hq-wsa.1: _summarize_projects previously counted status=='open'
+        for 'active', but things.py/convert_project emit status=='incomplete'
+        for open projects - so 'active' was always 0 on a live DB regardless
+        of how many open projects existed. The sandbox project (freshly
+        created, never completed/canceled) is guaranteed incomplete, so
+        'active' must be at least 1 - the robust live-DB assertion, since
+        the real database's total open-project count isn't deterministic
+        across runs/environments."""
+        sc = mcp.call_sync("get_projects", mode="summary")
+        assert sc["active"] >= 1, sc
+        assert sc["active"] == sc.get("status_breakdown", {}).get("incomplete", 0)
+        assert sc["completed"] == sc.get("status_breakdown", {}).get("completed", 0)
+        assert sc["canceled"] == sc.get("status_breakdown", {}).get("canceled", 0)
 
     def test_include_items_nests_todos_scoped_read(self, mcp, sandbox):
         """get_projects(include_items=true) is documented as

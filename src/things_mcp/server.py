@@ -476,7 +476,7 @@ class ThingsMCPServer:
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
-            checklist_items: Optional[List[str]] = Field(None, description="List of checklist items to add")
+            checklist_items: Optional[List[str]] = Field(None, description="List of checklist items to add. Note: subsequent checklist-only edits (add/prepend/replace_checklist_items) do not bump modificationDate - see those tools' docstrings")
         ) -> Dict[str, Any]:
             """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
@@ -845,6 +845,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 if not items:
@@ -867,6 +873,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 if not items:
@@ -889,6 +901,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 result = await self.tools.replace_checklist_items(todo_id=todo_id, items=items)
@@ -907,13 +925,21 @@ class ThingsMCPServer:
             and areas resolve too. The returned item's `type` field
             ('to-do', 'heading', 'project', or 'area') tells you which kind
             it is. Trashed items also resolve, with `trashed: true` included
-            in the result.
+            in the result. A to-do or heading that is itself untrashed but
+            whose containing project is trashed also reports `trashed: true`,
+            plus `trashedViaParent: true` to distinguish it from direct
+            trash (Things marks only the trashed container, not each
+            descendant).
 
             A tag id returns the canonical structured error at the top level
             (`{"success": false, "error": "invalid_type", "message": ...}`,
             not nested under `item`) instead of an item - a tag is a label,
             not a retrievable item; use `get_tags()` or `get_tagged_items()`
             for tags. An id that does not exist at all raises an error.
+
+            A to-do result includes `evening: true` when it is scheduled for
+            This Evening (`when='evening'`); the key is omitted otherwise.
+            This is the only tool that reports this field.
             """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)
@@ -1525,12 +1551,30 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_due_in_days(
             days: int = Field(30, description="Number of days ahead to check for due todos", ge=1, le=365),
-            include_overdue: bool = Field(True, description="Include todos whose deadline is already in the past. Default true preserves historical behavior; set false to restrict results to today <= deadline <= target date.")
+            include_overdue: bool = Field(True, description="Include todos whose deadline is already in the past. Default true preserves historical behavior; set false to restrict results to today <= deadline <= target date."),
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
         ) -> Dict[str, Any]:
-            """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only."""
+            """Get todos due within specified days (1-365). By default also includes already-overdue todos (include_overdue=True); set include_overdue=False to restrict to the forward window only. Supports response optimization via mode parameter and limit."""
             try:
-                due_todos = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
-                result = self._read_result(due_todos, mode='standard', requested_mode=None)
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors get_anytime/get_someday.
+                full_data = await self.tools.get_todos_due_in_days(days, include_overdue=include_overdue)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
+
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_due_in_days', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_due_in_days', response_mode, optimized_params)
+                result = self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
                 result['days'] = days
                 result['include_overdue'] = include_overdue
                 return result
@@ -1543,12 +1587,30 @@ class ThingsMCPServer:
 
         @self.mcp.tool()
         async def get_activating_in_days(
-            days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365)
+            days: int = Field(30, description="Number of days ahead to check for activating todos", ge=1, le=365),
+            mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
         ) -> Dict[str, Any]:
-            """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded."""
+            """Get todos activating within specified days (1-365). Only returns todos whose start date falls within the forward window (today through the target date); todos already active are excluded. Supports response optimization via mode parameter and limit."""
             try:
-                activating_todos = await self.tools.get_todos_activating_in_days(days)
-                result = self._read_result(activating_todos, mode='standard', requested_mode=None)
+                mode_error = self._validate_mode(mode)
+                if mode_error is not None:
+                    return mode_error
+
+                # Fetch the full unbounded set first so `total` reflects the
+                # pre-limit count (CLAUDE.md contract), then slice to `limit`
+                # here - mirrors get_anytime/get_someday.
+                full_data = await self.tools.get_todos_activating_in_days(days)
+                pre_limit_total = len(full_data)
+                raw_data = full_data[:limit] if limit else full_data
+
+                # Apply context-aware optimization, treating an omitted mode as 'auto'
+                # so structured_content.mode always reports the concrete resolved mode.
+                request_params = {'mode': mode or 'auto', 'limit': limit}
+                optimized_params, _ = self.context_manager.optimize_request('get_activating_in_days', request_params)
+                response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
+                optimized_response = self.context_manager.optimize_response(raw_data, 'get_activating_in_days', response_mode, optimized_params)
+                result = self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
                 result['days'] = days
                 return result
             except Exception as e:
@@ -2040,6 +2102,7 @@ class ThingsMCPServer:
                     "server_status": "healthy",
                     "things_running": is_running,
                     "applescript_available": True,
+                    "auth_token_configured": bool(self.applescript_manager.auth_token),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
             except Exception as e:
@@ -2228,6 +2291,7 @@ class ThingsMCPServer:
                     "server_healthy": True,
                     "queue_active": queue_status.get('active_operations', 0) > 0,
                     "applescript_available": True,
+                    "auth_token_configured": bool(self.applescript_manager.auth_token),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
                 
@@ -2569,10 +2633,17 @@ class ThingsMCPServer:
         # or a hand-built {"items": ..., ...} / {"data": ..., "meta": ...} payload).
         result = dict(response)
 
+        # hq-wsa.2: track which source key (if any) 'items' was populated from, so
+        # it can be popped below once extraction is done. 'items' itself is never
+        # popped (it IS the canonical key); every other payload-bearing source key
+        # is removed from the final envelope so the payload is carried exactly once.
+        source_key: Optional[str] = None
+
         if "items" in result and isinstance(result["items"], list):
             items = result["items"]
         elif "data" in result and isinstance(result["data"], list):
             items = result["data"]
+            source_key = "data"
         else:
             # Summary-style responses (and other non-list-bearing dicts) don't carry a
             # full item list - use whatever preview list is present, to avoid
@@ -2581,17 +2652,30 @@ class ThingsMCPServer:
             # todos -> 'recent_preview', projects -> 'recent_projects',
             # search results -> 'result_preview' (hq-cal.4 - previously missing here,
             # so search_todos/search_advanced(mode='summary') always reported
-            # items=[] even though result_preview was populated), plus 'tags'/'top'
-            # for other summary shapes seen elsewhere.
-            preview = (
-                result.get("recent_preview")
-                or result.get("recent_projects")
-                or result.get("result_preview")
-                or result.get("tags")
-                or result.get("top")
-                or []
-            )
-            items = preview if isinstance(preview, list) else []
+            # items=[] even though result_preview was populated), plus 'tags'
+            # (get_tag_usage's minimal/standard/detailed rows list) / 'top'
+            # (get_tag_usage's summary-mode top-5 preview) for other summary shapes
+            # seen elsewhere.
+            for candidate_key in ("recent_preview", "recent_projects", "result_preview", "tags", "top"):
+                candidate = result.get(candidate_key)
+                if isinstance(candidate, list):
+                    items = candidate
+                    source_key = candidate_key
+                    break
+            else:
+                items = []
+
+        # hq-wsa.2: 'items' is the one canonical payload array - pop whichever
+        # source key it was extracted from so the same list isn't carried twice
+        # in the final envelope (byte-identical double serialization). 'tags' is
+        # popped along with the others: 'items' is the documented contract for
+        # every list-returning tool (see CLAUDE.md Structured Output), and no
+        # text-rendering or test depends on 'tags' surviving in the structured
+        # envelope specifically - get_tags() itself (a bare list response) never
+        # reaches this branch at all, so this only affects get_tag_usage's
+        # minimal/standard/detailed 'tags' rows list.
+        if source_key is not None:
+            result.pop(source_key, None)
 
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
 

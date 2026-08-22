@@ -25,7 +25,7 @@
     ]
   },
   "add_checklist_items": {
-    "description_sha256": "700e8017bf94fc08ce05a8c8c9b1a1884362d2afb636ae832218f9986353c528",
+    "description_sha256": "618fcace6b7b4c3558853c8b7e3aa039a0f6da9f238da3d95f31874d69af6732",
     "has_output_schema": true,
     "name": "add_checklist_items",
     "properties": {
@@ -411,7 +411,7 @@
     ]
   },
   "get_activating_in_days": {
-    "description_sha256": "8a35fd938451e6d0f038113d8898863eac935e79e6602145bb9dc8a8a2e63768",
+    "description_sha256": "a2cb0c8a75d82f3fa52d409b1711558c4a73ef207cfa2dc66b2308856ea70465",
     "has_output_schema": true,
     "name": "get_activating_in_days",
     "properties": {
@@ -420,6 +420,30 @@
         "maximum": 365,
         "minimum": 1,
         "type": "integer"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
       }
     },
     "required": []
@@ -484,7 +508,7 @@
     "required": []
   },
   "get_due_in_days": {
-    "description_sha256": "db849968127f0fe31bc5042ffb168cd6bdfc2a8cd87370743ae323145749f46e",
+    "description_sha256": "26a1963f00a1634f27b4597558586caba77f79bf13e13feecc264bbee0f9ffaf",
     "has_output_schema": true,
     "name": "get_due_in_days",
     "properties": {
@@ -497,6 +521,30 @@
       "include_overdue": {
         "default": true,
         "type": "boolean"
+      },
+      "limit": {
+        "anyOf_members": [
+          {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "mode": {
+        "anyOf_members": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": null
       }
     },
     "required": []
@@ -783,7 +831,7 @@
     "required": []
   },
   "get_todo_by_id": {
-    "description_sha256": "f3f7611a8568d2e05690115e55990cea74d4ab66f5a56cbeff1d8a73295f7c9b",
+    "description_sha256": "7f0995e385211a3a7d77f4312324703725a1f5e5a80abd9ceff1da31149a5ef5",
     "has_output_schema": true,
     "name": "get_todo_by_id",
     "properties": {
@@ -978,7 +1026,7 @@
     ]
   },
   "prepend_checklist_items": {
-    "description_sha256": "4b62e8f193ce2dc0b5665bbbe6695becba296a3e31ab137432f7e0cbbcb216fb",
+    "description_sha256": "6f98b951fdbff388143d271079f3a1cc619ce144242da6375982febc41e806c3",
     "has_output_schema": true,
     "name": "prepend_checklist_items",
     "properties": {
@@ -1031,7 +1079,7 @@
     ]
   },
   "replace_checklist_items": {
-    "description_sha256": "1f82ee1a4a0f815e679f39849ba8c806433875abd269db8054d859a3b1b4099a",
+    "description_sha256": "3b6f3e41a5818cf53e44726d5587dc75f0883e869c2771c29584840f1d7731a8",
     "has_output_schema": true,
     "name": "replace_checklist_items",
     "properties": {

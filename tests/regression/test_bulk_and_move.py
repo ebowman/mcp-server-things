@@ -167,7 +167,7 @@ def _bulk_move_tolerating_concurrency_race(mcp, todo_ids, destination, max_concu
     retry before). AppleScriptManager._applescript_lock (services/
     applescript_manager.py) - a duplicate, dead lock that was never
     acquired anywhere - was also removed; the real serialization has
-    always lived in AppleScriptExecutor._applescript_lock, which IS held
+    always lived in AppleScriptExecutor's executor-level lock (per-event-loop via _get_lock() since hq-yxu), which IS held
     around every osascript call.
 
     Re-measured live post-hq-c7a (two full 59-test live runs, plus a
@@ -529,12 +529,23 @@ class TestBulkUpdateEvening:
     def test_evening_without_token_nothing_touched(self, mcp, sandbox, live_server):
         """Monkeypatches the shared live AppleScriptManager's auth_token to
         None for the duration of this test only, restoring it in a finally
-        block. Todos are created BEFORE the patch is applied."""
+        block. Todos are created BEFORE the patch is applied.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk evening no token")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
             result = mcp.call_sync(
                 "bulk_update_todos",
@@ -547,6 +558,7 @@ class TestBulkUpdateEvening:
             assert result.get("updated_count") == 0, result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         for todo_id, original_title in zip(todo_ids, original_titles):
             record = read_back(todo_id, lambda r: r is not None)
@@ -586,15 +598,26 @@ class TestBulkUpdateWhenWithTime:
     def test_when_time_without_token_nothing_touched(self, mcp, sandbox, live_server):
         """Monkeypatches the shared live AppleScriptManager's auth_token to
         None for the duration of this test only, restoring it in a finally
-        block. Todos are created BEFORE the patch is applied."""
+        block. Todos are created BEFORE the patch is applied.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         from datetime import date, timedelta
 
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk when time no token")
         when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
             result = mcp.call_sync(
                 "bulk_update_todos",
@@ -607,6 +630,7 @@ class TestBulkUpdateWhenWithTime:
             assert result.get("updated_count") == 0, result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         for todo_id, original_title in zip(todo_ids, original_titles):
             record = read_back(todo_id, lambda r: r is not None)
@@ -642,11 +666,21 @@ class TestBulkUpdateTiming:
 
 class TestMoveRecordDestinations:
     def test_move_to_inbox(self, mcp, sandbox):
+        """hq-wsa.6: project -> inbox. _new_todo files the to-do in
+        sandbox.project_id, so the pre-move origin must be reported as
+        exactly 'project:<sandbox.project_id>' (no 'current_list:' prefix
+        from the old positional AppleScript parser), and the success
+        message must carry the bare title (no 'name:' prefix)."""
         import things
 
-        todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move inbox " + ts()))
+        title = sandbox_title("move inbox " + ts())
+        todo_id, _ = _new_todo(mcp, sandbox, title=title)
         result = mcp.call_sync("move_record", todo_id=todo_id, destination_list="inbox")
         assert result.get("success") is True, result
+        assert result.get("message") == f"Todo '{title}' moved to inbox successfully", result
+        assert "name:" not in result.get("message", ""), result
+        assert result.get("original_location") == f"project:{sandbox.project_id}", result
+        assert "current_list:" not in str(result.get("original_location")), result
 
         def _in_inbox():
             return any(t["uuid"] == todo_id for t in things.inbox() or [])
@@ -657,6 +691,43 @@ class TestMoveRecordDestinations:
             time.sleep(0.25)
             found = _in_inbox()
         assert found, "expected todo to be a member of things.inbox()"
+
+    def test_move_from_inbox_to_project(self, mcp, sandbox):
+        """hq-wsa.6: inbox -> project. A to-do created with no list_id
+        lands in the Inbox (things.py start == 'Inbox'), so the pre-move
+        origin must be reported as exactly 'inbox', and moving it into
+        sandbox.project_id must read back with the exact project id (no
+        'current_list:inbox' hardcoded-stub leak regardless of true
+        origin - the historic bug this bead fixes)."""
+        import things
+
+        title = sandbox_title("move from inbox " + ts())
+        # No list_id/when: Things' create-time default with neither
+        # given is the Inbox (things.py start == 'Inbox') - unlike
+        # _new_todo's own when='someday' default (see that helper's
+        # docstring), this test needs a genuine Inbox-origin todo.
+        add_result = mcp.call_sync("add_todo", title=title)
+        assert add_result.get("success") is True, add_result
+        todo_id = add_result.get("todo_id")
+        assert todo_id
+        sandbox.track(todo_id)
+
+        record = read_back(todo_id, lambda r: r is not None and r.get("start") == "Inbox")
+        assert record is not None and record.get("start") == "Inbox", record
+
+        result = mcp.call_sync(
+            "move_record", todo_id=todo_id, destination_list=f"project:{sandbox.project_id}"
+        )
+        assert result.get("success") is True, result
+        assert result.get("message") == f"Todo '{title}' moved to project:{sandbox.project_id} successfully", result
+        assert "name:" not in result.get("message", ""), result
+        assert result.get("original_location") == "inbox", result
+        assert "current_list:" not in str(result.get("original_location")), result
+
+        record = read_back(
+            todo_id, lambda r: r is not None and r.get("project") == sandbox.project_id
+        )
+        assert record is not None and record.get("project") == sandbox.project_id, record
 
     def test_move_to_today(self, mcp, sandbox):
         """move_record's `move ... to list "today"` verb was never

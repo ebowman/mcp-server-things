@@ -69,6 +69,10 @@ WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.g
 # bulk_update_todos' per-id pre-check (hq-wbm) needs its own patch for the
 # same reason as WRITE_OPS_THINGS_GET_PATCH above.
 BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
+# move_operations.py holds its own separate LazyThingsProxy instance too -
+# move_record's pre-move things.py info/origin lookup (hq-wsa.6) needs its
+# own patch for the same reason as WRITE_OPS_THINGS_GET_PATCH above.
+MOVE_OPS_THINGS_GET_PATCH = "things_mcp.move_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -259,6 +263,21 @@ def _patched_things_lookups():
         # this file's bulk_update_todos cases (TODOID1, TODOID2, and the
         # generic per-param sentinels) must resolve as a to-do.
         patch(BULK_OPS_THINGS_GET_PATCH, return_value={"type": "to-do"}),
+        # hq-wsa.6: move_record's/_get_todo_info's pre-move things.py
+        # lookup - every id used in this file's move_record/
+        # bulk_move_records cases must resolve as a to-do with a title, so
+        # the origin-derivation logic has something to report ('anytime'
+        # here, since no project/heading/start_date is set).
+        patch(
+            MOVE_OPS_THINGS_GET_PATCH,
+            return_value={
+                "type": "to-do",
+                "uuid": "SENTINELMOVE",
+                "title": "Sentinel Move Todo",
+                "status": "incomplete",
+                "start": "Anytime",
+            },
+        ),
     ]
 
 
