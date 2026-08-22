@@ -25,7 +25,7 @@
     ]
   },
   "add_checklist_items": {
-    "description_sha256": "700e8017bf94fc08ce05a8c8c9b1a1884362d2afb636ae832218f9986353c528",
+    "description_sha256": "618fcace6b7b4c3558853c8b7e3aa039a0f6da9f238da3d95f31874d69af6732",
     "has_output_schema": true,
     "name": "add_checklist_items",
     "properties": {
@@ -1026,7 +1026,7 @@
     ]
   },
   "prepend_checklist_items": {
-    "description_sha256": "4b62e8f193ce2dc0b5665bbbe6695becba296a3e31ab137432f7e0cbbcb216fb",
+    "description_sha256": "6f98b951fdbff388143d271079f3a1cc619ce144242da6375982febc41e806c3",
     "has_output_schema": true,
     "name": "prepend_checklist_items",
     "properties": {
@@ -1079,7 +1079,7 @@
     ]
   },
   "replace_checklist_items": {
-    "description_sha256": "1f82ee1a4a0f815e679f39849ba8c806433875abd269db8054d859a3b1b4099a",
+    "description_sha256": "3b6f3e41a5818cf53e44726d5587dc75f0883e869c2771c29584840f1d7731a8",
     "has_output_schema": true,
     "name": "replace_checklist_items",
     "properties": {

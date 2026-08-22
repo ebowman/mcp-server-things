@@ -195,6 +195,15 @@ async def test_update_project_completed_and_canceled_status(live_things_tools, s
 
 # (g) checklist tools error cleanly when no auth token, or round-trip when
 # one is configured.
+#
+# hq-wsa.8: also documents (upstream Things behavior, not a bug in this
+# server) that checklist-only edits do NOT bump the parent to-do's
+# modificationDate - Things tracks checklist item changes on the item
+# itself, not on the parent TMTask row. This assertion is intentionally
+# asymmetric: a spurious/missing bump would fail loudly if Things ever
+# changes this upstream, which is the alert we want; it cannot flake false-
+# positive since modificationDate can only go unchanged or advance, never
+# regress.
 @pytest.mark.asyncio
 async def test_checklist_tools_require_auth_token_or_roundtrip(live_things_tools, smoke_session, has_auth_token):
     create = await live_things_tools.add_todo(
@@ -206,6 +215,9 @@ async def test_checklist_tools_require_auth_token_or_roundtrip(live_things_tools
     assert todo_id
 
     _settle()
+
+    before = things.get(todo_id)
+    modification_date_before = before["modified"]
 
     result = await live_things_tools.add_checklist_items(todo_id=todo_id, items=["Item one", "Item two"])
 
@@ -220,6 +232,12 @@ async def test_checklist_tools_require_auth_token_or_roundtrip(live_things_tools
     titles = [i["title"] for i in items]
     assert "Item one" in titles
     assert "Item two" in titles
+
+    after = things.get(todo_id)
+    assert after["modified"] == modification_date_before, (
+        "checklist-only edit unexpectedly bumped modificationDate - "
+        "upstream Things behavior may have changed; see hq-wsa.8"
+    )
 
 
 # (h) convert fields: a completed todo has completionDate.

@@ -1193,6 +1193,14 @@ token file created (or fixed) after the server started is picked up
 automatically. Run `mcp-server-things doctor` to check whether a token is
 configured.
 
+**Checklist-only edits do not bump `modificationDate`** (hq-wsa.8): Things
+tracks checklist item changes on the item itself, not on the parent to-do's
+`modificationDate` (only a heading move or other task-row edit does that).
+Change-detection consumers polling `modificationDate` will not observe
+`add_checklist_items`/`prepend_checklist_items`/`replace_checklist_items`
+writes - compare checklist content via `get_todo_by_id(include_items=true)`
+instead.
+
 ```python
 # Add items to existing todo (appends to end)
 add_checklist_items(
@@ -1234,6 +1242,9 @@ replace_checklist_items(
   on `add_todo` id disambiguation); a lookup that times out returns
   `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
+- Checklist items created via `add_todo(checklist_items=...)` do not bump the
+  new to-do's `modificationDate` on subsequent checklist-only edits - see
+  "Checklist-only edits do not bump `modificationDate`" above
 - The auth token is loaded at server startup, then reloaded automatically
   from disk on the next auth-gated call whenever none is currently loaded
   (hq-wsa.4) - a token file added or fixed after startup takes effect on

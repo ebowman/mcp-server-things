@@ -476,7 +476,7 @@ class ThingsMCPServer:
             list_id: Optional[str] = Field(None, description="ID of project/area to add to"),
             list_title: Optional[str] = Field(None, description="Title of project/area to add to"),
             heading: Optional[str] = Field(None, description="Heading to add under"),
-            checklist_items: Optional[List[str]] = Field(None, description="List of checklist items to add")
+            checklist_items: Optional[List[str]] = Field(None, description="List of checklist items to add. Note: subsequent checklist-only edits (add/prepend/replace_checklist_items) do not bump modificationDate - see those tools' docstrings")
         ) -> Dict[str, Any]:
             """Create a new todo. Supports scheduling (when='today', 'tomorrow', 'YYYY-MM-DD'), tags, projects, deadlines, and notes."""
             try:
@@ -845,6 +845,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 if not items:
@@ -867,6 +873,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 if not items:
@@ -889,6 +901,12 @@ class ThingsMCPServer:
             Enable Things URLs > Manage; save it to .things-auth, things-auth.txt,
             or ~/.things-auth). Without a configured token this returns
             success=false with an actionable error instead of silently no-op'ing.
+
+            Note: checklist-only edits do NOT bump the todo's modificationDate
+            (Things tracks checklist item changes separately from the parent
+            todo). Change-detection consumers polling modificationDate will not
+            observe this write - compare checklist content via
+            get_todo_by_id(include_items=true) instead.
             """
             try:
                 result = await self.tools.replace_checklist_items(todo_id=todo_id, items=items)
