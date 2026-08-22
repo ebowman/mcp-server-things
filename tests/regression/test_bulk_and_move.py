@@ -529,12 +529,23 @@ class TestBulkUpdateEvening:
     def test_evening_without_token_nothing_touched(self, mcp, sandbox, live_server):
         """Monkeypatches the shared live AppleScriptManager's auth_token to
         None for the duration of this test only, restoring it in a finally
-        block. Todos are created BEFORE the patch is applied."""
+        block. Todos are created BEFORE the patch is applied.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk evening no token")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
             result = mcp.call_sync(
                 "bulk_update_todos",
@@ -547,6 +558,7 @@ class TestBulkUpdateEvening:
             assert result.get("updated_count") == 0, result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         for todo_id, original_title in zip(todo_ids, original_titles):
             record = read_back(todo_id, lambda r: r is not None)
@@ -586,15 +598,26 @@ class TestBulkUpdateWhenWithTime:
     def test_when_time_without_token_nothing_touched(self, mcp, sandbox, live_server):
         """Monkeypatches the shared live AppleScriptManager's auth_token to
         None for the duration of this test only, restoring it in a finally
-        block. Todos are created BEFORE the patch is applied."""
+        block. Todos are created BEFORE the patch is applied.
+
+        hq-wsa.4: the auth gate now reloads the token from disk
+        (reload_auth_token_if_missing()) whenever none is currently loaded,
+        so that a token file added after startup works without a restart.
+        The live environment has a real .things-auth on disk, so simply
+        clearing auth_token here is no longer sufficient to keep the gate
+        tripped for the duration of the call - reload_auth_token_if_missing
+        is also stubbed out to a no-op for the same window, restored
+        alongside the token in the same finally block."""
         from datetime import date, timedelta
 
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_ids, original_titles = _new_todos(mcp, sandbox, 2, prefix="bulk when time no token")
         when_date = (date.today() + timedelta(days=12)).strftime("%Y-%m-%d")
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             should_not_apply = sandbox_title("SHOULD-NOT-APPLY " + ts())
             result = mcp.call_sync(
                 "bulk_update_todos",
@@ -607,6 +630,7 @@ class TestBulkUpdateWhenWithTime:
             assert result.get("updated_count") == 0, result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         for todo_id, original_title in zip(todo_ids, original_titles):
             record = read_back(todo_id, lambda r: r is not None)
