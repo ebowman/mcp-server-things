@@ -488,26 +488,43 @@ class ContextAwareResponseManager:
     def _handle_oversized_response(self, data: List[Dict[str, Any]], method_name: str,
                                   mode: ResponseMode, params: Dict[str, Any],
                                   estimated_size: int) -> Dict[str, Any]:
-        """Handle responses that exceed context budget."""
+        """Handle responses that exceed context budget.
+
+        hq-cal.2: this is the *implicit* budget-truncation path - it fires even when
+        the caller passed no explicit `limit`. Previously it silently re-ranked items
+        by a relevance heuristic and returned only the top-scoring subset, which could
+        make an item (e.g. a freshly created low-relevance project) unreachable even
+        though `total` reported the full count. Truncation here is now a deterministic
+        prefix of `data` in its original (caller-produced/things.py) order - no
+        relevance re-ranking - and the envelope carries an explicit `truncated`/
+        `truncation_hint` signal so callers know more items exist and how to reach them.
+        """
 
         # Calculate how many items we can fit
         avg_item_size = estimated_size / len(data)
-        max_items = int(self.context_budget.max_response_size / avg_item_size)
+        max_items = max(1, int(self.context_budget.max_response_size / avg_item_size))
 
-        # Apply relevance ranking for pagination
-        ranked_data = self._apply_relevance_ranking(data)
-        current_page = ranked_data[:max_items]
+        # Deterministic prefix in original order - no relevance re-ranking.
+        current_page = data[:max_items]
 
         filtered_data = self._apply_field_filtering(current_page, mode, method_name)
-        
+
+        total = len(data)
+        returned = len(filtered_data)
+
         return {
             "data": filtered_data,
             "meta": {
                 "mode": mode.value,
-                "count": len(filtered_data),
-                "total": len(data),
+                "count": returned,
+                "total": total,
                 "truncated": True,
-                "more": len(data) - max_items
+                "more": total - max_items,
+                "truncation_hint": (
+                    f"Response exceeded the size budget; {returned} of {total} items "
+                    "returned. Use a smaller mode (minimal/summary), a limit, or a "
+                    "more specific tool/filter to reach the remaining items."
+                ),
             }
         }
     

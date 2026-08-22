@@ -250,6 +250,10 @@ class TestStructuredContentShape:
         assert sc["count"] == 1
         assert sc["has_more"] is True
         assert sc["total_count"] == 5
+        # get_trash has no 'mode' parameter, so requested_mode must be None
+        # (hq-cal.3), while 'mode' still reports the effective shape.
+        assert sc["mode"] == "standard"
+        assert sc["requested_mode"] is None
 
 
 class TestGetProjectsFieldFiltering:

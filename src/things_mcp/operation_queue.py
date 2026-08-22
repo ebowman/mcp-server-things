@@ -9,6 +9,7 @@ import asyncio
 import logging
 import time
 import sys
+import weakref
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, List, Awaitable
@@ -427,29 +428,63 @@ class OperationQueue:
             self._completed_operations = self._completed_operations[-self._max_completed_history:]
 
 
-# Global queue instance
-_global_queue: Optional[OperationQueue] = None
+# Per-event-loop queue instances.
+#
+# The queue's worker task is created via asyncio.create_task() inside
+# OperationQueue.start(), which permanently binds that task (and anything it
+# awaits) to whichever event loop is running at the time. A single
+# module-level singleton therefore breaks the moment a *different* event
+# loop calls get_operation_queue() (e.g. a client doing a fresh
+# asyncio.run() per call): the stale worker task belongs to a foreign loop,
+# so awaiting/cancelling it from the new loop hangs instead of completing.
+#
+# Fix: key the queue by the currently-running event loop in a
+# WeakKeyDictionary, so each loop gets its own OperationQueue + worker task -
+# no explicit cross-loop teardown/await is attempted at all, since awaiting
+# into a foreign/closed loop is exactly the hang this fixes.
+#
+# Note: a WeakKeyDictionary entry is only reclaimed once nothing else holds
+# a strong reference to its key (the loop). In practice an *abandoned* loop's
+# entry is NOT reclaimed by this alone: the still-running worker Task holds a
+# strong reference to its own loop (Task._loop), and that Task is itself
+# reachable from the OperationQueue value stored in this same dict - so the
+# loop stays pinned for as long as the process runs, even after the loop is
+# closed and unreachable from user code. This is a small, bounded leak (one
+# entry per abandoned loop, each holding one inert queue + one closed loop +
+# one done-but-uncollectable task) - not unbounded growth, and not a hang.
+# Callers that control their own loop lifecycle can avoid even that by
+# calling shutdown_operation_queue() before the loop is discarded, which
+# pops (and stops) the current loop's entry explicitly.
+_queues_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, OperationQueue]" = weakref.WeakKeyDictionary()
 
 
 async def get_operation_queue() -> OperationQueue:
-    """Get or create the global operation queue instance"""
-    global _global_queue
-    
-    if _global_queue is None:
-        _global_queue = OperationQueue()
-        await _global_queue.start()
-    elif _global_queue._worker_task is None or _global_queue._worker_task.done():
+    """Get or create the operation queue instance for the currently running event loop.
+
+    Each event loop gets its own OperationQueue instance (and worker task),
+    so repeated calls within the same loop return the same instance, while
+    calls from a different loop transparently get a fresh, functional queue
+    instead of hanging on a worker task bound to a foreign loop.
+    """
+    loop = asyncio.get_running_loop()
+
+    queue = _queues_by_loop.get(loop)
+    if queue is None:
+        queue = OperationQueue()
+        _queues_by_loop[loop] = queue
+        await queue.start()
+    elif queue._worker_task is None or queue._worker_task.done():
         # Worker is not running, restart it
         logger.warning("Queue worker was not running, restarting...")
-        await _global_queue.start()
-    
-    return _global_queue
+        await queue.start()
+
+    return queue
 
 
 async def shutdown_operation_queue():
-    """Shutdown the global operation queue"""
-    global _global_queue
-    
-    if _global_queue is not None:
-        await _global_queue.stop()
-        _global_queue = None
+    """Shutdown the operation queue instance bound to the currently running event loop."""
+    loop = asyncio.get_running_loop()
+
+    queue = _queues_by_loop.pop(loop, None)
+    if queue is not None:
+        await queue.stop()

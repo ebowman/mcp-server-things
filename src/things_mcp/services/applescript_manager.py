@@ -5,7 +5,6 @@ This module serves as a facade that delegates to specialized modules:
 - formatters: Date/tag/URL formatting
 """
 
-import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -44,8 +43,11 @@ class AppleScriptManager:
     the original interface.
     """
 
-    # Class-level lock shared across all instances (delegated to executor)
-    _applescript_lock = asyncio.Lock()
+    # NOTE: process-wide AppleScript serialization actually lives in
+    # AppleScriptExecutor._applescript_lock (services/applescript/executor.py),
+    # which IS acquired around every osascript call. A duplicate lock used
+    # to be declared here too, but it was never acquired anywhere in this
+    # class (dead code) - removed (hq-c7a).
 
     def __init__(self, timeout: int = 45, retry_count: int = 3, config: Optional[ThingsMCPConfig] = None):
         """Initialize the AppleScript manager.

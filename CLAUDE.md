@@ -396,6 +396,29 @@ get_tag_usage(mode="summary")
    get_tagged_items(tag="work")
    ```
 
+### search_advanced scope semantics
+
+`search_advanced` is not a full-database, all-kinds search by default - three
+scope facts to know before relying on a filter combination:
+
+1. **Untyped queries return to-dos only.** Without an explicit `type`
+   filter, `search_advanced` queries `things.todos()`, which only ever
+   returns to-do rows. A bare `area=`/`start_date=`/`deadline=` filter (with
+   no `type`) can never surface a project or heading, even if one matches -
+   pass `type='project'` or `type='heading'` explicitly to search those
+   kinds.
+2. **`area=` does not cascade into that area's projects.** It matches only
+   items *directly* assigned to the area (`things.tasks(area=...)`) - not
+   to-dos that live inside a project which itself belongs to the area. To
+   find to-dos inside an area's projects, query each project directly with
+   `get_todos(project_uuid=...)`, or use
+   `get_areas(include_items=true)` to enumerate the area's projects (and
+   their nested todos) first - see the `include_items=true` guidance
+   elsewhere in this file for its own context-size caveats.
+3. **There is no `project=` filter parameter.** `search_advanced` has no way
+   to scope a search to a single project - use `get_todos(project_uuid=...)`
+   instead.
+
 ## 🔧 Tool Usage Best Practices
 
 ### Structured Output
@@ -409,7 +432,7 @@ The structured shape is consistent across list-returning tools:
 - `items` - the item dicts for the effective response `mode` (see Response Mode Selection below)
 - `count` - `len(items)`
 - `total` - total items available before any `limit` was applied (falls back to `count` when the true pre-limit total isn't tracked separately, e.g. `get_tag_usage`)
-- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_due_in_days`, `get_activating_in_days`, `get_tags`, `get_tagged_items`, `get_recent`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`).
+- `mode` / `limit` / `offset` - echoed back from the effective request; when the caller passes `mode='auto'` (or omits `mode`), `mode` reports the concrete mode AUTO selection actually resolved to (e.g. `"minimal"`), never the literal string `"auto"` and never `None` - the originally-requested value (`"auto"` or `None`) is preserved separately in `requested_mode`. This holds uniformly across every list tool with a `mode` parameter, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (omitted mode routes through the same context-manager optimization as `mode='auto'`, rather than skipping it). For an empty result set there's no data to size-select against, so AUTO always resolves to `"standard"` (e.g. `get_projects` on an empty list, or `get_project_headings` on a project with no headings) - `mode` is still never the literal `"auto"`. `requested_mode` is present on every list-returning tool's envelope, including the handful with no `mode` parameter at all (`get_logbook`, `get_due_in_days`, `get_activating_in_days`, `get_tags`, `get_tagged_items`, `get_recent`, `get_trash`) - for those, `requested_mode` is always `None` (nothing was requested), while `mode` still reports the effective/concrete shape of the returned items (`"standard"`).
 
 `total` is always the count of the full matching/filtered set computed **before** `limit` (and `offset`, where supported) is applied - never `len(items)` after truncation. This holds for every list tool, including `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday` (limit truncates client-side after the full set is fetched) and `search_todos`/`search_advanced`/`get_logbook`/`get_trash` (limit/offset are applied after the full match set is counted).
 
@@ -422,6 +445,19 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 `get_todo_by_id` resolves any Things item id, not just to-dos - projects, headings, and trashed items resolve too (previously a project/heading/trashed uuid raised `ValueError: Todo not found`). Check `item.type` (`'to-do'`, `'heading'`, or `'project'`) to see which kind you got back; trashed items include `trashed: true`.
 
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
+
+#### Implicit budget truncation (`truncated` / `truncation_hint`)
+
+Independent of `limit`/`offset`, every list tool that routes through `ContextAwareResponseManager.optimize_response` (`context_manager.py`) - `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday`/`get_todos`/`get_projects`/etc. - enforces an internal ~80KB response-size budget. On a large enough result set (e.g. a database with a very large Anytime list, or `mode='detailed'`/`include_projects=true` on an already-large list), the response can exceed that budget even when the caller passed no `limit` at all. When that happens (bead hq-cal.2):
+
+- The returned `items` are a **deterministic prefix of the full result set, in its original order** (the order the underlying tool produced it in, i.e. things.py order) - never a relevance-ranked or reordered subset.
+- The envelope carries two extra top-level keys, sibling to `items`/`count`/`total`:
+  - `truncated: true`
+  - `truncation_hint`: a short string explaining how to reach the rest, e.g. `"Response exceeded the size budget; 40 of 1177 items returned. Use a smaller mode (minimal/summary), a limit, or a more specific tool/filter to reach the remaining items."`
+- `count` is still `len(items)` and `total` is still the full pre-truncation count, same as ever - `count < total` is exactly the signal that truncation, not an empty/short result, occurred.
+- When truncation does **not** fire, `truncated`/`truncation_hint` are **absent entirely** (not `false`/`null`) - untruncated envelopes are unchanged from pre-hq-cal.2 behavior.
+
+An item missing from `items` under a truncated response is not necessarily gone or unreachable - it may simply not have fit in this page. To reach it: retry with a smaller `mode` (`minimal`/`summary` are far smaller per item and less likely to truncate), pass a `limit`, use a more targeted tool/filter (e.g. `get_todos(project_uuid=...)` instead of a broad list), or look it up directly via `get_todo_by_id`.
 
 #### Structured error contract
 
@@ -1164,7 +1200,7 @@ replace_checklist_items(
 
 **Format Requirements:**
 - Items are passed as a list of strings: `["item1", "item2", "item3"]`
-- Maximum 100 checklist items per todo
+- Maximum 100 checklist items per todo - enforced (hq-exe): `add_todo(checklist_items=...)`, `add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items` all reject a request with more than 100 items before any write, returning `{"success": false, "error": "TOO_MANY_CHECKLIST_ITEMS", "field": "checklist_items"|"items", "message": "checklist supports at most 100 items, got N"}`; exactly 100 is accepted. This is a per-request limit only - `add_checklist_items`/`prepend_checklist_items` do not count pre-existing items already on the target to-do (Things has no cheap way to read that count), only the items list submitted in the current call.
 - Items can be marked complete/incomplete in Things 3 UI
 
 **Implementation Details:**

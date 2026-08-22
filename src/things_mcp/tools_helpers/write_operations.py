@@ -110,9 +110,21 @@ class WriteOperations:
             )
             return error_response, None, tag_validation
 
-        valid_tags = list(dict.fromkeys(
-            tag_validation.get('existing', []) + tag_validation.get('created', [])
-        ))
+        # NOTE: tag_validation['existing'] is mapped from
+        # TagValidationResult.valid_tags, which ALREADY includes
+        # created_tags under the ALLOW_ALL policy (see
+        # TagValidationService._apply_policy: `result.valid_tags.extend
+        # (tags_to_create)`). Concatenating tag_validation['created'] on top
+        # double-counted every newly-created tag (hq-3bp sibling defect) -
+        # the dict.fromkeys() dedup below happened to mask the duplication
+        # in the final emitted list, but the intermediate value was still
+        # wrong. 'existing' alone is the complete, correctly-deduplicated
+        # set of tags to apply under every policy (ALLOW_ALL /
+        # FILTER_SILENT / FILTER_WARN / FAIL_ON_UNKNOWN) - under the
+        # filtering policies created_tags is always [] anyway, so this is a
+        # no-op there. dict.fromkeys() is kept to preserve order while
+        # deduping defensively (e.g. against a caller-supplied duplicate).
+        valid_tags = list(dict.fromkeys(tag_validation.get('existing', [])))
         return None, valid_tags, tag_validation
 
     async def add_todo(self, title: str, **kwargs) -> Dict[str, Any]:

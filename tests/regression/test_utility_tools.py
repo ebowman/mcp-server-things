@@ -16,23 +16,32 @@ success-path fields, not the read/write error contract; the failure-path
 file test_utility_tool_contracts.py, which mocks the underlying calls to
 raise.
 
-Discovered (not fixed - out of scope for this bead): `queue_status` and
-`get_server_capabilities` both call `operation_queue.get_operation_queue()`,
-which lazily creates a module-level singleton `OperationQueue` and starts an
-`asyncio.create_task(...)` worker bound to whichever event loop was running
-at the time. `queue_status`/`get_server_capabilities`.get_queue_status's
-`_worker_task.done()` check on that task from a *different* (later,
-freshly-created) event loop hangs indefinitely rather than raising -
-reproduced live outside pytest with as few as two sequential
-`asyncio.run(...)`-wrapped calls to either tool. This file therefore calls
-`queue_status` and `get_server_capabilities` (and any other tool that
-transitively touches the operation queue) each exactly ONCE, and batches
-every call that touches the queue into a single shared event loop (one
-`async def test_...` coroutine, one implicit asyncio.run via
-pytest-asyncio) rather than the usual one-`mcp.call_sync`-per-test pattern
-used elsewhere in this suite (each of which is its own asyncio.run(), i.e.
-its own event loop) - see the task report's "Discovered" note for the
-filed followup.
+Historical note (fixed by hq-5xa): `queue_status` and
+`get_server_capabilities` both call `operation_queue.get_operation_queue()`.
+That module previously held a single module-level singleton `OperationQueue`
+whose worker task was created via `asyncio.create_task(...)` - permanently
+binding that task to whichever event loop was running when the singleton was
+first created. Each `mcp.call_sync(...)` in this suite runs its own
+`asyncio.run(...)` (a fresh event loop per call), so a *second* `call_sync`
+touching the queue reused the first call's singleton and tried to
+await/restart a worker task bound to the first call's now-closed loop -
+hanging indefinitely rather than raising (reproduced live outside pytest
+with as few as two sequential `asyncio.run(...)`-wrapped calls to either
+tool). The actual hang was in `get_operation_queue()`'s cross-loop worker
+restart, not in the `.done()` check by itself. hq-5xa fixed this by keying
+the queue by the currently-running event loop (a `WeakKeyDictionary` in
+`operation_queue.py`), so each loop gets its own queue + worker and no
+cross-loop await ever happens. `queue_status` is therefore back to the
+normal, independent one-`mcp.call_sync`-per-test pattern used elsewhere in
+this suite (its own fresh `asyncio.run(...)` loop, same as every other
+tool here). `get_server_capabilities`'s test remains `async def` using
+`await mcp.call(...)` rather than `mcp.call_sync(...)` - not because of any
+remaining queue workaround, but because it also needs to call
+`live_server.mcp.list_tools()` in the *same* running event loop as the
+`get_server_capabilities` call, to compare the server's live tool registry
+against the reported count; each test still gets its own independent event
+loop (via pytest-asyncio), it's just driven directly with `await` instead
+of through `call_sync`'s own `asyncio.run(...)` wrapper.
 """
 from datetime import datetime
 
@@ -161,18 +170,16 @@ class TestUsageRecommendations:
 # ---------------------------------------------------------------------------
 # queue_status + get_server_capabilities: both transitively call
 # operation_queue.get_operation_queue() - see the module docstring's
-# "Discovered" note. Both live in a single async test sharing one event
-# loop (via `await mcp.call(...)`, not `call_sync`) so the module-level
-# queue singleton's worker task is only ever touched from the loop it was
-# created in.
+# "Historical note" above. hq-5xa made the underlying queue per-event-loop,
+# so these are now ordinary independent tests, each its own
+# `mcp.call_sync(...)` (its own asyncio.run/event loop), matching every
+# other tool in this file.
 # ---------------------------------------------------------------------------
 
 
-class TestQueueTouchingTools:
-    @pytest.mark.asyncio
-    async def test_queue_status_and_server_capabilities(self, mcp, live_server):
-        # --- queue_status ---
-        queue_result = await mcp.call("queue_status")
+class TestQueueStatus:
+    def test_queue_status_shape(self, mcp):
+        queue_result = mcp.call_sync("queue_status")
         assert "queue_status" in queue_result, queue_result
         assert "active_operations" in queue_result, queue_result
         assert "timestamp" in queue_result, queue_result
@@ -189,12 +196,15 @@ class TestQueueTouchingTools:
             assert key in nested, f"queue_status.queue_status missing {key!r}: {nested!r}"
         datetime.fromisoformat(queue_result["timestamp"])
 
-        # --- get_server_capabilities ---
+
+class TestServerCapabilities:
+    @pytest.mark.asyncio
+    async def test_server_capabilities_shape(self, mcp, live_server):
         capabilities_result = await mcp.call("get_server_capabilities")
 
         # Query the real FastMCP server's own tool registry directly (same
         # call server.py's _registered_tool_count itself makes), within the
-        # same running event loop as the two calls above.
+        # same running event loop as the call above.
         tools = await live_server.mcp.list_tools()
         registered_names = {t.name for t in tools}
 

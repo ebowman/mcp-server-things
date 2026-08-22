@@ -112,7 +112,20 @@ class BulkOperations:
             # setting it to [] - that must not be confused with an explicit
             # clear request, so the existing tags are left untouched
             # (matches update_area's "all filtered -> no-op" behaviour).
-            valid_tags = tag_validation.get('existing', []) + tag_validation.get('created', [])
+            #
+            # NOTE: tag_validation['existing'] is mapped from
+            # TagValidationResult.valid_tags, which ALREADY includes
+            # created_tags under the ALLOW_ALL policy (see
+            # TagValidationService._apply_policy: `result.valid_tags.extend
+            # (tags_to_create)`). Concatenating tag_validation['created'] on
+            # top double-counted every newly-created tag (hq-3bp) - e.g.
+            # bulk_update_todos(tags='a,b') under ALLOW_ALL emitted the
+            # AppleScript tag string 'a, b, a, b'. 'existing' alone is the
+            # complete, correctly-deduplicated set of tags to apply under
+            # every policy (ALLOW_ALL / FILTER_SILENT / FILTER_WARN /
+            # FAIL_ON_UNKNOWN) - under the filtering policies created_tags
+            # is always [] anyway, so this is a no-op there.
+            valid_tags = tag_validation.get('existing', [])
             if valid_tags != tags:
                 kwargs = dict(kwargs)
                 if valid_tags:

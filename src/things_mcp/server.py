@@ -1515,6 +1515,7 @@ class ThingsMCPServer:
                     limit=limit,
                     offset=offset,
                     total=trash_data.get('total_count') if isinstance(trash_data, dict) else None,
+                    requested_mode=None,
                 )
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
@@ -1812,6 +1813,18 @@ class ThingsMCPServer:
             Note: filter_someday_project_tasks is NOT applied here - todos inside a
             Someday project (hidden from Today/Anytime/Upcoming in the Things UI) can
             still match search_advanced.
+
+            Scope semantics:
+            1. Without an explicit `type` filter, only to-dos are searched - a bare
+               `area=`/`start_date=`/`deadline=` filter can never return a project
+               or heading. Pass type='project' or type='heading' to search those
+               kinds explicitly.
+            2. `area=` matches only items directly assigned to the area - it does
+               NOT cascade into to-dos living inside that area's projects. To find
+               those, query each project with get_todos(project_uuid=...), or use
+               get_areas(include_items=true) to enumerate the area's projects first.
+            3. There is no `project=` filter parameter - use
+               get_todos(project_uuid=...) to scope a search to one project.
             """
             try:
                 # Import datetime for validation
@@ -2610,6 +2623,18 @@ class ThingsMCPServer:
         result["requested_mode"] = requested_mode
         result["limit"] = limit
         result["offset"] = offset
+
+        # hq-cal.2: surface context_manager.optimize_response's implicit budget-truncation
+        # signal (meta['truncated']/meta['truncation_hint']) at the top level of the
+        # structured envelope, sibling of items/count/total, so callers can tell a
+        # response was silently size-limited rather than being the full matching set.
+        # Only emitted when truncation actually fired - absent (not False) otherwise,
+        # per CLAUDE.md's Structured Output docs, to keep untruncated envelopes
+        # byte-stable with pre-hq-cal.2 behavior.
+        if meta.get("truncated"):
+            result["truncated"] = True
+            if meta.get("truncation_hint"):
+                result["truncation_hint"] = meta["truncation_hint"]
 
         return result
 

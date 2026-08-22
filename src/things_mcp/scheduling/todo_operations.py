@@ -47,6 +47,42 @@ def _write_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
     return write_error(code, message, **extra)
 
 
+# Documented cap on checklist items per Things URL-scheme request (see
+# CLAUDE.md "Format Requirements" under Checklist Support). This is a
+# per-request limit only - Things gives no cheap way to read how many
+# checklist items a to-do already has, so add_checklist_items/
+# prepend_checklist_items do NOT count pre-existing items on the target
+# to-do, only the items list being submitted in this call (hq-exe).
+MAX_CHECKLIST_ITEMS = 100
+
+
+def _check_checklist_item_count(items: Any, field: str) -> Optional[Dict[str, Any]]:
+    """Enforce the documented per-request checklist item cap.
+
+    Accepts either a list of item strings (add_checklist_items,
+    prepend_checklist_items, replace_checklist_items) or the raw
+    checklist_items value passed to add_todo, which may be a list or a
+    newline-separated string. Returns a write_error()-shaped dict (code
+    TOO_MANY_CHECKLIST_ITEMS) if the count exceeds MAX_CHECKLIST_ITEMS,
+    or None if the count is within bounds (including 0/empty).
+
+    Must be called before any AppleScript/URL-scheme write is issued.
+    """
+    if not items:
+        return None
+    if isinstance(items, str):
+        count = len([item for item in items.split('\n') if item.strip()])
+    else:
+        count = len(items)
+    if count > MAX_CHECKLIST_ITEMS:
+        return _write_error(
+            "TOO_MANY_CHECKLIST_ITEMS",
+            f"checklist supports at most {MAX_CHECKLIST_ITEMS} items, got {count}",
+            field=field,
+        )
+    return None
+
+
 class TodoOperations:
     """Handles todo and project creation/update operations."""
 
@@ -406,6 +442,12 @@ class TodoOperations:
             checklist = kwargs.get('checklist_items') or []
             heading = kwargs.get('heading', '')
             list_title = kwargs.get('list_title', '')
+
+            # Enforce the documented per-request checklist item cap before
+            # any write is attempted (hq-exe).
+            count_error = _check_checklist_item_count(checklist, field="checklist_items")
+            if count_error:
+                return count_error
 
             # A heading can only be honoured via the Things URL scheme (Things 3
             # AppleScript has no heading class). Require a target project.
@@ -978,6 +1020,10 @@ class TodoOperations:
                     "NO_CHECKLIST_ITEMS", "At least one checklist item is required"
                 )
 
+            count_error = _check_checklist_item_count(items, field="items")
+            if count_error:
+                return count_error
+
             # Build URL parameters for appending checklist items
             params = {
                 'id': todo_id,
@@ -1016,6 +1062,10 @@ class TodoOperations:
                     "NO_CHECKLIST_ITEMS", "At least one checklist item is required"
                 )
 
+            count_error = _check_checklist_item_count(items, field="items")
+            if count_error:
+                return count_error
+
             # Build URL parameters for prepending checklist items
             params = {
                 'id': todo_id,
@@ -1049,6 +1099,10 @@ class TodoOperations:
             Dict with success status and operation details
         """
         try:
+            count_error = _check_checklist_item_count(items, field="items")
+            if count_error:
+                return count_error
+
             # Build URL parameters for replacing checklist items
             params = {
                 'id': todo_id,

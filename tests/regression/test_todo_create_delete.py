@@ -423,21 +423,9 @@ class TestAddTodoChecklist:
             f"expected {count} checklist items, got {len(checklist)}"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed: CLAUDE.md documents 'Maximum 100 checklist items per "
-            "todo' but no code path (scheduling/todo_operations.py's "
-            "_add_todo_via_url_scheme, server.py's add_todo) enforces any "
-            "count limit before sending checklist-items to the Things URL "
-            "scheme - grepped for a >100/101 guard and found none. This "
-            "test encodes the documented behavior (101 items rejected, "
-            "nothing created) and is expected to fail (XPASS would mean "
-            "the limit was actually enforced, at which point this should "
-            "be un-xfailed)."
-        ),
-    )
     def test_checklist_items_101_rejected_and_nothing_created(self, mcp, sandbox):
+        """hq-exe: the documented 100-item checklist cap is enforced with
+        TOO_MANY_CHECKLIST_ITEMS before any Things URL-scheme write."""
         import things
 
         items = [f"item {i}" for i in range(101)]
@@ -454,6 +442,8 @@ class TestAddTodoChecklist:
             "add_todo", title=title, checklist_items=items, list_id=sandbox.project_id
         )
         assert result.get("success") is False, result
+        assert result.get("error") == "TOO_MANY_CHECKLIST_ITEMS", result
+        assert result.get("field") == "checklist_items", result
         if result.get("success") is True and result.get("todo_id"):
             sandbox.track(result["todo_id"])
 

@@ -424,3 +424,159 @@ class TestRetryLogic:
             assert sleep_calls[0] == 1  # First retry: 2^0 = 1
 
 
+class TestRetryOnErrorStdout:
+    """hq-c7a: rc=0 osascript results whose stdout is the in-script
+    "ERROR:"-prefixed convention (move_operations.py's
+    _build_project_move_script/_build_area_move_script/_get_todo_info,
+    tag_service.py's tag-creation script - `on error errMsg / return
+    "ERROR: " & errMsg`) must be retried the same as a nonzero returncode,
+    since Things 3 intermittently errors under rapid back-to-back
+    AppleEvents even though the osascript process itself still exits 0.
+    """
+
+    @pytest.fixture
+    def manager_with_retries(self):
+        """Fixture providing manager with retry configuration."""
+        return AppleScriptManager(timeout=5, retry_count=3)
+
+    @pytest.mark.asyncio
+    async def test_error_stdout_retried_then_exhausted_returns_as_is(self, manager_with_retries):
+        """rc=0 + 'ERROR: ...' stdout on every attempt -> retried up to the
+        bound (attempt count == retry_count), then returned exactly as
+        produced (success=True, output starts with 'ERROR:') rather than
+        being wrapped in a different failure envelope - callers such as
+        move_operations.py parse `output.startswith("ERROR:")` on the
+        raw result and must keep working unchanged on final exhaustion."""
+        script = 'tell application "Things3" to return "ERROR: " & "boom"'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"ERROR: boom", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 3  # retried up to retry_count
+            assert mock_sleep.call_count == 2  # backoff before each retry
+            # Returned exactly as produced - same shape callers already parse.
+            assert result["success"] is True
+            assert result["output"] == "ERROR: boom"
+
+    @pytest.mark.asyncio
+    async def test_normal_stdout_not_retried(self, manager_with_retries):
+        """rc=0 + normal (non-'ERROR:') stdout -> no retry, single attempt."""
+        script = 'tell application "Things3" to return "MOVED to project abc"'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"MOVED to project abc", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 1
+            assert mock_sleep.call_count == 0
+            assert result["success"] is True
+            assert result["output"] == "MOVED to project abc"
+
+    @pytest.mark.asyncio
+    async def test_nonzero_returncode_retry_unchanged(self, manager_with_retries):
+        """rc!=0 -> existing retry behavior unchanged (retried up to the
+        bound, final failure wrapped in the generic 'Failed after N
+        attempts' envelope, not returned as-is)."""
+        script = 'tell application "Things3" to return version'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"", b"Persistent error")
+            mock_process.returncode = 1
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 3
+            assert mock_sleep.call_count == 2
+            assert result["success"] is False
+            assert "Persistent error" in result["error"]
+            assert "Failed after 3 attempts" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_success_on_second_attempt_after_error_stdout(self, manager_with_retries):
+        """rc=0 'ERROR:' stdout on attempt 1, normal success on attempt 2 ->
+        success returned, exactly one retry consumed."""
+        script = 'tell application "Things3" to move theTodo'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            process1 = AsyncMock()
+            process1.communicate.return_value = (b"ERROR: Things got confused", b"")
+            process1.returncode = 0
+
+            process2 = AsyncMock()
+            process2.communicate.return_value = (b"MOVED to project abc", b"")
+            process2.returncode = 0
+
+            mock_create.side_effect = [process1, process2]
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 2
+            assert mock_sleep.call_count == 1
+            assert result["success"] is True
+            assert result["output"] == "MOVED to project abc"
+
+    @pytest.mark.asyncio
+    async def test_error_stdout_leading_whitespace_still_detected(self, manager_with_retries):
+        """Output is stripped before the prefix check - leading/trailing
+        whitespace around the 'ERROR:' prefix must not defeat detection."""
+        script = 'tell application "Things3" to return "  ERROR: boom  "'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"  ERROR: boom  ", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 3
+            assert result["success"] is True
+            # Executor strips stdout into `output` regardless of retry path.
+            assert result["output"] == "ERROR: boom"
+
+    @pytest.mark.asyncio
+    async def test_error_substring_not_at_start_not_retried(self, manager_with_retries):
+        """A payload that merely *contains* 'ERROR:' but does not start
+        with it (e.g. legitimate note text) must NOT be treated as
+        retryable - only an exact prefix match triggers retry."""
+        script = 'tell application "Things3" to return notes'
+
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (
+                b"Remember: ERROR: handling notes are due Friday", b""
+            )
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript(script)
+
+            assert mock_create.call_count == 1
+            assert mock_sleep.call_count == 0
+            assert result["success"] is True
+            assert result["output"] == "Remember: ERROR: handling notes are due Friday"
+
+

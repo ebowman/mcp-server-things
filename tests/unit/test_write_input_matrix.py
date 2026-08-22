@@ -41,8 +41,11 @@ xfail - the live suite owns xfails per GBL_COMMON.md; comments cite the
 owning bead):
   - hq-z5d: move_record destination handling for 'someday'/'anytime'
     fallback quirks are exercised as observed, not asserted as "correct".
-  - hq-exe: add_checklist_items/prepend/replace enforce no cap on item
-    count - 101 items is accepted (ok), not rejected.
+  - hq-exe (FIXED): add_todo/add_checklist_items/prepend_checklist_items/
+    replace_checklist_items now reject a request with more than 100
+    checklist items with TOO_MANY_CHECKLIST_ITEMS before any write; exactly
+    100 items is still accepted. See CASES below for the 100-ok/101-rejected
+    pairs for each of the four tools.
   - hq-r87: a whitespace-only tag name (e.g. "  spacey  ") is accepted
     as a distinct tag after stripping - not rejected.
   - hq-nb1 (FIXED): all four TagCreationPolicy states are now reachable
@@ -130,8 +133,11 @@ class RecordingAppleScriptManager:
         # Delimited-string response for TagValidationService._get_existing_tags
         # ("repeat with theTag in tags"). Defaults to "" (no existing tags in
         # Things) - override via a `seed` callback to pre-seed known tags so
-        # a case can exercise the ALLOW_ALL "already-known" path without
-        # tripping the existing/created double-count bug (see Discovered).
+        # a case can exercise the ALLOW_ALL "already-known" path (as
+        # distinct from the "newly-created" path exercised when unseeded).
+        # hq-3bp fixed a double-count bug where both paths' emitted tag
+        # string duplicated every tag; both paths are now covered by
+        # dedicated CASES entries asserting each tag appears exactly once.
         self.existing_tags_output: str = ""
 
     async def execute_applescript(self, script: str, cache_key: Optional[str] = None) -> Dict[str, Any]:
@@ -570,8 +576,8 @@ add("add_todo", {"title": "T", "heading": "SomeHeading"}, write_error("VALIDATIO
 
 add("add_todo", {"title": "T", "checklist_items": []}, ok(route="applescript"))
 add("add_todo", {"title": "T", "checklist_items": ["one"]}, ok(route="url_add", url_contains={"checklist-items": "one"}))
-add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(100)]}, ok(route="url_add"))
-add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(101)]}, ok(route="url_add"))  # hq-exe: no cap enforced
+add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(100)]}, ok(route="url_add"))  # hq-exe: exactly 100 is accepted
+add("add_todo", {"title": "T", "checklist_items": [f"item{i}" for i in range(101)]}, write_error("TOO_MANY_CHECKLIST_ITEMS"))  # hq-exe: 101 is rejected, no URL call made
 
 
 # ===========================================================================
@@ -782,14 +788,29 @@ add("bulk_update_todos", {"todo_ids": "T1,T2", "notes": NEWLINE_TEXT}, ok(route=
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": None}, ok(route="applescript"))
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": ""}, ok(route="applescript", contains=['tag names of targetTodo to ""']))
 add("bulk_update_todos", {"todo_ids": "T1,T2", "tags": " , "}, ok(route="applescript", contains=['tag names of targetTodo to ""']))
-# Tags pre-seeded as already-existing (via seed) so the ALLOW_ALL policy's
-# existing+created double-count bug (see Discovered) doesn't trigger -
-# this case asserts the plain pass-through property/value, not the bug.
+# hq-3bp: tags pre-seeded as already-existing (via seed) so this case
+# exercises the ALLOW_ALL "already-known" path - each tag must appear
+# exactly once in the emitted AppleScript tag string, not duplicated
+# (TagValidationResult.valid_tags already includes created_tags under
+# ALLOW_ALL; previously concatenating 'existing' + 'created' at the call
+# site double-counted every tag - see CHANGELOG [Unreleased]).
 add(
     "bulk_update_todos",
     {"todo_ids": "T1,T2", "tags": "a,b"},
     ok(route="applescript", contains=['tag names of targetTodo to "a, b"']),
     seed=lambda fake: setattr(fake, "existing_tags_output", "a|DELIMITER|b"),
+)
+
+# hq-3bp: tags NOT pre-seeded (existing_tags_output defaults to "") so both
+# "a" and "b" are unknown and get auto-created under ALLOW_ALL - this is
+# the path that previously double-emitted ('a, b, a, b') because
+# valid_tags = existing (== created, since neither was already-known) +
+# created duplicated every newly-created tag. Each tag must still appear
+# exactly once in the emitted AppleScript tag string.
+add(
+    "bulk_update_todos",
+    {"todo_ids": "T1,T2", "tags": "a,b"},
+    ok(route="applescript", contains=['tag names of targetTodo to "a, b"']),
 )
 
 for w, exp in [
@@ -1272,8 +1293,8 @@ for tool, url_key in [
 ]:
     add(tool, {"todo_id": "TODOID1", "items": ["one"]}, ok(route="url_update", url_contains={url_key: "one"}))
     add(tool, {"todo_id": "TODOID1", "items": ["a", "b", "c"]}, ok(route="url_update", url_contains={url_key: "a"}))
-    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(100)]}, ok(route="url_update"))
-    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(101)]}, ok(route="url_update"))  # hq-exe: no cap enforced
+    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(100)]}, ok(route="url_update"))  # hq-exe: exactly 100 is accepted
+    add(tool, {"todo_id": "TODOID1", "items": [f"item{i}" for i in range(101)]}, write_error("TOO_MANY_CHECKLIST_ITEMS"))  # hq-exe: 101 is rejected, no URL call made
     add(tool, {"todo_id": "TODOID1", "items": [SPECIAL_CHARS]}, ok(route="url_update"))
     add(tool, {"todo_id": "TODOID1", "items": [UNICODE_EMOJI]}, ok(route="url_update"))
     add(tool, {"todo_id": "TODOID1", "items": [NEWLINE_TEXT]}, ok(route="url_update"))

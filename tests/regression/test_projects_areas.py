@@ -684,55 +684,92 @@ class TestUpdateProjectMoves:
             found = _in_today_list()
         assert found, "expected project to appear in get_today(include_projects=True)"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "observed (filed as hq-cal.2; not the scheduling bug itself): "
-            "update_project(when='anytime') now correctly schedules the "
-            "project into the Anytime list - confirmed directly via "
-            "things.get()/things.anytime()/things.tasks(start='Anytime'), "
-            "all of which report the project with start='Anytime' and "
-            "include it in the raw result set. The failure is in the "
-            "get_anytime(include_projects=True, mode='detailed') MCP read "
-            "path instead: on this database, things.anytime() currently "
-            "returns 1177 items; ContextAwareResponseManager.optimize_response "
-            "(context_manager.py) estimates the DETAILED-mode payload size "
-            "for that many items, finds it exceeds "
-            "ContextBudget.max_response_size (80KB), and routes through "
-            "_handle_oversized_response's relevance-ranked pagination - "
-            "silently truncating the result to a top page that a freshly "
-            "created, low-relevance test project does not make it into, "
-            "even though get_anytime(include_projects=True) was called with "
-            "no limit= (which CLAUDE.md documents as returning the full set "
-            "before any client-side limit is applied). This is a pagination/"
-            "truncation bug in a shared read-response-shaping module, not a "
-            "scheduling bug - out of scope for this bead. Expected to fail "
-            "until get_anytime's oversized-response handling is fixed to "
-            "either honor an unbounded request or surface truncation "
-            "instead of silently dropping items regardless of when they "
-            "were scheduled."
-        ),
-    )
     def test_when_anytime_visible_via_get_anytime_include_projects(self, mcp, sandbox):
-        project_id, _, _ = _new_project(mcp, sandbox)
+        """hq-cal.2: on a large enough Anytime list,
+        get_anytime(include_projects=True, mode='detailed') can exceed the
+        ~80KB response budget and truncate. Truncation is no longer silent
+        relevance-ranked dropping (hq-cal.2 fixed context_manager.py to keep
+        a deterministic, original-order prefix and surface an explicit
+        truncated/truncation_hint envelope signal instead). Two acceptable
+        outcomes here:
+          - The fresh project fits in the (possibly full, possibly
+            truncated-but-still-covering-it) result: pass directly.
+          - It doesn't fit: assert the envelope explicitly reports truncation
+            (truncated=True, truncation_hint present, count < total) rather
+            than silently omitting the item, AND that the project is still
+            reachable via a targeted read (get_todo_by_id) - nothing is
+            silently unreachable.
+        """
+        project_id, title, _ = _new_project(mcp, sandbox)
         result = mcp.call_sync("update_project", id=project_id, when="anytime")
         assert result.get("success") is True, result
 
         read_back(project_id, lambda r: r is not None)
 
-        def _in_anytime_list():
-            anytime_result = mcp.call_sync(
-                "get_anytime", include_projects=True, mode="detailed"
-            )
-            items = anytime_result.get("items") or []
-            return any(item.get("uuid") == project_id for item in items)
+        def _anytime_result():
+            return mcp.call_sync("get_anytime", include_projects=True, mode="detailed")
 
         deadline = time.monotonic() + 20
-        found = _in_anytime_list()
+        anytime_result = _anytime_result()
+        items = anytime_result.get("items") or []
+        found = any(item.get("uuid") == project_id for item in items)
         while not found and time.monotonic() < deadline:
             time.sleep(0.5)
-            found = _in_anytime_list()
-        assert found, "expected project to appear in get_anytime(include_projects=True)"
+            anytime_result = _anytime_result()
+            items = anytime_result.get("items") or []
+            found = any(item.get("uuid") == project_id for item in items)
+
+        if found:
+            return
+
+        # Not found in items: the only acceptable reason is explicit,
+        # explicitly-flagged budget truncation - not a silent drop.
+        assert anytime_result.get("truncated") is True, (
+            "project missing from get_anytime(include_projects=True) items, "
+            f"but response was not flagged truncated: {anytime_result}"
+        )
+        assert anytime_result.get("truncation_hint"), anytime_result
+        assert anytime_result.get("count", 0) < anytime_result.get("total", 0), anytime_result
+
+        # Contract: even though it's not in this page, the project
+        # must still be reachable via a targeted read.
+        project_item = _get_project_item(mcp, project_id)
+        assert project_item.get("uuid") == project_id, project_item
+        assert project_item.get("title") == title, project_item
+
+    def test_optimize_response_truncation_preserves_order(self, mcp, sandbox):
+        """hq-cal.2: when get_anytime(include_projects=True, ...) truncates
+        under the response budget, the returned prefix must be an
+        order-consistent prefix of the underlying (things.py-produced)
+        order - i.e. truncation keeps a deterministic prefix rather than
+        reordering by relevance. Compared across two response modes
+        (detailed vs. minimal) that produce differently-sized truncated
+        prefixes of the *same* underlying list: on this live database both
+        may truncate (it is large), but whichever list is shorter must
+        still equal a prefix of the longer one, since both traverse the
+        same underlying order and only differ in how many items fit under
+        their respective per-item size budgets."""
+        detailed_result = mcp.call_sync(
+            "get_anytime", include_projects=True, mode="detailed"
+        )
+        minimal_result = mcp.call_sync(
+            "get_anytime", include_projects=True, mode="minimal"
+        )
+        if not detailed_result.get("truncated") and not minimal_result.get("truncated"):
+            pytest.skip("get_anytime did not truncate under either mode on this database")
+
+        detailed_uuids = [item["uuid"] for item in detailed_result.get("items") or []]
+        minimal_uuids = [item["uuid"] for item in minimal_result.get("items") or []]
+
+        shorter, longer = (
+            (detailed_uuids, minimal_uuids)
+            if len(detailed_uuids) <= len(minimal_uuids)
+            else (minimal_uuids, detailed_uuids)
+        )
+        assert shorter == longer[: len(shorter)], (
+            "truncated get_anytime items are not an order-consistent prefix "
+            "across response modes (detailed vs minimal)"
+        )
 
     def test_when_someday_visible_via_get_someday(self, mcp, sandbox):
         project_id, _, _ = _new_project(mcp, sandbox)
