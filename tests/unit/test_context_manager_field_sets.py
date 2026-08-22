@@ -535,6 +535,48 @@ class TestSummaryPreviewRowShape:
         assert row['status'] == 'open'
         assert row['tags'] == ['work']
         assert row['dueDate'] == '2026-09-01'
+        # hq-wsa.1: SAMPLE_PROJECT_ITEM's fixture status ('open') does not
+        # match the real things.py/convert_project status value
+        # ('incomplete') - so this single-item, status='open' case
+        # necessarily reports active=0 here. See
+        # test_summarize_projects_active_counts_incomplete_status below for
+        # the real-shape ('incomplete') case that hq-wsa.1 actually fixes.
+        assert summary['active'] == 0
+        assert summary['completed'] == 0
+        assert summary['canceled'] == 0
+        assert summary['status_breakdown'] == {'open': 1}
+
+    def test_summarize_projects_active_counts_incomplete_status(self):
+        """hq-wsa.1: things.py/convert_project emit status == 'incomplete'
+        for open projects, never 'open' - active must count 'incomplete'
+        rows, not a literal 'open' string that live data never produces."""
+        engine = _engine()
+        incomplete_project = dict(SAMPLE_PROJECT_ITEM, uuid='project-2', status='incomplete')
+        summary = engine.progressive_engine._summarize_projects([incomplete_project])
+        assert summary['active'] == 1
+        assert summary['completed'] == 0
+        assert summary['canceled'] == 0
+        assert summary['status_breakdown'] == {'incomplete': 1}
+
+    def test_summarize_projects_mixed_status_breakdown(self):
+        """Mixed incomplete/completed/canceled set -> correct per-status
+        counts and a dynamic status_breakdown reflecting all three."""
+        engine = _engine()
+        rows = [
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-incomplete-1', status='incomplete'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-incomplete-2', status='incomplete'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-completed-1', status='completed'),
+            dict(SAMPLE_PROJECT_ITEM, uuid='p-canceled-1', status='canceled'),
+        ]
+        engine_summary = engine.progressive_engine._summarize_projects(rows)
+        assert engine_summary['active'] == 2
+        assert engine_summary['completed'] == 1
+        assert engine_summary['canceled'] == 1
+        assert engine_summary['status_breakdown'] == {
+            'incomplete': 2,
+            'completed': 1,
+            'canceled': 1,
+        }
 
     def test_summarize_search_results_preview_row_exact_keys(self):
         """Search preview rows mix todo and project rows depending on the

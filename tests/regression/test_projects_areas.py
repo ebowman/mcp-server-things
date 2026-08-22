@@ -1118,6 +1118,21 @@ class TestGetProjects:
                 by_uuid[sandbox.project_id],
             )
 
+    def test_get_projects_summary_active_counts_incomplete(self, mcp, sandbox):
+        """hq-wsa.1: _summarize_projects previously counted status=='open'
+        for 'active', but things.py/convert_project emit status=='incomplete'
+        for open projects - so 'active' was always 0 on a live DB regardless
+        of how many open projects existed. The sandbox project (freshly
+        created, never completed/canceled) is guaranteed incomplete, so
+        'active' must be at least 1 - the robust live-DB assertion, since
+        the real database's total open-project count isn't deterministic
+        across runs/environments."""
+        sc = mcp.call_sync("get_projects", mode="summary")
+        assert sc["active"] >= 1, sc
+        assert sc["active"] == sc.get("status_breakdown", {}).get("incomplete", 0)
+        assert sc["completed"] == sc.get("status_breakdown", {}).get("completed", 0)
+        assert sc["canceled"] == sc.get("status_breakdown", {}).get("canceled", 0)
+
     def test_include_items_nests_todos_scoped_read(self, mcp, sandbox):
         """get_projects(include_items=true) is documented as
         context-dangerous on large DBs - call it but only with a scoped

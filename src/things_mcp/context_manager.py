@@ -312,13 +312,28 @@ class ProgressiveDisclosureEngine:
         }
 
     def _summarize_projects(self, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Create project-specific summary."""
-        active_count = len([p for p in projects if p.get('status') == 'open'])
-        completed_count = len([p for p in projects if p.get('status') == 'completed'])
+        """Create project-specific summary.
+
+        Builds a dynamic status_breakdown from the rows' actual status
+        values (same pattern as _summarize_todos), since things.py/
+        convert_project emit status == 'incomplete' for open projects,
+        never 'open' - counting against a literal 'open' string (the
+        previous implementation) always reported active == 0 (hq-wsa.1).
+        """
+        status_counts: Dict[str, int] = {}
+        for project in projects:
+            status = project.get('status', 'incomplete')
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        active_count = status_counts.get('incomplete', 0)
+        completed_count = status_counts.get('completed', 0)
+        canceled_count = status_counts.get('canceled', 0)
 
         return {
             "active": active_count,
             "completed": completed_count,
+            "canceled": canceled_count,
+            "status_breakdown": status_counts,
             "recent_projects": [
                 self._build_summary_preview_row(p) for p in projects[:3]
             ]
