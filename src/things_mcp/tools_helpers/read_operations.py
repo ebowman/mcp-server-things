@@ -1265,14 +1265,15 @@ class ReadOperations:
                 # Single-item lookup: avoid fetching the whole heading list
                 # (_build_heading_project_map) for one row - resolve directly
                 # via things.get() on the heading, same as _resolve_heading_project.
+                heading_record = None
                 if item_type == 'to-do' and item.get('heading') and not item.get('project'):
                     try:
-                        heading = things.get(item['heading'])
-                        if heading:
-                            if heading.get('project'):
-                                converted['project'] = heading['project']
-                            if heading.get('project_title'):
-                                converted['projectTitle'] = heading['project_title']
+                        heading_record = things.get(item['heading'])
+                        if heading_record:
+                            if heading_record.get('project'):
+                                converted['project'] = heading_record['project']
+                            if heading_record.get('project_title'):
+                                converted['projectTitle'] = heading_record['project_title']
                     except Exception as e:
                         logger.debug(f"Error resolving heading project for todo {todo_id}: {e}")
 
@@ -1296,6 +1297,36 @@ class ReadOperations:
 
             if item.get('trashed'):
                 converted['trashed'] = True
+            elif item_type in ('to-do', 'heading'):
+                # Things marks only the trashed container itself - a child
+                # (to-do or heading) of a trashed project carries no
+                # trashed key of its own, so without this hop a consumer
+                # would conclude the child is live when it's actually
+                # unreachable (filed under a trashed project). Resolve the
+                # container chain with at most two things.get() calls:
+                # item's project -> check its trashed; else item's heading
+                # -> heading record -> its project -> check trashed.
+                # Areas cannot be trashed, so there is no area hop. Any
+                # lookup failure (including a missing/unresolvable
+                # container) is swallowed - the trashed/trashedViaParent
+                # keys are simply omitted, the lookup itself never fails.
+                try:
+                    project_id = item.get('project')
+                    if not project_id and item.get('heading'):
+                        # Reuse the heading record fetched above for the
+                        # project-backfill step, when available, instead of
+                        # re-fetching it.
+                        heading_for_trash = heading_record if item_type == 'to-do' else things.get(item['heading'])
+                        if heading_for_trash:
+                            project_id = heading_for_trash.get('project')
+
+                    if project_id:
+                        project_record = things.get(project_id)
+                        if project_record and project_record.get('trashed'):
+                            converted['trashed'] = True
+                            converted['trashedViaParent'] = True
+                except Exception as e:
+                    logger.debug(f"Error resolving transitive trashed state for {todo_id}: {e}")
 
             return converted
 

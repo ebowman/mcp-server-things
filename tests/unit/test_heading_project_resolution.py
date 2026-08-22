@@ -301,7 +301,14 @@ class TestGetTodoByIdBackfillsHeadingProject:
         assert result["projectTitle"] == "Complete Weekly Review"
         # Single-item path must not call the batch things.tasks(type='heading').
         mock_tasks.assert_not_called()
-        assert mock_get.call_count == 2
+        # 3 calls: the to-do itself, the heading (project backfill, reused
+        # for the transitive-trashed check rather than re-fetched), and the
+        # heading's project (transitive-trashed check, hq-wsa.7) - "proj-1"
+        # resolves to None here (not mocked), so trashed/trashedViaParent
+        # are correctly omitted below.
+        assert mock_get.call_count == 3
+        assert "trashed" not in result
+        assert "trashedViaParent" not in result
 
     @pytest.mark.asyncio
     async def test_standalone_todo_by_id_untouched(self, tools):

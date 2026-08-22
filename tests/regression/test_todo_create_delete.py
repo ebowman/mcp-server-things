@@ -604,6 +604,62 @@ class TestDeleteTodo:
         assert "item" in get_result, get_result
         assert get_result["item"].get("trashed") is True, get_result
 
+    def test_delete_project_cascades_trashed_to_child_todo(self, mcp, sandbox):
+        """hq-wsa.7: a to-do filed under a project reports no `trashed` key
+        of its own when only its parent project is trashed - things.py
+        marks the trashed container, not each descendant. get_todo_by_id
+        now resolves this transitively: the child reports both
+        `trashed: True` and `trashedViaParent: True`, while the project
+        itself (directly trashed) reports `trashed: True` with no
+        `trashedViaParent` key."""
+        proj_title = sandbox_title("cascade delete project")
+        add_project_result = mcp.call_sync(
+            "add_project", title=proj_title, area_id=sandbox.area_id
+        )
+        assert add_project_result.get("success") is True, add_project_result
+        project_id = add_project_result.get("project_id")
+        assert project_id
+        sandbox.tracked_project_ids.append(project_id)
+
+        child_title = sandbox_title("cascade delete child todo")
+        add_todo_result = mcp.call_sync(
+            "add_todo", title=child_title, list_id=project_id
+        )
+        assert add_todo_result.get("success") is True, add_todo_result
+        child_id = add_todo_result.get("todo_id")
+        assert child_id
+        sandbox.track(child_id)
+
+        record = read_back(
+            child_id, lambda r: r is not None and r.get("title") == child_title
+        )
+        assert record is not None
+
+        delete_result = mcp.call_sync("delete_todo", todo_id=project_id)
+        assert delete_result.get("success") is True, delete_result
+
+        # Poll: delete_todo's Things-side trash move can lag a subsequent
+        # things.py-backed read (same URL-scheme/AppleScript async lag
+        # documented in CLAUDE.md), so retry get_todo_by_id on the child
+        # until it reports the transitive trashed state, rather than
+        # asserting on the first read.
+        deadline = time.monotonic() + 20.0
+        child_result = None
+        while time.monotonic() < deadline:
+            child_result = mcp.call_sync("get_todo_by_id", todo_id=child_id)
+            if child_result.get("item", {}).get("trashedViaParent") is True:
+                break
+            time.sleep(0.25)
+
+        assert "item" in child_result, child_result
+        assert child_result["item"].get("trashed") is True, child_result
+        assert child_result["item"].get("trashedViaParent") is True, child_result
+
+        project_result = mcp.call_sync("get_todo_by_id", todo_id=project_id)
+        assert "item" in project_result, project_result
+        assert project_result["item"].get("trashed") is True, project_result
+        assert "trashedViaParent" not in project_result["item"], project_result
+
 
 # ---------------------------------------------------------------------------
 # 3. get_todo_by_id

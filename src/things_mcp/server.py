@@ -907,7 +907,11 @@ class ThingsMCPServer:
             and areas resolve too. The returned item's `type` field
             ('to-do', 'heading', 'project', or 'area') tells you which kind
             it is. Trashed items also resolve, with `trashed: true` included
-            in the result.
+            in the result. A to-do or heading that is itself untrashed but
+            whose containing project is trashed also reports `trashed: true`,
+            plus `trashedViaParent: true` to distinguish it from direct
+            trash (Things marks only the trashed container, not each
+            descendant).
 
             A tag id returns the canonical structured error at the top level
             (`{"success": false, "error": "invalid_type", "message": ...}`,

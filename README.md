@@ -365,13 +365,13 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `add_todo(title, ...)` - Create new todo
 - `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
-- `get_todo_by_id(todo_id)` - Get specific todo
+- `get_todo_by_id(todo_id)` - Get specific todo. A to-do/heading that is itself untrashed but whose containing project is trashed reports `trashed: true` plus `trashedViaParent: true` (Things marks only the trashed container, not its descendants); direct trash keeps `trashed: true` alone.
 - `delete_todo(todo_id)` - Delete a to-do or a project (auto-detects the id type; headings/areas/tags cannot be deleted via any public Things 3 API)
 
 ### Project Management
 - `get_projects(include_items?)` - List projects
 - `add_project(title, ..., todos?)` - Create new project; a `##`-prefixed line in `todos` creates a real heading (via the Things URL scheme's `json` action), with subsequent lines nesting under it
-- `update_project(id, ...)` - Update existing project
+- `update_project(id, ...)` - Update existing project. Completing a project (`completed="true"`) cascades to its child to-dos (Things marks them completed too), but reopening a project (`completed="false"`) does **not** cascade back - child to-dos already completed stay completed. This is upstream Things behavior, not a bug here; reopen specific to-dos explicitly (e.g. `bulk_update_todos`) if needed.
 - `get_project_headings(project_id, mode?)` - Read a project's heading structure (title, order, open-todo count per heading), in Things' own order. Read-only: headings can only be created at project-creation time (`add_project`'s `##` lines) and cannot be renamed/deleted via any public Things 3 API.
 
 ### Area Management
