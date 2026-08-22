@@ -1013,3 +1013,43 @@ class TestGetTaggedItems:
         result = mcp.call_sync("get_tagged_items", tag=wrong_case)
         assert_read_error(result, "unknown_tag")
         assert sandbox.tag_name in result.get("suggestions", []), result
+
+
+class TestNoLegacyPayloadKeyLive:
+    """hq-wsa.2 (live): a structured envelope must carry the item payload
+    exactly once, under 'items' - the legacy source key it was populated
+    from ('data' from optimize_response, or a summary-preview key:
+    'recent_preview'/'recent_projects'/'result_preview', or get_tag_usage's
+    'tags' rows list) must never also survive in the same envelope."""
+
+    _LEGACY_KEYS = {"data", "recent_preview", "recent_projects", "result_preview"}
+
+    def test_get_todos_standard_mode_no_legacy_keys(self, mcp, sandbox, seeded):
+        result = mcp.call_sync(
+            "get_todos", project_uuid=sandbox.project_id, status="incomplete",
+            mode="standard", limit=500,
+        )
+        assert "tool_error" not in result, result
+        assert isinstance(result.get("items"), list) and result["items"], result
+        assert self._LEGACY_KEYS.isdisjoint(result.keys()), result
+
+    def test_get_todos_summary_mode_no_legacy_keys(self, mcp, sandbox, seeded):
+        result = mcp.call_sync(
+            "get_todos", project_uuid=sandbox.project_id, status="incomplete",
+            mode="summary", limit=500,
+        )
+        assert "tool_error" not in result, result
+        assert self._LEGACY_KEYS.isdisjoint(result.keys()), result
+
+    def test_search_todos_summary_mode_no_legacy_keys(self, mcp, seeded):
+        result = mcp.call_sync("search_todos", query="hq-gbl-reg seed", mode="summary")
+        assert "tool_error" not in result, result
+        assert isinstance(result.get("items"), list) and result["items"], result
+        assert self._LEGACY_KEYS.isdisjoint(result.keys()), result
+
+    def test_get_tag_usage_no_legacy_tags_key(self, mcp, sandbox, seeded):
+        result = mcp.call_sync("get_tag_usage", mode="standard")
+        assert "tool_error" not in result, result
+        assert isinstance(result.get("items"), list) and result["items"], result
+        assert "tags" not in result, result
+        assert self._LEGACY_KEYS.isdisjoint(result.keys()), result

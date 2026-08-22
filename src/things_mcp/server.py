@@ -2569,10 +2569,17 @@ class ThingsMCPServer:
         # or a hand-built {"items": ..., ...} / {"data": ..., "meta": ...} payload).
         result = dict(response)
 
+        # hq-wsa.2: track which source key (if any) 'items' was populated from, so
+        # it can be popped below once extraction is done. 'items' itself is never
+        # popped (it IS the canonical key); every other payload-bearing source key
+        # is removed from the final envelope so the payload is carried exactly once.
+        source_key: Optional[str] = None
+
         if "items" in result and isinstance(result["items"], list):
             items = result["items"]
         elif "data" in result and isinstance(result["data"], list):
             items = result["data"]
+            source_key = "data"
         else:
             # Summary-style responses (and other non-list-bearing dicts) don't carry a
             # full item list - use whatever preview list is present, to avoid
@@ -2581,17 +2588,30 @@ class ThingsMCPServer:
             # todos -> 'recent_preview', projects -> 'recent_projects',
             # search results -> 'result_preview' (hq-cal.4 - previously missing here,
             # so search_todos/search_advanced(mode='summary') always reported
-            # items=[] even though result_preview was populated), plus 'tags'/'top'
-            # for other summary shapes seen elsewhere.
-            preview = (
-                result.get("recent_preview")
-                or result.get("recent_projects")
-                or result.get("result_preview")
-                or result.get("tags")
-                or result.get("top")
-                or []
-            )
-            items = preview if isinstance(preview, list) else []
+            # items=[] even though result_preview was populated), plus 'tags'
+            # (get_tag_usage's minimal/standard/detailed rows list) / 'top'
+            # (get_tag_usage's summary-mode top-5 preview) for other summary shapes
+            # seen elsewhere.
+            for candidate_key in ("recent_preview", "recent_projects", "result_preview", "tags", "top"):
+                candidate = result.get(candidate_key)
+                if isinstance(candidate, list):
+                    items = candidate
+                    source_key = candidate_key
+                    break
+            else:
+                items = []
+
+        # hq-wsa.2: 'items' is the one canonical payload array - pop whichever
+        # source key it was extracted from so the same list isn't carried twice
+        # in the final envelope (byte-identical double serialization). 'tags' is
+        # popped along with the others: 'items' is the documented contract for
+        # every list-returning tool (see CLAUDE.md Structured Output), and no
+        # text-rendering or test depends on 'tags' surviving in the structured
+        # envelope specifically - get_tags() itself (a bare list response) never
+        # reaches this branch at all, so this only affects get_tag_usage's
+        # minimal/standard/detailed 'tags' rows list.
+        if source_key is not None:
+            result.pop(source_key, None)
 
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
 

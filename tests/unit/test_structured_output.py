@@ -207,13 +207,14 @@ class TestStructuredContentShape:
     async def test_get_tag_usage_structured_content(self):
         """get_tag_usage rows are tags (not todos); verify items/count/total shape
         is applied on top of its existing custom mode shaping."""
+        tag_rows = [
+            {"title": "work", "uuid": "t1", "open_count": 3, "total_count": 5},
+            {"title": "home", "uuid": "t2", "open_count": 1, "total_count": 1},
+        ]
         usage_payload = {
             "tag_count": 2,
             "unused_count": 0,
-            "tags": [
-                {"title": "work", "uuid": "t1", "open_count": 3, "total_count": 5},
-                {"title": "home", "uuid": "t2", "open_count": 1, "total_count": 1},
-            ],
+            "tags": list(tag_rows),
         }
         server = _make_server_with_mock_tools(get_tag_usage=usage_payload)
 
@@ -225,7 +226,12 @@ class TestStructuredContentShape:
         assert REQUIRED_LIST_KEYS.issubset(sc.keys())
         assert sc["total"] == 2
         assert sc["count"] == 2
-        assert sc["items"] == usage_payload["tags"]
+        assert sc["items"] == tag_rows
+
+        # hq-wsa.2: 'tags' was the source key items was populated from - it must
+        # not survive in the final envelope alongside 'items' (double serialization).
+        assert "tags" not in sc
+        assert "data" not in sc
 
     @pytest.mark.asyncio
     async def test_get_trash_preserves_pagination_fields(self):
@@ -534,6 +540,109 @@ class TestSearchTodosSummaryModePreview:
 
         # total reflects the full pre-preview match count, not the preview size.
         assert sc["total"] == 10
+
+
+class TestNoDuplicatedPayloadKey:
+    """hq-wsa.2: 'items' is the one canonical payload array in every structured
+    envelope - the source key it was populated from ('data' from
+    optimize_response, or whichever summary-preview key matched:
+    'recent_preview'/'recent_projects'/'result_preview'/'tags'/'top') must never
+    also survive in the final envelope (previously the same list object was
+    aliased under both keys - byte-identical double serialization)."""
+
+    LEGACY_KEYS = {"data", "recent_preview", "recent_projects", "result_preview", "top"}
+
+    @pytest.mark.asyncio
+    async def test_get_todos_standard_mode_no_legacy_data_key(self):
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(3)]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_todos", {"mode": "standard"})
+
+        sc = result.structured_content
+        assert sc["items"] == todos
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_todos_summary_mode_no_legacy_preview_key(self):
+        """AUTO/summary-shaped responses (create_summary_response) must not carry
+        'recent_preview' alongside 'items'."""
+        todos = [dict(SAMPLE_TODO, uuid=f"id{i}") for i in range(10)]
+        server = _make_server_with_mock_tools(get_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_todos", {"mode": "summary"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_projects_summary_mode_no_legacy_preview_key(self):
+        projects = [dict(SAMPLE_PROJECT, uuid=f"proj{i}") for i in range(5)]
+        server = _make_server_with_mock_tools(get_projects=projects)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_projects", {"mode": "summary"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    @pytest.mark.asyncio
+    async def test_get_tag_usage_no_legacy_tags_key(self):
+        """Direct duplicate of TestStructuredContentShape's assertion, kept here
+        as a representative-tool check grouped with the other legacy-key tests."""
+        usage_payload = {
+            "tag_count": 1,
+            "unused_count": 0,
+            "tags": [{"title": "work", "uuid": "t1", "open_count": 1, "total_count": 1}],
+        }
+        server = _make_server_with_mock_tools(get_tag_usage=usage_payload)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool("get_tag_usage", {"mode": "standard"})
+
+        sc = result.structured_content
+        assert sc["items"] != []
+        assert "tags" not in sc
+        assert self.LEGACY_KEYS.isdisjoint(sc.keys())
+
+    def test_read_result_pops_data_key_directly(self):
+        """Direct unit test of _read_result: a synthetic {'data': [...], 'meta':
+        {...}} payload must not carry 'data' in the returned envelope."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "data": [{"uuid": "1", "title": "a"}],
+            "meta": {"mode": "standard", "count": 1},
+        }
+
+        result = server._read_result(synthetic_response, mode="standard", total=1)
+
+        assert result["items"] == [{"uuid": "1", "title": "a"}]
+        assert "data" not in result
+
+    def test_read_result_pops_result_preview_key_directly(self):
+        """Direct unit test of _read_result: a synthetic summary-shaped payload
+        carrying 'result_preview' must not retain that key once 'items' is
+        populated from it."""
+        server = ThingsMCPServer()
+        synthetic_response = {
+            "success": True,
+            "count": 3,
+            "mode": "summary",
+            "result_preview": [{"uuid": "1", "title": "a"}],
+        }
+
+        result = server._read_result(synthetic_response, mode="auto", total=3)
+
+        assert result["items"] == [{"uuid": "1", "title": "a"}]
+        assert "result_preview" not in result
 
 
 class TestServerCapabilitiesTotalTools:

@@ -446,6 +446,8 @@ Single-item lookups (`get_todo_by_id`) use `{"item": {...}}` instead.
 
 **The `mode` parameter shapes structured output exactly as it shapes text** - under `mode='summary'`, `items` is a small preview (not the full list), matching the context-explosion protection already documented below; `minimal` returns minimal fields; `standard`/`detailed` return the fields described in the Context Budget Guidelines below. Because `items` is only a preview under `mode='summary'`, `count` in that mode is the number of preview items returned (not the full dataset size) - the full pre-limit dataset size is always in `total`.
 
+**`items` is the single canonical payload array (hq-wsa.2)**: summary-mode previews live only in `items` - there is no separate preview key (`recent_preview`/`recent_projects`/`result_preview`, or `get_tag_usage`'s `tags` rows list) alongside it in the final envelope - and `data` (the key `context_manager.optimize_response` uses internally) is never present in a tool's `structured_content` either; every such source key is popped once `items` has been populated from it, so the item payload is never carried twice.
+
 #### Implicit budget truncation (`truncated` / `truncation_hint`)
 
 Independent of `limit`/`offset`, every list tool that routes through `ContextAwareResponseManager.optimize_response` (`context_manager.py`) - `get_today`/`get_inbox`/`get_upcoming`/`get_anytime`/`get_someday`/`get_todos`/`get_projects`/etc. - enforces an internal ~80KB response-size budget. On a large enough result set (e.g. a database with a very large Anytime list, or `mode='detailed'`/`include_projects=true` on an already-large list), the response can exceed that budget even when the caller passed no `limit` at all. When that happens (bead hq-cal.2):

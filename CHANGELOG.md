@@ -5,6 +5,12 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **BREAKING (minor): structured envelopes no longer double-serialize the item payload under a second, legacy key** (bead hq-wsa.2). `ThingsMCPServer._read_result`'s dict branch extracted `items` from whichever source key was present (`data` from `optimize_response`, or a summary-preview key: `recent_preview`/`recent_projects`/`result_preview`, or `get_tag_usage`'s `tags` rows list) but then kept that source key in the returned envelope via `dict(response)` while also `setdefault`-ing the same list object under `items` - every optimized read carried the identical item list twice (byte-identical: `result['data'] is result['items']` was `True`). The source key is now popped once `items` has been populated from it, so `items` is the one canonical payload array; payload size on affected reads drops by roughly half. Clients that re-parsed the raw `data`/`recent_preview`/`recent_projects`/`result_preview`/`tags` keys directly (rather than the documented `items` contract) must switch to `items` - the documented contract itself is unchanged, and `count`/`total`/`mode`/`requested_mode`/`limit`/`offset`/`meta`/`truncated`/`truncation_hint` are untouched. `get_tags()` itself is unaffected (it's a bare-list response, routed through the list branch, not the dict branch this fix touches).
+
 ## [1.8.0] - 2026-08-22
 
 ### Fixed
