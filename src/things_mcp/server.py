@@ -936,6 +936,10 @@ class ThingsMCPServer:
             not nested under `item`) instead of an item - a tag is a label,
             not a retrievable item; use `get_tags()` or `get_tagged_items()`
             for tags. An id that does not exist at all raises an error.
+
+            A to-do result includes `evening: true` when it is scheduled for
+            This Evening (`when='evening'`); the key is omitted otherwise.
+            This is the only tool that reports this field.
             """
             try:
                 todo = await self.tools.get_todo_by_id(todo_id)

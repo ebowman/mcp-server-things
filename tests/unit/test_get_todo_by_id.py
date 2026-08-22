@@ -249,6 +249,86 @@ class TestGetTodoById:
                 await tools.get_todo_by_id("does-not-exist")
 
 
+START_BUCKET_PATCH = (
+    "things_mcp.tools_helpers.read_operations.ReadOperations._read_start_bucket"
+)
+
+
+class TestGetTodoByIdEveningField:
+    """get_todo_by_id detects This Evening scheduling via a narrow, read-only
+    raw-SQL side channel (TMTask.startBucket), since things.py's own SELECT
+    never exposes it (hq-wsa.9). `_read_start_bucket` itself is mocked here -
+    its own sqlite access is exercised live in tests/regression."""
+
+    @pytest.mark.asyncio
+    async def test_start_bucket_one_reports_evening_true(self, tools):
+        assert TODO.get("start_date")  # sanity: fixture has a start_date
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, return_value=1) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert result["evening"] is True
+
+    @pytest.mark.asyncio
+    async def test_start_bucket_zero_omits_evening_key(self, tools):
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, return_value=0) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_helper_raising_omits_evening_key_but_lookup_succeeds(self, tools):
+        with patch(GET_PATCH, return_value=dict(TODO)), \
+                patch(START_BUCKET_PATCH, side_effect=RuntimeError("db locked")) as mock_bucket:
+            result = await tools.get_todo_by_id(TODO["uuid"])
+
+        mock_bucket.assert_called_once_with(TODO["uuid"])
+        assert "evening" not in result
+        assert result["uuid"] == TODO["uuid"]
+
+    @pytest.mark.asyncio
+    async def test_no_start_date_skips_helper_entirely(self, tools):
+        todo_no_start_date = {**TODO, "start_date": None}
+        with patch(GET_PATCH, return_value=dict(todo_no_start_date)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(todo_no_start_date["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_project_never_calls_helper(self, tools):
+        with patch(GET_PATCH, return_value=dict(PROJECT)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(PROJECT["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_area_never_calls_helper(self, tools):
+        with patch(GET_PATCH, return_value=dict(AREA)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(AREA["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+    @pytest.mark.asyncio
+    async def test_heading_never_calls_helper(self, tools):
+        # Headings dispatch through convert_todo but are excluded from the
+        # evening check by the item_type == 'to-do' guard.
+        with patch(GET_PATCH, return_value=dict(HEADING)), \
+                patch(START_BUCKET_PATCH) as mock_bucket:
+            result = await tools.get_todo_by_id(HEADING["uuid"])
+
+        mock_bucket.assert_not_called()
+        assert "evening" not in result
+
+
 class TestGetTodoByIdTransitiveTrashed:
     """get_todo_by_id resolves trashed state transitively through a to-do's
     or heading's containing project (hq-wsa.7). Things marks only the

@@ -78,7 +78,7 @@ result = self.applescript_manager.execute_script(script)
 2. **Large data timeouts**: Use response modes (summary, minimal) and pagination
 3. **Date formats**: Always use ISO 8601 format (YYYY-MM-DD) for best reliability
 4. **Permission errors**: System Settings → Privacy & Security → Automation → Enable Things 3 access
-5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`.
+5. **`when='evening'` requires the Things auth token on update paths**: `add_todo(when='evening')` works without a token (routed via `things:///add`), but `update_todo`/`bulk_update_todos` with `when='evening'` require the Things URL-scheme auth token (routed via `things:///update`, same requirement as README/config auth-token setup). `deadline` never accepts relative keywords (`'today'`, etc.) on any tool - it must always be `YYYY-MM-DD`. The evening state round-trips through `get_todo_by_id` only (hq-wsa.9): a to-do scheduled for This Evening reports `evening: true` in the result; other to-dos omit the key. things.py itself never exposes this state (identical `start`/`startDate` to a plain `when='today'` to-do), so `get_todo_by_id` reads it via a narrow, read-only, single-item raw-SQL side channel (`TMTask.startBucket`, mode=ro URI) - other read tools (`get_today`, `get_todos`, etc.) do not carry this field.
 6. **`things.py` reads can lag a URL-scheme write by ~1-2s**: writes made via the Things URL scheme (`things:///add`, `things:///update` - used for headings, checklists, `when='evening'`, `when` with a `@HH:MM` time component) are processed asynchronously by Things, whereas `things.py` reads directly from Things' local SQLite database. A `things.py`-backed read (e.g. `get_todo_by_id`, or another tool's `things.get()`/`things.tasks()` pre-check) issued *immediately* after such a write may still observe pre-write state for a second or two. Plain AppleScript writes (e.g. `set name of targetTodo to ...`) do not have this lag - the underlying database foreign-key relationships they touch are updated synchronously. Callers that need to read back a URL-scheme write's result reliably should poll with a short retry/backoff rather than reading once immediately after.
 7. **`when='YYYY-MM-DD@HH:MM'` sets a reminder, and requires the Things auth token on update paths** (hq-4gn): this form is accepted on `add_todo`, `update_todo`, `bulk_update_todos`, `add_project`, and `update_project`, and - like `when='evening'` - is routed via the Things URL scheme rather than AppleScript, since AppleScript's `schedule` command (and `locale_aware_dates.normalize_date_input`, used by the AppleScript scheduling path) has no way to honor the time component and would otherwise silently drop it (no reminder set). `add_todo(when='<date>@<time>')` works without a token (routed via `things:///add`); `update_todo`/`bulk_update_todos`/`add_project`/`update_project` with a `when` in this form require the Things URL-scheme auth token (routed via `things:///update`/`things:///update-project`/`things:///add-project` as appropriate), checked before any AppleScript write so a missing token never partially applies other fields in the same call. Unlike `when='evening'` (rejected for projects with `UNSUPPORTED_FOR_PROJECTS`), the time-component form IS supported for projects - Things sets a project reminder the same way it does for to-dos. An out-of-range hour/minute (e.g. `'25:99'`) is rejected with `INVALID_WHEN` before any write.
 
@@ -647,6 +647,19 @@ repeating-instance) project also resolve correctly, e.g. via
 `reminderTime` (things.py's `reminder_time`, e.g. `'09:00'`)
 is only present on the small subset of to-dos/projects that actually carry a
 reminder (live: 8/1699 todos, 8/67 projects) - hq-f0w.29.
+
+`evening` (bool, hq-wsa.9) is **not** part of any of the field sets above and
+is not emitted by any list tool - it is a `get_todo_by_id`-only optional
+field, present as `evening: true` only when the returned to-do is scheduled
+for This Evening (`when='evening'`), omitted otherwise. Unlike every other
+field here, it is not sourced from things.py's own SELECT at all (things.py
+has no concept of it - a This-Evening to-do is otherwise indistinguishable
+from a plain `when='today'` to-do, both reporting only `start`/`startDate`);
+`get_todo_by_id` instead reads it via a narrow, read-only (`mode=ro` URI),
+single-uuid raw-SQL query against `TMTask.startBucket`, scoped to that one
+tool so this side channel never spreads to list tools. Any failure reading it
+(missing/locked database, schema change, etc.) silently omits the key rather
+than failing the lookup.
 
 `ToolsHelpers.convert_project` emits the same STANDARD/DETAILED-mode field set
 as convert_todo where the concepts overlap - `start`, `startDate`, `index`,

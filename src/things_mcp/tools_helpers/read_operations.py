@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sqlite3
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
@@ -1204,9 +1205,57 @@ class ReadOperations:
         for tags instead. Raises ValueError if the id does not exist at all.
         As it always has, a to-do result always carries a `checklist` key
         (a list, `[]` when the to-do has no checklist).
+
+        `evening: True` is present on a to-do result when the to-do is
+        scheduled for This Evening (`when='evening'`); omitted otherwise.
+        This is the only tool that reports this field - things.py itself
+        never exposes it, so get_todo_by_id reads it via a narrow,
+        read-only, single-item raw-SQL side channel (see
+        `_read_start_bucket`); any failure reading it silently omits the
+        key rather than failing the lookup.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todo_by_id_sync, todo_id)
+
+    @staticmethod
+    def _read_start_bucket(uuid: str) -> Optional[int]:
+        """Read TMTask.startBucket for a single uuid via a read-only raw-SQL side channel.
+
+        things.py's SELECT never includes startBucket (no 'evening' concept
+        anywhere in the package), so this is the only way to detect Things'
+        "This Evening" scheduling state (startBucket == 1). This is a
+        deliberate, single-item-only, read-only escape hatch used exclusively
+        by get_todo_by_id - it must never be spread to list tools (get_todos,
+        get_today, etc.), which would multiply this raw SQL connection across
+        every row. An upstream things.py PR exposing start_bucket directly is
+        the clean long-term fix; until then this stays narrowly contained
+        here.
+
+        Opens the connection via the `file:...?mode=ro` URI form so the
+        connection is strictly read-only at the SQLite level (not just by
+        convention) and is closed promptly via a context manager. Any
+        failure - database file missing/moved, table/column absent (a future
+        Things schema change), the database locked, or things.database's API
+        shape differing from what's expected here - is swallowed and logged
+        at debug level; this must never raise or delay the get_todo_by_id
+        lookup it supports.
+
+        Returns:
+            The integer value of startBucket if found, else None (including
+            on any error or if the uuid has no matching row).
+        """
+        try:
+            db_path = things.database.Database().filepath
+            uri = f"file:{db_path}?mode=ro"
+            with sqlite3.connect(uri, uri=True) as con:
+                cur = con.execute(
+                    "SELECT startBucket FROM TMTask WHERE uuid = ?", (uuid,)
+                )
+                row = cur.fetchone()
+                return row[0] if row is not None else None
+        except Exception as e:
+            logger.debug(f"Error reading startBucket for {uuid}: {e}")
+            return None
 
     def _get_todo_by_id_sync(self, todo_id: str) -> Dict[str, Any]:
         """Synchronous implementation.
@@ -1294,6 +1343,31 @@ class ReadOperations:
                     converted['checklist'] = [
                         {'title': i.get('title'), 'status': i.get('status')} for i in raw_checklist
                     ] if isinstance(raw_checklist, list) else []
+
+                # This Evening detection: things.py's own SELECT never
+                # exposes TMTask.startBucket, so an evening-scheduled to-do
+                # is otherwise indistinguishable from a plain when='today'
+                # to-do (both only set start_date). Only get_todo_by_id pays
+                # this per-item raw-SQL cost, and only when there's a chance
+                # it matters - a to-do with no start_date at all cannot be
+                # in the Evening bucket, so the sqlite lookup is skipped
+                # entirely for those (and for projects/areas/headings,
+                # which never carry a startBucket-relevant concept here).
+                # See _read_start_bucket for the read-only/error-handling
+                # contract. Deliberately single-item-only - do not spread
+                # this pattern to list tools (get_todos, get_today, etc.).
+                if item_type == 'to-do' and item.get('start_date'):
+                    try:
+                        start_bucket = self._read_start_bucket(item.get('uuid') or todo_id)
+                    except Exception as e:
+                        # Belt-and-suspenders: _read_start_bucket already
+                        # guards its own body broadly, but the evening
+                        # field must never fail or delay this lookup even
+                        # if that internal guard is ever weakened.
+                        logger.debug(f"Error reading start bucket for {todo_id}: {e}")
+                        start_bucket = None
+                    if start_bucket == 1:
+                        converted['evening'] = True
 
             if item.get('trashed'):
                 converted['trashed'] = True

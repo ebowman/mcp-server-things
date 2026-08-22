@@ -815,6 +815,36 @@ class TestUpdateTodoEvening:
             found = _in_today()
         assert found, "expected evening-scheduled todo to be a member of things.today()"
 
+    def test_evening_read_back_via_get_todo_by_id(self, mcp, sandbox, live_server):
+        """hq-wsa.9: get_todo_by_id reports evening:true iff the to-do is
+        actually scheduled for This Evening (TMTask.startBucket == 1, read
+        via a narrow read-only raw-SQL side channel since things.py itself
+        never exposes it), and omits the key once rescheduled away from
+        evening."""
+        if not live_server.applescript_manager.auth_token:
+            pytest.skip("Things auth token not configured")
+
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="evening")
+        assert result.get("success") is True, result
+
+        deadline = time.monotonic() + 20
+        item = _get_item(mcp, todo_id)
+        while item.get("evening") is not True and time.monotonic() < deadline:
+            time.sleep(0.25)
+            item = _get_item(mcp, todo_id)
+        assert item.get("evening") is True, item
+
+        result = mcp.call_sync("update_todo", id=todo_id, when="today")
+        assert result.get("success") is True, result
+
+        deadline = time.monotonic() + 20
+        item = _get_item(mcp, todo_id)
+        while "evening" in item and time.monotonic() < deadline:
+            time.sleep(0.25)
+            item = _get_item(mcp, todo_id)
+        assert "evening" not in item, item
+
     def test_evening_plus_list_id_moves_exactly_once(self, mcp, sandbox, live_server):
         if not live_server.applescript_manager.auth_token:
             pytest.skip("Things auth token not configured")
