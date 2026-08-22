@@ -273,12 +273,18 @@ To configure one:
    - `.things-auth` in the project root
    - `things-auth.txt` in the project root
    - `~/.things-auth` in your home directory
-3. Restart the server - the token is loaded once at startup, so a token
-   file added or edited after the server starts is not picked up until the
-   next restart.
+3. No restart required - the token is loaded at startup, then reloaded from
+   disk automatically the next time an auth-gated tool is called while no
+   token is currently loaded, so a token file added or fixed after the
+   server starts is picked up on its next use. Once a token is
+   successfully loaded it stays loaded for the life of the process.
 
 An empty or whitespace-only token file is treated the same as a missing one
-(the loader falls through to the next candidate path).
+(the loader falls through to the next candidate path). `health_check` and
+`get_server_capabilities` report the current `auth_token_configured` state,
+and an `AUTH_TOKEN_NOT_CONFIGURED` error includes a `checked_paths` field
+showing which candidate paths were checked and why each was rejected
+(`missing` / `empty` / `unreadable`) - never the token value itself.
 
 ### HTTP Transport
 

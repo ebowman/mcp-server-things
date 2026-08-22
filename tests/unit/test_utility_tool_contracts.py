@@ -74,6 +74,37 @@ class TestHealthCheckFailure:
 
 
 # ---------------------------------------------------------------------------
+# health_check auth_token_configured visibility (hq-wsa.4)
+# ---------------------------------------------------------------------------
+
+
+class TestHealthCheckAuthTokenConfigured:
+    @pytest.mark.asyncio
+    async def test_reports_true_when_token_loaded(self):
+        server = _make_server_with_mock_tools()
+        with patch.object(
+            server.applescript_manager, "is_things_running", AsyncMock(return_value=True)
+        ):
+            server.applescript_manager.auth_token = "some-token"
+            payload = await _call(server, "health_check")
+
+        assert payload["server_status"] == "healthy"
+        assert payload["auth_token_configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_reports_false_when_no_token(self):
+        server = _make_server_with_mock_tools()
+        with patch.object(
+            server.applescript_manager, "is_things_running", AsyncMock(return_value=True)
+        ):
+            server.applescript_manager.auth_token = None
+            payload = await _call(server, "health_check")
+
+        assert payload["server_status"] == "healthy"
+        assert payload["auth_token_configured"] is False
+
+
+# ---------------------------------------------------------------------------
 # queue_status failure branch
 # ---------------------------------------------------------------------------
 
@@ -138,6 +169,39 @@ class TestServerCapabilitiesFailure:
         assert isinstance(fallback, dict), payload
         for key in ("server_name", "basic_functionality", "capabilities_discovery"):
             assert key in fallback, f"fallback_info missing {key!r}: {fallback!r}"
+
+
+# ---------------------------------------------------------------------------
+# get_server_capabilities auth_token_configured visibility (hq-wsa.4)
+# ---------------------------------------------------------------------------
+
+
+class TestServerCapabilitiesAuthTokenConfigured:
+    @pytest.mark.asyncio
+    async def test_current_status_reports_true_when_token_loaded(self):
+        server = _make_server_with_mock_tools()
+        with patch.object(
+            server.applescript_manager, "is_things_running", AsyncMock(return_value=True)
+        ):
+            server.applescript_manager.auth_token = "some-token"
+            payload = await _call(server, "get_server_capabilities")
+
+        # url_scheme_support (static build capability) is untouched by this
+        # bead - the new bool is the runtime state, alongside it.
+        assert payload["compatibility"]["url_scheme_support"] is True
+        assert payload["current_status"]["auth_token_configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_current_status_reports_false_when_no_token(self):
+        server = _make_server_with_mock_tools()
+        with patch.object(
+            server.applescript_manager, "is_things_running", AsyncMock(return_value=True)
+        ):
+            server.applescript_manager.auth_token = None
+            payload = await _call(server, "get_server_capabilities")
+
+        assert payload["compatibility"]["url_scheme_support"] is True
+        assert payload["current_status"]["auth_token_configured"] is False
 
 
 # ---------------------------------------------------------------------------

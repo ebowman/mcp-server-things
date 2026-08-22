@@ -418,11 +418,20 @@ class BulkOperations:
             # batch.
             if when_value and (when_value.lower() == 'evening' or when_has_time_component(when_value)):
                 if not self.applescript.auth_token:
+                    # Reload-on-miss (hq-wsa.4): a token file created after
+                    # this manager was constructed is picked up here rather
+                    # than requiring a restart. No-op (and safe on a mocked
+                    # manager) if a token is already loaded.
+                    reload = getattr(self.applescript, "reload_auth_token_if_missing", None)
+                    if callable(reload):
+                        reload()
+                if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
                     return write_error(
                         "AUTH_TOKEN_NOT_CONFIGURED",
                         "Things URL-scheme auth token not configured",
                         hint=AUTH_TOKEN_HINT,
+                        checked_paths=getattr(self.applescript, "_auth_token_trace", []),
                         updated_count=0,
                     )
 

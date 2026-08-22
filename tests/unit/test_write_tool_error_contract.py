@@ -132,6 +132,14 @@ def _make_mock_applescript_manager(auth_token=None):
                 "error": "AUTH_TOKEN_NOT_CONFIGURED",
                 "message": "Things URL-scheme auth token not configured",
                 "hint": AUTH_TOKEN_HINT,
+                # hq-wsa.4: the real auth gate always includes a
+                # checked_paths resolution trace alongside hint - path/
+                # status only, never the token value.
+                "checked_paths": [
+                    {"path": "<project_root>/.things-auth", "status": "missing"},
+                    {"path": "<project_root>/things-auth.txt", "status": "missing"},
+                    {"path": "~/.things-auth", "status": "missing"},
+                ],
             }
         return {"success": True, "url": f"things:///{action}"}
 
@@ -349,6 +357,13 @@ class TestWriteToolErrorCodesAreUpperSnake:
         _assert_upper_snake_error(sc)
         assert sc["error"] == "AUTH_TOKEN_NOT_CONFIGURED"
         assert sc["message"] == "Things URL-scheme auth token not configured"
+        # hq-wsa.4: checked_paths trace forwarded verbatim through
+        # _propagate_url_scheme_error, not stripped by the write_error
+        # envelope.
+        assert "checked_paths" in sc
+        assert sc["checked_paths"] and all(
+            {"path", "status"} <= entry.keys() for entry in sc["checked_paths"]
+        )
 
     @_covers("delete_todo")
     @pytest.mark.asyncio

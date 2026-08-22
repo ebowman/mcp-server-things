@@ -329,16 +329,27 @@ class TestChecklistToolsAuthTokenNotConfigured:
     Todos (with a seed checklist) are created BEFORE the patch is applied,
     since add_todo(checklist_items=...) uses things:///add, which does not
     require the token. The auth check runs before any things:///update URL
-    is built/opened, so the checklist is provably unchanged afterward."""
+    is built/opened, so the checklist is provably unchanged afterward.
+
+    hq-wsa.4: the auth gate now reloads the token from disk
+    (reload_auth_token_if_missing()) whenever none is currently loaded, so
+    that a token file added after startup works without a restart. The live
+    environment has a real .things-auth on disk, so simply clearing
+    auth_token here is no longer sufficient to keep the gate tripped for
+    the duration of the call - reload_auth_token_if_missing is also
+    stubbed out to a no-op for the same window, restored alongside the
+    token in the same finally block."""
 
     def test_add_checklist_items_without_auth_token(self, mcp, sandbox, live_server):
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, _ = _new_todo(mcp, sandbox, checklist_items=["seed only"])
         before = _poll_checklist_titles(todo_id, ["seed only"])
         assert before == ["seed only"], before
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             result = mcp.call_sync(
                 "add_checklist_items", todo_id=todo_id, items=["should not apply"]
             )
@@ -346,6 +357,7 @@ class TestChecklistToolsAuthTokenNotConfigured:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         time.sleep(1)
         after = _checklist_titles(todo_id)
@@ -354,11 +366,13 @@ class TestChecklistToolsAuthTokenNotConfigured:
     def test_prepend_checklist_items_without_auth_token(self, mcp, sandbox, live_server):
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, _ = _new_todo(mcp, sandbox, checklist_items=["seed only"])
         before = _poll_checklist_titles(todo_id, ["seed only"])
         assert before == ["seed only"], before
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             result = mcp.call_sync(
                 "prepend_checklist_items", todo_id=todo_id, items=["should not apply"]
             )
@@ -366,6 +380,7 @@ class TestChecklistToolsAuthTokenNotConfigured:
             assert result.get("hint"), result
         finally:
             manager.auth_token = original_token
+            manager.reload_auth_token_if_missing = original_reload
 
         time.sleep(1)
         after = _checklist_titles(todo_id)
@@ -374,17 +389,20 @@ class TestChecklistToolsAuthTokenNotConfigured:
     def test_replace_checklist_items_without_auth_token(self, mcp, sandbox, live_server):
         manager = live_server.applescript_manager
         original_token = manager.auth_token
+        original_reload = manager.reload_auth_token_if_missing
         todo_id, _ = _new_todo(mcp, sandbox, checklist_items=["seed only"])
         before = _poll_checklist_titles(todo_id, ["seed only"])
         assert before == ["seed only"], before
         try:
             manager.auth_token = None
+            manager.reload_auth_token_if_missing = lambda: manager.auth_token
             result = mcp.call_sync(
                 "replace_checklist_items", todo_id=todo_id, items=["should not apply"]
             )
             assert_write_error(result, "AUTH_TOKEN_NOT_CONFIGURED")
             assert result.get("hint"), result
         finally:
+            manager.reload_auth_token_if_missing = original_reload
             manager.auth_token = original_token
 
         time.sleep(1)

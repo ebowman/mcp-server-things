@@ -1183,8 +1183,11 @@ with `checklist_items` uses `things:///add`, which does **not** need a
 token, so todo creation with a checklist is unaffected. Configure a token via
 Things: Settings > General > Enable Things URLs > Manage, then save it to
 `.things-auth`, `things-auth.txt`, or `~/.things-auth` (checked in that
-order) and restart the server - the token is loaded once at startup. Run
-`mcp-server-things doctor` to check whether a token is configured.
+order) - no restart required. The server reloads the token from disk on the
+next auth-gated call whenever none is currently loaded (hq-wsa.4), so a
+token file created (or fixed) after the server started is picked up
+automatically. Run `mcp-server-things doctor` to check whether a token is
+configured.
 
 ```python
 # Add items to existing todo (appends to end)
@@ -1227,9 +1230,16 @@ replace_checklist_items(
   on `add_todo` id disambiguation); a lookup that times out returns
   `success: false` rather than a false-positive success.
 - Non-checklist todos still use faster AppleScript approach
-- The auth token is loaded once at server startup; a token file added or
-  edited afterwards requires a server restart to take effect. An
-  empty/whitespace-only token file is treated as missing.
+- The auth token is loaded at server startup, then reloaded automatically
+  from disk on the next auth-gated call whenever none is currently loaded
+  (hq-wsa.4) - a token file added or fixed after startup takes effect on
+  the next such call, no server restart required. Once a token is
+  successfully loaded it is never unloaded or re-read for the life of the
+  process. An empty/whitespace-only token file is treated as missing.
+  `health_check`/`get_server_capabilities` report the current
+  `auth_token_configured` state; `AUTH_TOKEN_NOT_CONFIGURED` errors include
+  a `checked_paths` field (path + status per candidate, never the token
+  value) alongside `hint`.
 
 ### Known Limitations
 

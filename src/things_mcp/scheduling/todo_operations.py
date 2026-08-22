@@ -985,11 +985,12 @@ class TodoOperations:
         """Turn a failed execute_url_scheme() result into a write_error()
         dict, preserving an already-UPPER_SNAKE code (e.g.
         "AUTH_TOKEN_NOT_CONFIGURED" from the auth gate, forwarded verbatim
-        with its own message/hint) rather than double-wrapping it, while
-        still wrapping a raw AppleScript/URL-scheme error string (any code
-        that is not itself upper-snake) as "APPLESCRIPT_ERROR" with the raw
-        text preserved in `details`. `hint` (present on the auth-gate
-        error) is forwarded through either path when present.
+        with its own message/hint/checked_paths) rather than double-wrapping
+        it, while still wrapping a raw AppleScript/URL-scheme error string
+        (any code that is not itself upper-snake) as "APPLESCRIPT_ERROR"
+        with the raw text preserved in `details`. `hint` and `checked_paths`
+        (present on the auth-gate error) are forwarded through either path
+        when present.
         """
         code = result.get('error', 'Unknown error')
         if isinstance(code, str) and code.isupper() and code.replace('_', '').isalpha():
@@ -1002,6 +1003,8 @@ class TodoOperations:
             )
         if result.get('hint'):
             response['hint'] = result['hint']
+        if result.get('checked_paths'):
+            response['checked_paths'] = result['checked_paths']
         return response
 
     async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
@@ -1466,11 +1469,20 @@ class TodoOperations:
             # partially applied.
             if heading or when_is_evening or when_has_time:
                 if not self.applescript.auth_token:
+                    # Reload-on-miss (hq-wsa.4): a token file created after
+                    # this manager was constructed is picked up here rather
+                    # than requiring a restart. No-op (and safe on a mocked
+                    # manager) if a token is already loaded.
+                    reload = getattr(self.applescript, "reload_auth_token_if_missing", None)
+                    if callable(reload):
+                        reload()
+                if not self.applescript.auth_token:
                     from ..services.applescript_manager import AUTH_TOKEN_HINT
                     return _write_error(
                         "AUTH_TOKEN_NOT_CONFIGURED",
                         "Things URL-scheme auth token not configured",
                         hint=AUTH_TOKEN_HINT,
+                        checked_paths=getattr(self.applescript, "_auth_token_trace", []),
                     )
 
             # Convert status parameters
@@ -2180,11 +2192,20 @@ class TodoOperations:
             # without creating an orphaned project whose reminder then
             # silently fails to apply.
             if when_has_time and not self.applescript.auth_token:
+                # Reload-on-miss (hq-wsa.4): a token file created after this
+                # manager was constructed is picked up here rather than
+                # requiring a restart. No-op (and safe on a mocked manager)
+                # if a token is already loaded.
+                reload = getattr(self.applescript, "reload_auth_token_if_missing", None)
+                if callable(reload):
+                    reload()
+            if when_has_time and not self.applescript.auth_token:
                 from ..services.applescript_manager import AUTH_TOKEN_HINT
                 return _write_error(
                     "AUTH_TOKEN_NOT_CONFIGURED",
                     "Things URL-scheme auth token not configured",
                     hint=AUTH_TOKEN_HINT,
+                    checked_paths=getattr(self.applescript, "_auth_token_trace", []),
                 )
 
             # Build and execute script
@@ -2316,11 +2337,20 @@ class TodoOperations:
 
             when_has_time = when_has_time_component(when)
             if when_has_time and not self.applescript.auth_token:
+                # Reload-on-miss (hq-wsa.4): a token file created after this
+                # manager was constructed is picked up here rather than
+                # requiring a restart. No-op (and safe on a mocked manager)
+                # if a token is already loaded.
+                reload = getattr(self.applescript, "reload_auth_token_if_missing", None)
+                if callable(reload):
+                    reload()
+            if when_has_time and not self.applescript.auth_token:
                 from ..services.applescript_manager import AUTH_TOKEN_HINT
                 return _write_error(
                     "AUTH_TOKEN_NOT_CONFIGURED",
                     "Things URL-scheme auth token not configured",
                     hint=AUTH_TOKEN_HINT,
+                    checked_paths=getattr(self.applescript, "_auth_token_trace", []),
                 )
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax

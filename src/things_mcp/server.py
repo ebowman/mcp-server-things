@@ -2076,6 +2076,7 @@ class ThingsMCPServer:
                     "server_status": "healthy",
                     "things_running": is_running,
                     "applescript_available": True,
+                    "auth_token_configured": bool(self.applescript_manager.auth_token),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
             except Exception as e:
@@ -2264,6 +2265,7 @@ class ThingsMCPServer:
                     "server_healthy": True,
                     "queue_active": queue_status.get('active_operations', 0) > 0,
                     "applescript_available": True,
+                    "auth_token_configured": bool(self.applescript_manager.auth_token),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
                 

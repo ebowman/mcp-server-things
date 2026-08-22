@@ -8,7 +8,7 @@ This module serves as a facade that delegates to specialized modules:
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..locale_aware_dates import locale_handler
 from ..config import ThingsMCPConfig
@@ -60,7 +60,7 @@ class AppleScriptManager:
         self.timeout = timeout
         self.retry_count = retry_count
         self.config = config or ThingsMCPConfig()
-        self.auth_token = self._load_auth_token()
+        self.auth_token, self._auth_token_trace = self._load_auth_token()
 
         # Initialize specialized modules
         self.executor = AppleScriptExecutor(timeout=timeout, retry_count=retry_count)
@@ -68,8 +68,25 @@ class AppleScriptManager:
 
         logger.info("AppleScript manager initialized - cache removed for hybrid implementation")
 
-    def _load_auth_token(self) -> Optional[str]:
-        """Load Things auth token from file if it exists."""
+    @staticmethod
+    def _display_path(path: Path) -> str:
+        """Render a candidate auth-token path for the resolution trace,
+        abbreviating the home directory to '~' the way shells display it.
+        Never logged/returned with file contents - path only."""
+        try:
+            return "~/" + str(path.relative_to(Path.home()))
+        except ValueError:
+            return str(path)
+
+    def _load_auth_token(self) -> Tuple[Optional[str], List[Dict[str, str]]]:
+        """Load Things auth token from file if it exists.
+
+        Returns a ``(token, trace)`` tuple. ``trace`` is a list of
+        ``{"path": <str>, "status": <matched|empty|missing|unreadable>}``
+        dicts, one per candidate path in search order - never the token
+        value itself, so it is safe to surface to callers/consumers (e.g.
+        the ``checked_paths`` field on ``AUTH_TOKEN_NOT_CONFIGURED``).
+        """
         # Path from services/applescript_manager.py -> services -> things_mcp -> src -> project root
         project_root = Path(__file__).parent.parent.parent.parent
         auth_files = [
@@ -78,25 +95,69 @@ class AppleScriptManager:
             Path.home() / '.things-auth'
         ]
 
-        for auth_file in auth_files:
-            if auth_file.exists():
-                try:
-                    token = auth_file.read_text().strip()
-                    # Handle format: THINGS_AUTH_TOKEN=xxx or just xxx
-                    if '=' in token:
-                        token = token.split('=', 1)[1].strip()
-                    if not token:
-                        # Empty/whitespace-only token file: treat as missing and
-                        # keep looking at the remaining candidate paths.
-                        logger.warning(f"Auth token file {auth_file} is empty - treating as missing")
-                        continue
-                    logger.info(f"Loaded Things auth token from {auth_file}")
-                    return token
-                except Exception as e:
-                    logger.warning(f"Failed to read auth token from {auth_file}: {e}")
+        trace: List[Dict[str, str]] = []
+        found_token: Optional[str] = None
 
-        logger.debug("No Things auth token found - will use direct AppleScript execution")
-        return None
+        for auth_file in auth_files:
+            display = self._display_path(auth_file)
+            if not auth_file.exists():
+                trace.append({"path": display, "status": "missing"})
+                continue
+
+            try:
+                token = auth_file.read_text().strip()
+                # Handle format: THINGS_AUTH_TOKEN=xxx or just xxx
+                if '=' in token:
+                    token = token.split('=', 1)[1].strip()
+                if not token:
+                    # Empty/whitespace-only token file: treat as missing and
+                    # keep looking at the remaining candidate paths.
+                    logger.warning(f"Auth token file {auth_file} is empty - treating as missing")
+                    trace.append({"path": display, "status": "empty"})
+                    continue
+                logger.info(f"Loaded Things auth token from {auth_file}")
+                trace.append({"path": display, "status": "matched"})
+                found_token = token
+                break
+            except Exception as e:
+                logger.warning(f"Failed to read auth token from {auth_file}: {e}")
+                trace.append({"path": display, "status": "unreadable"})
+
+        if found_token is None:
+            logger.debug("No Things auth token found - will use direct AppleScript execution")
+
+        return found_token, trace
+
+    def reload_auth_token_if_missing(self) -> Optional[str]:
+        """Reload the auth token from disk if none is currently loaded.
+
+        Side-effect-free when a token is already loaded (no-op, returns it
+        immediately) - a token is never unloaded mid-flight, so the only
+        cost is a redundant file read per gated call while genuinely
+        unconfigured. Call this immediately before failing an
+        auth-required action so a token file created (or fixed) after this
+        manager was constructed is picked up without a server restart.
+
+        Defensive against being called on a test double whose
+        ``_load_auth_token`` is itself mocked (e.g.
+        ``MagicMock(spec=AppleScriptManager)``) and therefore doesn't
+        return the real ``(token, trace)`` tuple shape - in that case this
+        leaves ``self.auth_token``/``self._auth_token_trace`` untouched
+        rather than raising, so existing tests that stub a manager and set
+        ``.auth_token`` directly are unaffected.
+        """
+        if self.auth_token:
+            return self.auth_token
+        try:
+            loaded = self._load_auth_token()
+            token, trace = loaded
+        except (TypeError, ValueError):
+            # Not a real (token, trace) tuple - e.g. a mocked
+            # _load_auth_token on a test double. Leave state untouched.
+            return self.auth_token
+        self.auth_token = token
+        self._auth_token_trace = trace
+        return self.auth_token
 
     async def is_things_running(self) -> bool:
         """Check if Things 3 is currently running."""
@@ -130,6 +191,13 @@ class AppleScriptManager:
             # actionable error instead of calling `open`, which exits 0 even
             # when Things silently rejects the un-authenticated URL.
             if action in AUTH_REQUIRING_ACTIONS and not self.auth_token:
+                # Reload-on-miss: a token file created (or fixed) after this
+                # manager was constructed is picked up here, so a missing
+                # token no longer requires a server restart to start
+                # working.
+                self.reload_auth_token_if_missing()
+
+            if action in AUTH_REQUIRING_ACTIONS and not self.auth_token:
                 logger.warning(
                     f"Refusing to execute Things URL-scheme action '{action}' "
                     "without an auth token"
@@ -139,6 +207,7 @@ class AppleScriptManager:
                     "error": "AUTH_TOKEN_NOT_CONFIGURED",
                     "message": "Things URL-scheme auth token not configured",
                     "hint": AUTH_TOKEN_HINT,
+                    "checked_paths": getattr(self, "_auth_token_trace", []),
                 }
 
             # Handle url_override for complete URLs (for reminder functionality)
