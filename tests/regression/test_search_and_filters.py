@@ -280,6 +280,11 @@ class TestSearchTodos:
         assert items, f"search_todos mode='summary' returned empty items: {result!r}"
         assert result.get("count") == len(items)
         assert result.get("total", 0) >= len(items)
+        assert "total_matches" not in result, (
+            f"hq-wsa.5: total_matches must not appear in search summary "
+            f"envelopes (post-limit/window-scoped and misleading vs the "
+            f"authoritative pre-limit 'total'): {result!r}"
+        )
 
         allowed = {"uuid", "title", "status", "tags", "dueDate"}
         for item in items:

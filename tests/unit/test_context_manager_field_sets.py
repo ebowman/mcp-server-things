@@ -594,6 +594,25 @@ class TestSummaryPreviewRowShape:
         assert row['uuid'] == 'todo-1'
         assert row['title'] == 'Sample todo'
 
+    def test_summarize_search_results_no_total_matches_key(self):
+        """hq-wsa.5: _summarize_search_results must not emit 'total_matches'.
+        The data it receives is already limit/offset-truncated by the time it
+        gets here (server.py passes the final window down), so
+        'total_matches': len(results) was always a post-limit count masquerading
+        as a total - misleading whenever limit was in play. The envelope's
+        separately-injected 'total' is the authoritative pre-limit count and is
+        not touched by this function at all. Uses a truncated single-item
+        window (as if limit=1 had been applied upstream) to make the point
+        concrete: len(results) here is 1, which is exactly the wrong number to
+        expose as any kind of 'total'."""
+        engine = _engine()
+        truncated_window = [SAMPLE_ITEM]  # stands in for a limit=1-truncated window
+        summary = engine.progressive_engine._summarize_search_results(truncated_window)
+        assert 'total_matches' not in summary
+        # window-scoped keys describing the returned window are fine to keep
+        assert 'search_results_breakdown' in summary
+        assert 'result_preview' in summary
+
     def test_summarize_todos_preview_omits_null_fields(self):
         """Field-filtering never invents keys - a preview row for an item
         missing a SUMMARY field (e.g. no dueDate key at all) simply omits

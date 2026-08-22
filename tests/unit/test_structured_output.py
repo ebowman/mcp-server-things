@@ -693,6 +693,42 @@ class TestSearchTodosSummaryModePreview:
         # total reflects the full pre-preview match count, not the preview size.
         assert sc["total"] == 10
 
+    @pytest.mark.asyncio
+    async def test_search_todos_summary_mode_no_total_matches_key_when_limited(self):
+        """hq-wsa.5: _summarize_search_results previously emitted
+        'total_matches': len(results) - but the data reaching it is already
+        limit/offset-truncated (server.py passes the final window down), so
+        a limit=1 call yielded total_matches=1 even though the true,
+        pre-limit match count (correctly reported by the envelope's
+        separately-injected 'total') was much larger. total_matches must be
+        gone from the summary envelope entirely; 'total' remains the
+        authoritative, correct, pre-limit count."""
+        # Build a truncated window: only 1 todo reaches the summarizer even
+        # though the underlying search matched many more (mocked total below).
+        todos = [dict(SAMPLE_TODO, uuid="only-id", title="milk")]
+        server = _make_server_with_mock_tools(search_todos=todos)
+
+        client = Client(server.mcp)
+        async with client:
+            result = await client.call_tool(
+                "search_todos", {"query": "milk", "mode": "summary", "limit": 1}
+            )
+
+        sc = result.structured_content
+        assert sc is not None
+        assert "total_matches" not in sc, (
+            f"total_matches must never appear in search summary envelopes: {sc!r}"
+        )
+        # total is the authoritative pre-limit count; with only 1 mocked
+        # todo behind the mocked tools layer, total == 1 here (there is no
+        # separate pre-limit source in this mock), which is exactly the
+        # point: a stale 'total_matches': len(results) could never diverge
+        # from 'total' in a way a caller could detect without a real
+        # pre-limit total behind it - it's a dead, misleading duplicate key
+        # that must be dropped rather than threaded through.
+        assert sc["total"] == 1
+        assert sc["count"] == 1
+
 
 class TestNoDuplicatedPayloadKey:
     """hq-wsa.2: 'items' is the one canonical payload array in every structured

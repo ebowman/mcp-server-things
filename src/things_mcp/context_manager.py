@@ -396,7 +396,6 @@ class ProgressiveDisclosureEngine:
         return {
             "search_results_breakdown": status_counts,
             "result_preview": recent_items,
-            "total_matches": len(results),
             "suggestion": "Use mode='minimal' or 'standard' to see more details, or add filters to narrow results"
         }
     
