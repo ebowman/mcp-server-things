@@ -167,7 +167,7 @@ def _bulk_move_tolerating_concurrency_race(mcp, todo_ids, destination, max_concu
     retry before). AppleScriptManager._applescript_lock (services/
     applescript_manager.py) - a duplicate, dead lock that was never
     acquired anywhere - was also removed; the real serialization has
-    always lived in AppleScriptExecutor._applescript_lock, which IS held
+    always lived in AppleScriptExecutor's executor-level lock (per-event-loop via _get_lock() since hq-yxu), which IS held
     around every osascript call.
 
     Re-measured live post-hq-c7a (two full 59-test live runs, plus a

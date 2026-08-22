@@ -44,7 +44,7 @@ class AppleScriptManager:
     """
 
     # NOTE: process-wide AppleScript serialization actually lives in
-    # AppleScriptExecutor._applescript_lock (services/applescript/executor.py),
+    # AppleScriptExecutor's per-event-loop lock (services/applescript/executor.py, _get_lock() since hq-yxu),
     # which IS acquired around every osascript call. A duplicate lock used
     # to be declared here too, but it was never acquired anywhere in this
     # class (dead code) - removed (hq-c7a).
