@@ -642,11 +642,21 @@ class TestBulkUpdateTiming:
 
 class TestMoveRecordDestinations:
     def test_move_to_inbox(self, mcp, sandbox):
+        """hq-wsa.6: project -> inbox. _new_todo files the to-do in
+        sandbox.project_id, so the pre-move origin must be reported as
+        exactly 'project:<sandbox.project_id>' (no 'current_list:' prefix
+        from the old positional AppleScript parser), and the success
+        message must carry the bare title (no 'name:' prefix)."""
         import things
 
-        todo_id, _ = _new_todo(mcp, sandbox, title=sandbox_title("move inbox " + ts()))
+        title = sandbox_title("move inbox " + ts())
+        todo_id, _ = _new_todo(mcp, sandbox, title=title)
         result = mcp.call_sync("move_record", todo_id=todo_id, destination_list="inbox")
         assert result.get("success") is True, result
+        assert result.get("message") == f"Todo '{title}' moved to inbox successfully", result
+        assert "name:" not in result.get("message", ""), result
+        assert result.get("original_location") == f"project:{sandbox.project_id}", result
+        assert "current_list:" not in str(result.get("original_location")), result
 
         def _in_inbox():
             return any(t["uuid"] == todo_id for t in things.inbox() or [])
@@ -657,6 +667,43 @@ class TestMoveRecordDestinations:
             time.sleep(0.25)
             found = _in_inbox()
         assert found, "expected todo to be a member of things.inbox()"
+
+    def test_move_from_inbox_to_project(self, mcp, sandbox):
+        """hq-wsa.6: inbox -> project. A to-do created with no list_id
+        lands in the Inbox (things.py start == 'Inbox'), so the pre-move
+        origin must be reported as exactly 'inbox', and moving it into
+        sandbox.project_id must read back with the exact project id (no
+        'current_list:inbox' hardcoded-stub leak regardless of true
+        origin - the historic bug this bead fixes)."""
+        import things
+
+        title = sandbox_title("move from inbox " + ts())
+        # No list_id/when: Things' create-time default with neither
+        # given is the Inbox (things.py start == 'Inbox') - unlike
+        # _new_todo's own when='someday' default (see that helper's
+        # docstring), this test needs a genuine Inbox-origin todo.
+        add_result = mcp.call_sync("add_todo", title=title)
+        assert add_result.get("success") is True, add_result
+        todo_id = add_result.get("todo_id")
+        assert todo_id
+        sandbox.track(todo_id)
+
+        record = read_back(todo_id, lambda r: r is not None and r.get("start") == "Inbox")
+        assert record is not None and record.get("start") == "Inbox", record
+
+        result = mcp.call_sync(
+            "move_record", todo_id=todo_id, destination_list=f"project:{sandbox.project_id}"
+        )
+        assert result.get("success") is True, result
+        assert result.get("message") == f"Todo '{title}' moved to project:{sandbox.project_id} successfully", result
+        assert "name:" not in result.get("message", ""), result
+        assert result.get("original_location") == "inbox", result
+        assert "current_list:" not in str(result.get("original_location")), result
+
+        record = read_back(
+            todo_id, lambda r: r is not None and r.get("project") == sandbox.project_id
+        )
+        assert record is not None and record.get("project") == sandbox.project_id, record
 
     def test_move_to_today(self, mcp, sandbox):
         """move_record's `move ... to list "today"` verb was never

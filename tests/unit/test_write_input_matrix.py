@@ -89,6 +89,10 @@ WRITE_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.write_operations.things.g
 # hq-wbm: bulk_update_todos' per-id pre-check patch target (BulkOperations'
 # own module-local things proxy - see tools_helpers/bulk_operations.py).
 BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get"
+# hq-wsa.6: move_record's pre-move things.py info/origin lookup patch
+# target (MoveOperationsTools' own module-local things proxy - see
+# move_operations.py).
+MOVE_OPS_THINGS_GET_PATCH = "things_mcp.move_operations.things.get"
 
 SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
@@ -287,10 +291,43 @@ RAISING_PRIMARY_TODO_ID = "RAISINGPRIMARYTODOIDCAUSESLOOKUPERROR"
 # VALIDATION_ERROR rather than silently modifying the project.
 PROJECT_ID_AS_PRIMARY_TARGET = "PROJECTIDUSEDASPRIMARYTARGET"
 
+# hq-wsa.6: move_record's pre-move things.get() lookup sentinels
+# (MOVE_OPS_THINGS_GET_PATCH / _move_ops_things_get below).
+# things.get() resolves cleanly but reports nothing (even after the
+# bounded retry) -> TODO_NOT_FOUND, unchanged contract.
+MOVE_UNKNOWN_TODO_ID = "MOVEUNKNOWNTODOIDDOESNOTEXIST"
+# things.get() itself raises -> falls back to proceeding with the move,
+# original_location omitted, same fallback convention as
+# RAISING_PRIMARY_TODO_ID/RAISING_LIST_ID/RAISING_AREA_ID above.
+MOVE_RAISING_TODO_ID = "MOVERAISINGTODOIDCAUSESLOOKUPERROR"
+
 
 class _SimulatedThingsLookupError(Exception):
     """Raised by _todo_ops_things_get for RAISING_LIST_ID to simulate an
     unreadable Things database / missing Full Disk Access."""
+
+
+def _move_ops_things_get(uuid: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """Backs move_record()'s/_get_todo_info()'s pre-move things.py lookup
+    (move_operations.py's own module-local LazyThingsProxy instance,
+    separate from every other things.get() patch target in this file).
+
+    Every id used by the move_record/bulk_move_records CASES below other
+    than the two dedicated sentinels resolves as a plain to-do with
+    start='Anytime' and no project/heading/start_date, so
+    _derive_original_location falls through to 'anytime'.
+    """
+    if uuid == MOVE_UNKNOWN_TODO_ID:
+        return None
+    if uuid == MOVE_RAISING_TODO_ID:
+        raise _SimulatedThingsLookupError("simulated things.py lookup failure")
+    return {
+        "type": "to-do",
+        "uuid": uuid,
+        "title": f"Move Test Todo {uuid}",
+        "status": "incomplete",
+        "start": "Anytime",
+    }
 
 
 def _todo_ops_things_get(uuid: str, **kwargs: Any) -> Dict[str, Any]:
@@ -375,6 +412,7 @@ def _patched_things_lookups():
         patch(THINGS_TASKS_PATCH, return_value=[]),
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
         patch(BULK_OPS_THINGS_GET_PATCH, side_effect=_bulk_ops_things_get),
+        patch(MOVE_OPS_THINGS_GET_PATCH, side_effect=_move_ops_things_get),
     ]
 
 
@@ -1244,6 +1282,12 @@ add("move_record", {"todo_id": "", "destination_list": "today"}, write_error("VA
 # update_todo/delete_todo.
 add("move_record", {"todo_id": "   ", "destination_list": "today"}, write_error("VALIDATION_ERROR"))
 add("move_record", {"todo_id": SPECIAL_CHARS, "destination_list": "today"}, ok(route="applescript"))
+# hq-wsa.6: pre-move things.get() pre-check - unknown id (even after the
+# bounded race-tolerance retry) -> TODO_NOT_FOUND, no AppleScript call.
+add("move_record", {"todo_id": MOVE_UNKNOWN_TODO_ID, "destination_list": "today"}, write_error("TODO_NOT_FOUND"))
+# things.get() itself raising (DB unreadable) falls back to proceeding
+# with the move rather than refusing it.
+add("move_record", {"todo_id": MOVE_RAISING_TODO_ID, "destination_list": "today"}, ok(route="applescript"))
 
 
 # ===========================================================================
@@ -1535,3 +1579,186 @@ class TestBulkUpdateTodosPreCheckMixed:
         assert sc.get("not_found") == [BULK_PROJECT_ID_AS_TARGET], sc
         script_text = fake.all_scripts_text()
         assert f'to do id "{BULK_PROJECT_ID_AS_TARGET}"' not in script_text, script_text
+
+
+# ===========================================================================
+# move_record: origin-derivation tests (hq-wsa.6)
+#
+# The binary ok()/write_error() matrix DSL above only asserts route/capture
+# shape, not structured_content field values - these tests directly assert
+# on 'original_location' and the success 'message' text, which the matrix
+# DSL has no vocabulary for. Reuses _make_server/_call_tool/
+# _patched_things_lookups from above, with an extra, test-local override of
+# MOVE_OPS_THINGS_GET_PATCH layered on top (started after, stopped before,
+# the shared base patches) so each test controls exactly what
+# move_record's pre-move things.get() lookup returns.
+# ===========================================================================
+
+
+def _run_move_record_with_record(todo_record: Any) -> Tuple[Dict[str, Any], RecordingAppleScriptManager]:
+    """Run move_record(todo_id='ORIGINTEST', destination_list='inbox') with
+    move_operations.things.get() patched to return/raise `todo_record`
+    (a dict return value, or an Exception instance to raise)."""
+    server, fake = _make_server()
+    base_patches = _patched_things_lookups()
+    for p in base_patches:
+        p.start()
+    if isinstance(todo_record, Exception):
+        override = patch(MOVE_OPS_THINGS_GET_PATCH, side_effect=todo_record)
+    else:
+        override = patch(MOVE_OPS_THINGS_GET_PATCH, return_value=todo_record)
+    override.start()
+    try:
+        result = asyncio.run(_call_tool(server, "move_record", {"todo_id": "ORIGINTEST", "destination_list": "inbox"}))
+    finally:
+        override.stop()
+        for p in reversed(base_patches):
+            p.stop()
+    return result.structured_content, fake
+
+
+class TestMoveRecordOriginDerivation:
+    """hq-wsa.6: _get_todo_info/_derive_original_location - real pre-move
+    origin reporting (replacing the old getCurrentLocation AppleScript stub
+    that always hardcoded 'current_list:inbox'), and a clean title in the
+    success message (no 'name:' prefix from the old positional parser)."""
+
+    def test_title_has_no_name_prefix_in_message(self) -> None:
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "Plain Title No Prefix",
+            "status": "incomplete", "start": "Inbox",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("message") == "Todo 'Plain Title No Prefix' moved to inbox successfully", sc
+        assert "name:" not in sc.get("message", ""), sc
+
+    def test_origin_inbox(self) -> None:
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Inbox",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "inbox", sc
+        assert "current_list:" not in str(sc.get("original_location")), sc
+
+    def test_origin_someday(self) -> None:
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Someday",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "someday", sc
+
+    def test_origin_anytime_no_start_date(self) -> None:
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Anytime", "start_date": None,
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "anytime", sc
+
+    def test_origin_today_start_date_today(self) -> None:
+        import datetime as _dt
+        today_iso = _dt.date.today().isoformat()
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Anytime", "start_date": today_iso,
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "today", sc
+
+    def test_origin_today_start_date_in_past(self) -> None:
+        """An Anytime todo with a past start_date shows in Things' Today
+        list (not just one dated exactly today) - 'today' is reported for
+        any start_date <= today, matching Things' own list membership."""
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Anytime", "start_date": "2020-01-01",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "today", sc
+
+    def test_origin_future_start_date_reports_literal_date(self) -> None:
+        """A future-dated Anytime todo reports the literal ISO date string
+        as its origin (chosen representation - see
+        _derive_original_location's docstring), not a generic 'upcoming'
+        token."""
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "start": "Anytime", "start_date": "2099-01-01",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "2099-01-01", sc
+
+    def test_origin_project_direct(self) -> None:
+        sc, _fake = _run_move_record_with_record({
+            "type": "to-do", "uuid": "ORIGINTEST", "title": "T", "status": "incomplete",
+            "project": "PROJ-DIRECT-1", "start": "Anytime",
+        })
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "project:PROJ-DIRECT-1", sc
+
+    def test_origin_heading_child_resolves_parent_project(self) -> None:
+        """things.py leaves 'project' None on a heading-child todo row -
+        the parent project must be resolved via the heading's own record
+        (mirrors read_operations._fill_project_from_heading)."""
+        def _side_effect(uuid: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+            if uuid == "ORIGINTEST":
+                return {
+                    "type": "to-do", "uuid": "ORIGINTEST", "title": "T",
+                    "status": "incomplete", "heading": "HEADING-1",
+                    "start": "Anytime",
+                }
+            if uuid == "HEADING-1":
+                return {
+                    "type": "heading", "uuid": "HEADING-1", "title": "Phase A",
+                    "project": "PROJ-VIA-HEADING",
+                }
+            return None
+
+        server, fake = _make_server()
+        base_patches = _patched_things_lookups()
+        for p in base_patches:
+            p.start()
+        override = patch(MOVE_OPS_THINGS_GET_PATCH, side_effect=_side_effect)
+        override.start()
+        try:
+            result = asyncio.run(_call_tool(server, "move_record", {"todo_id": "ORIGINTEST", "destination_list": "inbox"}))
+        finally:
+            override.stop()
+            for p in reversed(base_patches):
+                p.stop()
+        sc = result.structured_content
+        assert sc.get("success") is True, sc
+        assert sc.get("original_location") == "project:PROJ-VIA-HEADING", sc
+
+    def test_db_raise_fallback_omits_original_location_and_uses_raw_id(self) -> None:
+        """things.get() itself raising (DB unreadable) must not fail the
+        move - it proceeds, omits original_location entirely (not present
+        as null), and the success message uses the raw todo_id (no title
+        available)."""
+        sc, fake = _run_move_record_with_record(_SimulatedThingsLookupError("simulated lookup failure"))
+        assert sc.get("success") is True, sc
+        assert "original_location" not in sc, sc
+        assert "ORIGINTEST" in sc.get("message", ""), sc
+        # The move itself still proceeded via AppleScript.
+        assert fake.execution_calls, "expected the move's AppleScript call to still have been made"
+
+    def test_none_still_reports_todo_not_found(self) -> None:
+        """things.get() resolving cleanly but finding nothing (even after
+        the bounded race-tolerance retry) must still produce the
+        unchanged TODO_NOT_FOUND contract."""
+        sc, fake = _run_move_record_with_record(None)
+        assert sc.get("success") is False, sc
+        assert sc.get("error") == "TODO_NOT_FOUND", sc
+        assert "ORIGINTEST" in sc.get("message", ""), sc
+        assert not fake.any_capture(), "no AppleScript/URL call should have been made for a not-found todo"
+
+    def test_wrong_type_reports_todo_not_found(self) -> None:
+        """things.get() resolving to something other than a to-do (e.g. a
+        project id that also happens to resolve via `to do id`) is treated
+        as not-found for move purposes, not silently moved."""
+        sc, fake = _run_move_record_with_record({"type": "project", "uuid": "ORIGINTEST", "title": "A Project"})
+        assert sc.get("success") is False, sc
+        assert sc.get("error") == "TODO_NOT_FOUND", sc
+        assert not fake.any_capture(), "no AppleScript/URL call should have been made"
