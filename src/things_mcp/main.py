@@ -13,6 +13,7 @@ from typing import Optional
 from .boot_trace import arm_boot_watchdog, boot_marker
 from .client_config import CLIENT_CHOICES as _CLIENT_CHOICES
 from .client_config import VIA_CHOICES as _VIA_CHOICES
+from .config import load_config_from_env
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
@@ -85,8 +86,8 @@ class ServerManager:
     def start(
         self,
         debug: bool = False,
-        timeout: int = 30,
-        retry_count: int = 3,
+        timeout: Optional[float] = None,
+        retry_count: Optional[int] = None,
         env_file: Optional[str] = None,
         transport: Optional[str] = None,
         host: Optional[str] = None,
@@ -108,7 +109,11 @@ class ServerManager:
         """
         try:
             # Create server first (it will configure logging)
-            self.server = ThingsMCPServer(env_file=env_file)
+            self.server = ThingsMCPServer(
+                env_file=env_file,
+                timeout=timeout,
+                retry_count=retry_count,
+            )
 
             # CLI flags override env/config for transport settings
             if transport is not None:
@@ -234,15 +239,15 @@ Environment:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=30,
-        help="AppleScript execution timeout in seconds (default: 30)"
+        default=None,
+        help="AppleScript execution timeout in seconds (default: configuration, normally 30)"
     )
     
     parser.add_argument(
         "--retry-count",
         type=int,
-        default=3,
-        help="Number of retries for failed operations (default: 3)"
+        default=None,
+        help="Number of retries for failed operations (default: configuration, normally 3)"
     )
     
     parser.add_argument(
@@ -294,7 +299,7 @@ Environment:
     return parser
 
 
-async def perform_health_check(timeout: int, retry_count: int) -> int:
+async def perform_health_check(timeout: float, retry_count: int) -> int:
     """Perform system health check.
     
     Args:
@@ -343,7 +348,7 @@ async def perform_health_check(timeout: int, retry_count: int) -> int:
         return 1
 
 
-async def test_applescript_connectivity(timeout: int, retry_count: int) -> int:
+async def test_applescript_connectivity(timeout: float, retry_count: int) -> int:
     """Test AppleScript connectivity to Things 3.
     
     Args:
@@ -491,12 +496,27 @@ def main():
     if args.version:
         show_version()
         return 0
+
+    if args.health_check or args.test_applescript:
+        execution_config = load_config_from_env(
+            Path(args.env_file) if args.env_file else None
+        )
+        timeout = (
+            args.timeout
+            if args.timeout is not None
+            else execution_config.applescript_timeout
+        )
+        retry_count = (
+            args.retry_count
+            if args.retry_count is not None
+            else execution_config.applescript_retry_count
+        )
     
     if args.health_check:
-        return asyncio.run(perform_health_check(args.timeout, args.retry_count))
+        return asyncio.run(perform_health_check(timeout, retry_count))
     
     if args.test_applescript:
-        return asyncio.run(test_applescript_connectivity(args.timeout, args.retry_count))
+        return asyncio.run(test_applescript_connectivity(timeout, retry_count))
     
     # Configure basic logging if no server will do it
     if args.version or args.health_check or args.test_applescript:
