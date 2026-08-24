@@ -363,7 +363,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 ### Todo Management
 - `get_todos(project_uuid?, include_items?)` - List todos
 - `add_todo(title, ...)` - Create new todo
-- `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
+- `update_todo(id, ..., heading?, list_id?, list_title?)` - Update existing todo; when the write reports success, the response includes the target `todo_id` and a post-write readback. `readback_succeeded` means only that the read completed; it does not claim requested field values were applied. When true, `item` contains the observed snapshot. If readback fails, `success` remains true, `readback_succeeded` is false, and `readback_error` plus a warning make clear that the write must not be retried automatically. `heading` moves it under a heading (requires the Things URL-scheme auth token), `list_id`/`list_title` move it to a different project or area
 - `bulk_update_todos(todo_ids, ...)` - Update multiple todos in one operation
 - `get_todo_by_id(todo_id)` - Get specific todo. A to-do/heading that is itself untrashed but whose containing project is trashed reports `trashed: true` plus `trashedViaParent: true` (Things marks only the trashed container, not its descendants); direct trash keeps `trashed: true` alone.
 - `delete_todo(todo_id)` - Delete a to-do or a project (auto-detects the id type; headings/areas/tags cannot be deleted via any public Things 3 API)
@@ -407,7 +407,7 @@ You can set environment variables directly in your Claude Desktop configuration:
 - `get_recent(period, status?, type?)` - Get recently created items; returns all statuses and both to-dos and projects by default (headings are never included unless `type='heading'` is passed explicitly)
 
 ### Bulk Operations
-- `move_record(record_id, to_parent_uuid)` - Move single record
+- `move_record(todo_id, destination_list)` - Move one todo; uses the same `todo_id`/`readback_succeeded`/`item` receipt as `update_todo`. The readback is an observed post-write snapshot, not a claim that the requested destination was applied; failed readback preserves the reported write success and adds an explicit no-auto-retry warning
 - `bulk_move_records(record_ids, to_parent_uuid)` - Move multiple records
 
 ### System & Utilities

@@ -556,6 +556,14 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Update an existing todo. Supports partial updates to any field including status, scheduling, tags, and content.
 
+            A successful response includes ``todo_id`` and a post-write
+            readback. ``readback_succeeded`` reports only whether that read
+            succeeded; it does not claim the requested fields were applied.
+            When true, ``item`` contains the observed item snapshot. If the
+            read fails after the write reports success, ``success`` remains
+            true and ``readback_error`` plus a warning explain that callers
+            must not retry the write automatically.
+
             Status semantics for completed/canceled (identical across update_todo,
             bulk_update_todos, and update_project - see CLAUDE.md for the full 3x3
             table): canceled='true' always wins regardless of completed (e.g.
@@ -697,7 +705,7 @@ class ThingsMCPServer:
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
 
-                return result
+                return await self._todo_write_receipt(id, result)
             except Exception as e:
                 logger.error(f"Error updating todo: {e}")
                 raise
@@ -976,9 +984,21 @@ class ThingsMCPServer:
             todo_id: str = Field(..., description="ID of the todo to move"),
             destination_list: str = Field(..., description="Destination: list name (inbox, today, anytime, someday, logbook, trash), project:ID, or area:ID. 'upcoming' is NOT a valid destination - use update_todo(id=..., when='<YYYY-MM-DD>') to schedule a future date instead")
         ) -> Dict[str, Any]:
-            """Move a todo to a different list, project, or area."""
+            """Move a todo to a different list, project, or area.
+
+            A successful response includes ``todo_id`` and a post-write
+            readback. ``readback_succeeded`` reports only whether that read
+            succeeded; it does not claim the requested destination was
+            applied. When true, ``item`` contains the observed item snapshot.
+            If the read fails after the write reports success, ``success``
+            remains true and ``readback_error`` plus a warning explain that
+            callers must not retry the write automatically.
+            """
             try:
-                return await self.tools.move_record(todo_id=todo_id, destination_list=destination_list)
+                result = await self.tools.move_record(
+                    todo_id=todo_id, destination_list=destination_list
+                )
+                return await self._todo_write_receipt(todo_id, result)
             except Exception as e:
                 logger.error(f"Error moving todo: {e}")
                 raise
@@ -2550,6 +2570,59 @@ class ThingsMCPServer:
             A dict with 'success', 'error', 'message', plus any extra fields.
         """
         return _tools_write_error(code, message, **extra)
+
+    async def _todo_write_receipt(
+        self, todo_id: str, result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Attach the target id and observed post-write item snapshot."""
+        if not result.get("success"):
+            return result
+
+        try:
+            item = await self.tools.get_todo_by_id(todo_id)
+        except Exception as exc:
+            readback_error = self._read_error(
+                "readback_failed",
+                "Post-write item readback failed.",
+                details=str(exc),
+            )
+            return self._failed_todo_write_readback(
+                todo_id, result, readback_error
+            )
+
+        if isinstance(item, dict) and item.get("success") is False:
+            return self._failed_todo_write_readback(todo_id, result, item)
+
+        return {
+            **result,
+            "todo_id": todo_id,
+            "readback_succeeded": True,
+            "item": item,
+        }
+
+    @staticmethod
+    def _failed_todo_write_readback(
+        todo_id: str,
+        result: Dict[str, Any],
+        readback_error: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Report readback failure without inviting a duplicate write."""
+        warning = (
+            "Write reported success, but post-write readback failed; "
+            "do not retry the write automatically."
+        )
+        existing_warnings = result.get("warnings")
+        warnings = (
+            list(existing_warnings) if isinstance(existing_warnings, list) else []
+        )
+        warnings.append(warning)
+        return {
+            **result,
+            "todo_id": todo_id,
+            "readback_succeeded": False,
+            "readback_error": readback_error,
+            "warnings": warnings,
+        }
 
     def _read_result(
         self,
