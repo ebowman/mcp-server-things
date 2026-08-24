@@ -1,6 +1,6 @@
 # Things 3 MCP Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-12+-green.svg)](https://www.apple.com/macos/)
 
@@ -233,7 +233,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 - **macOS**: This server requires macOS (tested on macOS 12+)
 - **Things 3**: Things 3 must be installed and accessible
-- **Python**: Python 3.8 or higher
+- **Python**: Python 3.10 or higher
 - **Permissions**: AppleScript permissions for Things 3 access
 
 ## Quick Start

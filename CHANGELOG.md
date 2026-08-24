@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - **`search_advanced`'s scope semantics are now documented (bead hq-frf) - no behavior change.** The tool's docstring and CLAUDE.md ("search_advanced scope semantics", under Tag Best Practices) now spell out three pre-existing, unchanged facts: (1) without an explicit `type` filter, only to-dos are searched - a bare `area=`/`start_date=`/`deadline=` filter can never return a project or heading, so pass `type='project'`/`'heading'` explicitly to search those kinds; (2) `area=` matches only items directly assigned to the area and does not cascade into to-dos living inside that area's projects - use `get_todos(project_uuid=...)` per project, or `get_areas(include_items=true)` to enumerate the area's projects first; (3) there is no `project=` filter parameter - use `get_todos(project_uuid=...)` to scope a search to one project.
 
+### Fixed
+- **Structured write failures now set the MCP `isError` flag.** Canonical write-error payloads remain intact for machine-readable handling while clients can reliably distinguish them from successful tool calls.
+- **Package metadata now requires Python 3.10+.** This matches FastMCP 3.4's runtime floor and prevents dependency resolution from considering unsupported Python 3.8/3.9 environments.
+
 ## [1.7.0] - 2026-08-19
 
 This release closes out two user-reported issues: [#9](https://github.com/ebowman/mcp-server-things/issues/9)

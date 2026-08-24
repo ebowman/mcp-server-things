@@ -446,6 +446,14 @@ async def _call_tool(server: ThingsMCPServer, tool_name: str, kwargs: Dict[str, 
         return await client.call_tool(tool_name, kwargs)
 
 
+async def _call_tool_for_inspection(
+    server: ThingsMCPServer, tool_name: str, kwargs: Dict[str, Any]
+):
+    client = Client(server.mcp)
+    async with client:
+        return await client.call_tool(tool_name, kwargs, raise_on_error=False)
+
+
 def run_tool(
     tool_name: str,
     kwargs: Dict[str, Any],
@@ -460,7 +468,7 @@ def run_tool(
     for p in patches:
         p.start()
     try:
-        result = asyncio.run(_call_tool(server, tool_name, kwargs))
+        result = asyncio.run(_call_tool_for_inspection(server, tool_name, kwargs))
     finally:
         for p in patches:
             p.stop()
@@ -1609,7 +1617,13 @@ def _run_move_record_with_record(todo_record: Any) -> Tuple[Dict[str, Any], Reco
         override = patch(MOVE_OPS_THINGS_GET_PATCH, return_value=todo_record)
     override.start()
     try:
-        result = asyncio.run(_call_tool(server, "move_record", {"todo_id": "ORIGINTEST", "destination_list": "inbox"}))
+        result = asyncio.run(
+            _call_tool_for_inspection(
+                server,
+                "move_record",
+                {"todo_id": "ORIGINTEST", "destination_list": "inbox"},
+            )
+        )
     finally:
         override.stop()
         for p in reversed(base_patches):

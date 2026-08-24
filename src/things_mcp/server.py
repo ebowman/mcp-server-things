@@ -28,6 +28,7 @@ from .tools_helpers.errors import write_error as _tools_write_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
+from .middleware import WriteErrorSignalingMiddleware
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ class ThingsMCPServer:
             env_file: Optional path to .env file
         """
         self.mcp = FastMCP("things-mcp")
+        self.mcp.add_middleware(WriteErrorSignalingMiddleware())
         
         # Load configuration from environment and optional .env file
         if env_file:
