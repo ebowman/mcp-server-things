@@ -1,12 +1,10 @@
 """Simple FastMCP 3.x server implementation for Things 3 integration."""
 
-import asyncio
-import atexit
 import logging
-import signal
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 # Optional dotenv support
 try:
@@ -31,6 +29,15 @@ from .context_manager import ContextAwareResponseManager, ResponseMode
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _server_lifespan(_server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
+    """Stop the operation queue while its owning event loop is still active."""
+    try:
+        yield {}
+    finally:
+        await shutdown_operation_queue()
 
 
 def _parse_tag_list(tags: Optional[str]) -> Optional[List[str]]:
@@ -132,7 +139,7 @@ class ThingsMCPServer:
         Args:
             env_file: Optional path to .env file
         """
-        self.mcp = FastMCP("things-mcp")
+        self.mcp = FastMCP("things-mcp", lifespan=_server_lifespan)
         
         # Load configuration from environment and optional .env file
         if env_file:
@@ -175,7 +182,6 @@ class ThingsMCPServer:
         # self.query_engine = NaturalLanguageQueryEngine(self.tools)  # Removed - too complex
         self._register_tools()
         boot_marker("tools-registered")
-        self._register_shutdown_handlers()
         logger.info("Things MCP Server initialized with context-aware response management and tag validation support")
 
     def _process_checklist_items(self, checklist_items_str: str) -> list:
@@ -238,39 +244,6 @@ class ThingsMCPServer:
             console_handler.setFormatter(formatter)
             root_logger.addHandler(console_handler)
 
-    def _register_shutdown_handlers(self):
-        """Register shutdown handlers for graceful cleanup."""
-        def shutdown_handler():
-            """Handle server shutdown."""
-            try:
-                import sys
-                # Skip shutdown during pytest to prevent stream conflicts
-                if hasattr(sys, '_called_from_test') or 'pytest' in sys.modules:
-                    return
-                    
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If we're in an async context, schedule the shutdown
-                    loop.create_task(shutdown_operation_queue())
-                else:
-                    # If not, run it directly
-                    loop.run_until_complete(shutdown_operation_queue())
-            except Exception as e:
-                # Use safe logging during shutdown
-                try:
-                    logger.error(f"Error during shutdown: {e}")
-                except (ValueError, OSError):
-                    # Streams already closed, ignore
-                    pass
-        
-        # Register cleanup for normal exit
-        atexit.register(shutdown_handler)
-        
-        # Register signal handlers for graceful shutdown
-        if sys.platform != 'win32':
-            signal.signal(signal.SIGTERM, lambda s, f: shutdown_handler())
-            signal.signal(signal.SIGINT, lambda s, f: shutdown_handler())
-    
     async def _registered_tool_count(self) -> int:
         """Return the number of tools currently registered with the MCP server.
 
@@ -2773,27 +2746,13 @@ class ThingsMCPServer:
             raise
     
     def stop(self) -> None:
-        """Stop the MCP server gracefully."""
+        """Log completion after FastMCP's lifespan has stopped async resources."""
         try:
             logger.info("Stopping Things MCP Server...")
         except (ValueError, OSError):
             # Streams may be closed during shutdown
             pass
-            
-        try:
-            # Shutdown operation queue
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(shutdown_operation_queue())
-            else:
-                loop.run_until_complete(shutdown_operation_queue())
-        except Exception as e:
-            try:
-                logger.error(f"Error stopping operation queue: {e}")
-            except (ValueError, OSError):
-                # Streams already closed, ignore
-                pass
-                
+
         try:
             logger.info("Things MCP Server stopped")
         except (ValueError, OSError):
