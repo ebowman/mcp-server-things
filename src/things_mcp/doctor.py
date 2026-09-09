@@ -471,6 +471,13 @@ def check_interpreter_identity() -> CheckResult:
             "Access grant must be redone after any uv-managed interpreter upgrade."
         )
 
+    if kind in ("uv-managed", "venv", "other"):
+        lines.append(
+            "If the file is greyed out in the picker, drag it from a Finder window onto "
+            "the list instead (never via a drag-shelf/clipboard utility - it can stamp a "
+            "quarantine flag that makes the binary stop launching)."
+        )
+
     status = STATUS_WARN if kind == "uv-managed" else STATUS_PASS
     return CheckResult(name, status, detail=" | ".join(lines))
 

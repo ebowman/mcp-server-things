@@ -112,6 +112,39 @@ live; see hq-gxt.7):
      "+", press Cmd-Shift-G, paste the exact path, and add it. (The FDA
      picker sometimes greys out these paths - drag-and-drop from Finder
      works when the "+" dialog won't accept the path directly.)
+
+     > **The picker will not let you select `python3.X`.** Cause: Launch
+     > Services parses the trailing `.11`/`.12` in the filename as a file
+     > extension rather than part of the interpreter's name, so the binary
+     > gets classified as a generic document type instead of a Unix
+     > executable - even though it's a real Mach-O executable. Confirmed
+     > 2026-09-09 on macOS 26.6: `mdls -name kMDItemContentType
+     > <path-to-python3.X>` reports the dynamic type
+     > `dyn.ah62d4rv4ge8xcqk` with a type tree of only
+     > `public.item`/`public.data` (no `public.executable`), while a
+     > sibling binary without a numeric suffix (e.g. `pip3` in the same
+     > directory) correctly reports `public.unix-executable`; the "+"
+     > picker's Kind column shows `python3.X` as "Document" and greys it
+     > out accordingly. Workaround (verified working - creates a real TCC
+     > grant, `auth_value 2`, same as picker-based grants):
+     > 1. Open Finder, press Cmd+Shift+G, and paste the *directory*
+     >    containing the interpreter (the path `mcp-server-things doctor`
+     >    printed, minus the filename).
+     > 2. Back in System Settings, cancel the "+" picker dialog.
+     > 3. Drag the real `python3.X` file (not the `python3` alias/symlink)
+     >    from that Finder window directly onto the Full Disk Access list.
+     >    **Drag directly from the Finder window - never via a drag-shelf
+     >    or clipboard utility (Yoink, Dropover, etc.)**: these can re-stamp
+     >    the file with a `com.apple.quarantine` attribute as it passes
+     >    through their shelf, which makes Gatekeeper (`spctl`) start
+     >    rejecting the binary outright.
+     > 4. Confirm the toggle next to it is switched on.
+     >
+     > **If the interpreter stops launching afterwards:** the symptom is an
+     > instant exit code `137` (SIGKILL) on every invocation, and `spctl -a
+     > -v <path>` reports `rejected`. Check with `xattr -l <path>` - if you
+     > see a `com.apple.quarantine` line, that's the cause. Fix with
+     > `xattr -d com.apple.quarantine <path>`.
    - Quit and relaunch Claude Desktop, then run `mcp-server-things doctor`
      again to verify the database-readability check now PASSes.
    - **Caveat:** this grant is keyed to the exact path. If it's the
