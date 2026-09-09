@@ -20,6 +20,80 @@ strings: `unable to open database file` (the raw `things.py`/sqlite error)
 or `database_access_denied` (this server's structured error code for the
 same underlying cause).
 
+## Stop the dialog (verified procedure)
+
+This is the fix. Verified on macOS 26.6, 2026-09-09/10, on one machine: with
+Full Disk Access granted to the exact interpreter Claude Desktop launches,
+the "would like to access data from other apps" dialog did not appear across
+multiple relaunches; toggling that same grant off brought the dialog back
+immediately on the next relaunch. Clicking **Allow** on the dialog itself was
+also tried, three separate times across relaunches, and never stopped the
+dialog from returning - **clicking Allow is not a fix**. Read the "Risks"
+section below before doing this - granting Full Disk Access to a Python
+interpreter is a broad grant, not a narrow one.
+
+1. Find the exact interpreter file Claude Desktop launches. In order of
+   preference:
+   - Run `mcp-server-things doctor` and read the line starting
+     `GRANT FULL DISK ACCESS TO THIS FILE:` (also echoed in the footer line
+     `Full Disk Access target for Claude Desktop: <path>`).
+   - Or resolve it yourself: read the `command`/`args` for this server out of
+     `claude_desktop_config.json` and run `readlink -f <command>`.
+   - Or run `scripts/tcc_probe.sh` for a read-only snapshot.
+2. In Finder, press **Cmd+Shift+G** and paste the directory containing that
+   file (the path above, minus the filename).
+3. Open **System Settings > Privacy & Security > Full Disk Access**. Cancel
+   the "+" picker if it's open (it greys out `python3.X` - see the callout
+   in the fix ladder below for why), and instead **drag the real
+   `python3.X` file directly from the Finder window** onto the Full Disk
+   Access list. Never drag it via a drag-shelf or clipboard utility (Yoink,
+   Dropover, etc.) - doing so can quarantine the file and cause every
+   invocation to be SIGKILLed.
+4. Toggle the switch next to it **on**.
+5. Quit Claude Desktop completely and relaunch it.
+6. Verify: run `mcp-server-things doctor` again (the database-readability
+   check should PASS), or invoke any read tool (e.g. `get_today`) and
+   confirm no dialog appears.
+
+## Risks of granting Full Disk Access to a Python interpreter
+
+Full Disk Access is a broad, all-or-nothing grant - there is no way to scope
+it to a single folder or app's data. Before granting it, understand what you
+are actually authorizing:
+
+1. **The grant applies to every program run with that interpreter, not just
+   this server.** Any script or package ever executed with that exact
+   `python3.X` binary - including anything malicious that gets executed by
+   it, now or later - inherits the same access: Mail, Messages, Safari
+   history, other apps' containers, and Time Machine backups are all in
+   scope, not only the Things 3 database.
+2. **The binary is ad-hoc signed.** `codesign -dv` on a bare `python3.X`
+   interpreter reports `flags=adhoc` and no `TeamIdentifier` - macOS has no
+   cryptographic way to notice if that file is later replaced or modified,
+   unlike a grant to a binary with a real Developer ID or Team ID.
+3. **The grant is keyed to the resolved realpath and is silently lost on
+   interpreter upgrades** (see "Why it recurs" below) - this trains users to
+   re-grant reflexively on the next new path without stopping to check what
+   they're granting it to.
+4. **On a shared or headless/always-on machine, anyone who can run that
+   interpreter** - locally, or via remote access - **inherits the access**
+   too; the grant is not scoped to Claude Desktop's use of it.
+
+Mitigations:
+- **Dedicate an interpreter/venv to this server only** - not the system
+  Python or your daily-use interpreter - so the grant covers as little as
+  possible.
+- **Review System Settings > Full Disk Access periodically** and remove
+  stale versioned entries left behind by old interpreter upgrades.
+- **Remove the grant when the server is uninstalled.**
+- The `launchd` LaunchAgent + HTTP transport option (fix ladder step 4
+  below) is **not yet verified to avoid Full Disk Access** - do not rely on it
+  rather than implying it's a way around this section; it still requires
+  Full Disk Access on the interpreter it invokes, it only removes the
+  `disclaimer` hop.
+- There is no way to scope Full Disk Access to a single folder; the
+  mitigations above reduce blast radius, they do not eliminate it.
+
 ## (a) The three dialogs you may see
 
 **1. Automation (AppleScript writes, e.g. `add_todo`/`update_todo`):**
@@ -41,6 +115,33 @@ Russian wording (for grepping non-English screenshots/logs):
 
 Buttons: Allow / Don't Allow (Russian: «Разрешить» / «Не разрешать»).
 
+**What this dialog gates:** the Things 3 SQLite database, which lives inside
+Things' own Group Container
+(`~/Library/Group Containers/JLMPQHK86H.com.culturedcode.ThingsMac/...`) - on
+macOS 15+, that's classified as "another app's data" (`kTCCServiceSystemPolicyAppData`),
+which is exactly what this dialog's wording describes.
+
+**Choosing Don't Allow only breaks reads.** Write tools (`add_todo`,
+`update_todo`, ...) go through AppleScript, gated separately by dialog 1
+above, and continue to work normally; only the `things.py`-backed read tools
+(`get_today`, `search_todos`, etc.) fail with `database_access_denied`.
+
+**Why it reappears is not fully explained.** Clicking Allow does write a row
+to the user's `TCC.db` for the resolved interpreter path, but that row does
+not reliably stop the dialog from reappearing on the next Claude
+Desktop-launched relaunch (see "Stop the dialog" above - Allow was clicked
+three times across relaunches and the dialog kept returning). One candidate
+mechanism, observed but not confirmed as the full explanation: a first Allow
+click recorded a row with no code-signing requirement (`csreq NULL`) in
+`TCC.db`; a later Allow click on the same path *did* record a 40-byte csreq,
+and the dialog still came back. Since a row with a captured csreq recurred
+just as a NULL-csreq row did, the presence or absence of a csreq alone does
+not explain the recurrence - the actual mechanism by which a
+disclaimer-launched process's Allow decision fails to persist is not fully
+understood. Interpreter path stability (below) is a secondary, better-understood
+contributor: an upgrade changes the path outright and invalidates any grant
+keyed to it, Allow or Full Disk Access alike.
+
 **3. Full Disk Access** (System Settings pane: **Privacy & Security > Full
 Disk Access**) - not a dialog you click through in the moment; it's a
 System Settings toggle you add the interpreter binary to yourself (see the
@@ -49,13 +150,21 @@ container, so reads need this grant, not just the Automation grant.
 
 ## (b) Why the prompt comes back after a restart
 
+Live click-through-and-relaunch testing (hq-gxt.7, 2026-09-09/10) confirmed
+the fix: granting Full Disk Access to the exact interpreter Claude Desktop
+launches stops the dialog; that same grant, toggled off, brings it back. The
+*full* mechanism behind per-launch recurrence when only Allow (not Full Disk
+Access) is granted is not fully understood - see the "Why it reappears is not
+fully explained" note under dialog (2) above for what was and wasn't
+confirmed about the `TCC.db` row itself. Interpreter path instability
+(described below) is a distinct, well-understood, **secondary** cause: it
+explains why even a successful Full Disk Access grant has to be redone after
+an interpreter upgrade, not why the dialog recurs on every single relaunch
+of an otherwise-unchanged interpreter.
+
 Three mechanisms were observed directly (the `disclaimer` parent chain via
 `ps`, interpreter code-signing/path identity via `codesign`, and TCC.db
-`access` rows for python clients) during the hq-gxt.1 investigation. That
-these three combine to explain *why the prompt specifically recurs after a
-restart* is the working explanation built from that evidence, not yet
-confirmed end-to-end by an actual click-through-and-relaunch test - the
-operator matrix below (hq-gxt.7) will confirm or correct it:
+`access` rows for python clients) during the hq-gxt.1 investigation:
 
 - **The database path is another app's container.** The Things 3 SQLite
   database lives at
@@ -132,14 +241,19 @@ operator matrix below (hq-gxt.7) will confirm or correct it:
 > running `doctor` itself, which is frequently a *different* binary (e.g. a
 > project venv) - useful for understanding what kind of interpreter you're
 > looking at, but not a substitute for the "Claude Desktop interpreter"
-> check above when deciding where to click "Allow".
+> check above when deciding which file to grant Full Disk Access to.
 
 Ordered per the hq-gxt.1 findings, corrected by live observation
 (hq-gxt.7/hq-gxt.10, 2026-09-09 - see the matrix and "What we observed on a
 real machine" below):
 
-1. **Grant Full Disk Access to the exact realpath interpreter** (System
-   Settings > Privacy & Security > Full Disk Access):
+1. **VERIFIED (one machine, macOS 26.6, 2026-09-09/10): grant Full Disk
+   Access to the exact realpath interpreter Claude Desktop launches** -
+   dragged directly from Finder (System Settings > Privacy & Security >
+   Full Disk Access). This is the primary recommendation; see "Stop the
+   dialog" above for the numbered procedure and the exact evidence
+   (FDA on -> no dialog across relaunches; FDA off -> dialog returns;
+   Allow-only, tried three times, never persisted):
    - Find the exact path to add via either:
      - `mcp-server-things doctor` and read the "Interpreter identity" row
        (`Grant Full Disk Access to: <path>`), or
@@ -216,13 +330,15 @@ real machine" below):
    path), not the stable symlink path itself - a grant made to the symlink
    path is never actually consulted, and the real per-upgrade path still
    needs re-granting. This is not implemented or planned for that reason.
-4. **Run the server as a `launchd` LaunchAgent over HTTP transport**, for a
-   fully unattended/headless setup - the always-running form of "run from
-   Terminal": a Terminal-launched process already has disk access, and a
-   LaunchAgent launches the same way (not via Claude Desktop's `disclaimer`
-   helper), so it inherits whatever grant was made under step 1 or 2 for the
-   interpreter it invokes - **Full Disk Access still applies to that
-   interpreter binary**, this step only removes the `disclaimer` hop.
+4. **NOT YET VERIFIED to avoid the dialog: run the server as a `launchd`
+   LaunchAgent over HTTP transport**, for a fully unattended/headless setup -
+   the always-running form of "run from Terminal": a Terminal-launched
+   process already has disk access, and a LaunchAgent launches the same way
+   (not via Claude Desktop's `disclaimer` helper), so it inherits whatever
+   grant was made under step 1 or 2 for the interpreter it invokes - **Full
+   Disk Access still applies to that interpreter binary**, this step only
+   removes the `disclaimer` hop. This has not been tried live; do not assume
+   it avoids Full Disk Access or the dialog until it has been.
 
    Minimal LaunchAgent plist example
    (`~/Library/LaunchAgents/com.example.mcp-server-things.plist`), running
@@ -315,19 +431,17 @@ structured error instead of results:
 
 ## Interactive verification matrix
 
-Rows (a)-(c) describe scenarios that require an operator to click through
-dialogs and relaunch Claude Desktop and have **not** been observed live yet
-(`hq-gxt.7` remains open to run them). Rows (d) and (e) below **were**
-observed live on 2026-09-09 (macOS 26.6) - see "What we observed on a real
-machine" for the underlying TCC.db rows.
+All rows below have now been observed live (hq-gxt.7, macOS 26.6,
+2026-09-09/10) except where noted - only a reboot test remains untested.
 
 | Row | Scenario | Status | Operator steps / observation |
 |---|---|---|---|
-| (a) | Allow the AppData prompt, then quit and relaunch Claude Desktop entirely - does it re-prompt? | not yet verified | 1. Quit Claude Desktop fully (Cmd-Q; confirm no background helper remains via `pgrep -fl things_mcp`). 2. Relaunch Claude Desktop and invoke any Things MCP tool. 3. Watch for the "python wants access to other apps' data" dialog; click **Allow** if shown. 4. Quit and relaunch Claude Desktop a second time and repeat step 3 - record whether the dialog reappears. |
-| (b) | Grant Full Disk Access to the realpath python3.12 binary, then relaunch Claude Desktop - does it re-prompt? | not yet verified | 1. Run `scripts/tcc_probe.sh` and note the resolved realpath under section 1. 2. Open System Settings > Privacy & Security > Full Disk Access. 3. Click "+", press Cmd-Shift-G, paste that exact path, and add it. 4. Quit and relaunch Claude Desktop. 5. Invoke a Things MCP tool and record whether the AppData prompt still appears. Caveat: if `uv` later reinstalls/upgrades this interpreter, the path (and this FDA grant) becomes stale and the new path needs to be added again - expected, not a failure. |
-| (c) | Launch via a stable framework-Python path instead of the manifest.json `uvx` default, then relaunch Claude Desktop - does it re-prompt? | not yet verified | 1. Confirm the server config uses a framework-build interpreter (e.g. `venv/bin/python -m things_mcp` where the venv points at a Homebrew framework Python), not `uvx`. 2. Quit and relaunch Claude Desktop. 3. Invoke a Things MCP tool and record whether any AppData prompt appears. |
+| (a) | Allow the AppData prompt only (no Full Disk Access), then quit and relaunch Claude Desktop entirely - does it re-prompt? | **observed: prompt returns** | Clicked Allow on the "would like to access data from other apps" dialog, quit and relaunched Claude Desktop, and repeated across three separate relaunches - the dialog reappeared every time, whether or not the underlying `TCC.db` row happened to carry a code-signing requirement (csreq). Allow alone does not stop the dialog. |
+| (b) | Grant Full Disk Access to the exact realpath interpreter Claude Desktop launches, then relaunch Claude Desktop - does it re-prompt? | **observed: no prompt with FDA on; prompt returns with FDA off** | Dragged the exact Claude Desktop interpreter (`/opt/homebrew/Cellar/python@3.13/3.13.15/.../bin/python3.13`) directly from Finder onto the Full Disk Access list, toggled it on, quit and relaunched Claude Desktop, invoked a read tool - no dialog. Toggling that same Full Disk Access entry **off** and relaunching brought the dialog back immediately. This is the verified fix (see "Stop the dialog" above). Caveat unchanged: if the interpreter is later upgraded, the path (and this FDA grant) becomes stale and the new path needs to be added again - expected, not a failure. |
+| (c) | Launch via a stable framework-Python path (`venv/bin/python` resolving to a Homebrew framework build) instead of a `uvx`-managed interpreter - does it re-prompt? | **observed** | This *was* the actual configuration under test throughout hq-gxt.7: Claude Desktop's configured `venv/bin/python` resolves to the Homebrew framework realpath. The framework build did not change rows (a)/(b)'s outcome - the dialog behaves the same way for a framework-build interpreter as for a `uvx`-managed one, keyed to its resolved realpath either way (see "Why it recurs" above). |
 | (d) | Grant Full Disk Access via drag-and-drop (the picker greys out `python3.X`) to a uv-managed interpreter - does the grant register and take effect? | **observed** | Dragged `~/.local/share/uv/python/cpython-3.11.13-macos-aarch64-none/bin/python3.11` directly from a Finder window onto the Full Disk Access list. System TCC.db recorded `kTCCServiceSystemPolicyAllFiles`, `auth_value=2`, at 20:32:31 - the grant registered correctly. It had no effect on a *different* interpreter's app-data prompt (see (e)), which is expected - FDA is still per-binary. |
 | (e) | Launch via a stable symlink path (`uv tool install`, `venv/bin/python`) instead of the versioned realpath - does the TCC grant key on the symlink path or the resolved realpath, and does a framework build's `org.python.python` bundle-id grant survive a patch upgrade? | **observed** | Claude Desktop's configured `venv/bin/python` resolved to the Homebrew framework realpath `.../Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/bin/python3.13`. 55s after the FDA grant in (d) (made to a *different*, python3.11 interpreter), the app-data dialog fired for this python3.13 process; clicking Allow wrote a user TCC.db row keyed to that exact Cellar realpath (`kTCCServiceSystemPolicyAppData`, `client_type=1`) at 20:33:26 - **not** to `venv/bin/python` or the `/opt/homebrew/opt/...` symlink. This is the third such path-keyed row observed across three separate Homebrew `python@3.13` patch upgrades (3.13.11, 3.13.12_1, 3.13.15); a pre-existing `org.python.python` (`client_type=0`) row from an earlier upgrade did not prevent this prompt. Conclusion: TCC keys on the fully resolved realpath, not a stable symlink or launch alias - a symlink-stable launch path does not avoid re-granting after an interpreter upgrade. Answered by this realpath-keying evidence; the specific `uv tool install` symlink variant described in the scenario column was not run separately as its own experiment. |
+| (reboot) | Does a full machine reboot change any of the above? | **untested** | Not attempted; treat as unverified. |
 
 ## What we observed on a real machine
 
@@ -349,6 +463,23 @@ generalised to `<user>`, no secrets):
   20:32:31: the Full Disk Access drag-and-drop workaround (see the fix
   ladder's callout above) for a uv-managed `python3.11`, confirming the
   workaround produces a real grant indistinguishable from a picker-based one.
+- 2026-09-09 23:13: with Full Disk Access granted only to the *doctor*
+  interpreter (a `uv`-managed `python3.12`, not the interpreter Claude
+  Desktop actually launches), invoking a read tool re-triggered the
+  app-data dialog for `python3.13`. User `TCC.db` rewrote the same
+  (service, client) row at 23:14:01 with `csreq NULL`.
+- 2026-09-09 23:53: an Allow click on that same dialog, before any correct
+  Full Disk Access grant existed, captured a 40-byte csreq this time. Earlier
+  Allow clicks (with and without a stored csreq) had all been followed by the
+  dialog reappearing on the next relaunch (row (a) above, observed three
+  times), so the presence of a csreq is not what stops the recurrence - the
+  Full Disk Access grant below is.
+- 2026-09-09 23:57:28: Full Disk Access (`kTCCServiceSystemPolicyAllFiles`,
+  `auth_value=2`, `csreq` 40 bytes) granted directly to the exact Claude Desktop interpreter
+  (`.../python@3.13/3.13.15/.../bin/python3.13`), dragged from Finder. The
+  next relaunch produced no dialog. Toggling this grant off and relaunching
+  again reproduced the dialog. This is the disambiguating pair of
+  observations behind the "Stop the dialog" procedure and row (b) above.
 
 ---
 

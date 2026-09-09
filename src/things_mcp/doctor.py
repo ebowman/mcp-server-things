@@ -1173,7 +1173,10 @@ def format_table(results: List[CheckResult], use_color: Optional[bool] = None) -
     lines.append(summary)
 
     for path in _full_disk_access_targets():
-        lines.append(f"Full Disk Access target for Claude Desktop: {path}")
+        lines.append(
+            f"Full Disk Access target for Claude Desktop: {path} "
+            '(Full Disk Access is broad - see docs/MACOS_PERMISSIONS.md "Risks" before granting.)'
+        )
 
     return "\n".join(lines)
 
