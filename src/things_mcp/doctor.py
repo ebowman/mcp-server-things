@@ -451,16 +451,29 @@ def check_interpreter_identity() -> CheckResult:
       the base interpreter - reported here as a fallback classification
       when the resolved path also isn't identifiable as uv-managed or
       framework).
-    - ``framework``: path lives under a ``Python.framework`` bundle (a
-      framework Python re-execs via ``Python.app`` and is keyed by macOS by
-      its bundle id ``org.python.python``, which is stable across patch
-      upgrades).
+    - ``framework``: path lives under a ``Python.framework`` bundle. A
+      framework *build* of Python has a ``Python.app`` with stable bundle id
+      ``org.python.python``, but live evidence (hq-gxt.7/hq-gxt.10, macOS
+      26.6) shows the bare interpreter binary this check resolves to (e.g.
+      ``.../Versions/3.13/bin/python3.13``) is a separately ad-hoc-signed
+      stub (``codesign -dv`` reports its own ``Identifier``, distinct from
+      ``org.python.python``) - TCC keyed a fresh, path-scoped app-data grant
+      to it on every one of three observed Homebrew ``python@3.13`` patch
+      upgrades, and the pre-existing ``org.python.python`` grant did not
+      cover it. There is no known upgrade-proof identity for a bare
+      interpreter binary, framework or otherwise; every classification below
+      is keyed by realpath and must be re-granted after that interpreter is
+      upgraded.
     - ``other``: none of the above.
 
     This check never FAILs - it is purely informational. Every classification
-    is STATUS_PASS except ``uv-managed``, which is STATUS_WARN since the
+    reports STATUS_PASS except ``uv-managed``, which is STATUS_WARN since the
     path embeds the interpreter's patch version and the Full Disk Access
-    grant must be redone after an interpreter upgrade.
+    grant must be redone after an interpreter upgrade. Live evidence shows
+    ``framework`` grants are just as fragile across patch upgrades (see
+    above) - ``framework`` is not yet marked WARN for this; that is a status
+    behavior change out of scope for this doc-correction pass (tracked
+    separately), not a claim that the grant is actually stable.
     """
     name = "Interpreter identity"
     realpath = os.path.realpath(sys.executable)
@@ -477,7 +490,9 @@ def check_interpreter_identity() -> CheckResult:
     lines = [f"interpreter={realpath} ({kind})", f"Grant Full Disk Access to: {realpath}"]
     if kind == "framework":
         lines.append(
-            "TCC keys framework Python by bundle id org.python.python, stable across patch upgrades."
+            "Framework Python.app has a stable bundle id (org.python.python), but live "
+            "evidence shows the bare interpreter binary is a separately ad-hoc-signed "
+            "stub not covered by it - this grant must be redone after a patch upgrade too."
         )
     elif kind == "uv-managed":
         lines.append(

@@ -74,32 +74,69 @@ operator matrix below (hq-gxt.7) will confirm or correct it:
   one. `mcp-server-things doctor`'s "Launch parent" check detects this by
   walking the process's parent chain and WARNs when it finds `disclaimer`
   in it.
-- **The `uvx`-managed interpreter is ad-hoc signed and keyed by path that
-  embeds the patch version**, so a grant made to it is lost after
-  interpreter upgrades. `uvx`'s resolved interpreter has no code-signing
-  Team ID and isn't wrapped in an `.app` bundle
-  (`codesign -dv` reports `Signature=adhoc`, `TeamIdentifier=not set`,
-  `Identifier=-`), so TCC has no stable bundle identity to key off and falls
+- **Every bare Python interpreter is ad-hoc signed and keyed by realpath**,
+  so a grant made to it is lost after that interpreter is upgraded - this is
+  true of the `uvx`-managed interpreter *and* a Homebrew framework build,
+  not just the former. `uvx`'s resolved interpreter has no code-signing Team
+  ID and isn't wrapped in an `.app` bundle (`codesign -dv` reports
+  `Signature=adhoc`, `TeamIdentifier=not set`, `Identifier=-`), so TCC falls
   back to identifying the process **by its exact executable path** - a path
   like `~/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12`
   that embeds the exact patch version. Any `uv python install --reinstall`,
   or uv simply resolving a newer patch release later, changes this path
   outright, so the previous grant no longer matches anything and macOS
   treats the "new" path as a never-before-seen program requiring a fresh
-  prompt. By contrast, a Homebrew **framework** build of Python re-execs
-  through its bundled `Python.app`, which carries a stable
-  `CFBundleIdentifier` of `org.python.python` - a version-independent
-  identity that TCC.db evidence shows holding a live grant across multiple
-  Homebrew `python@3.13` rebuilds on the investigation machine.
-  `mcp-server-things doctor`'s "Interpreter identity" check reports the
-  exact resolved binary path and classifies it as `uv-managed` (WARN - grant
-  is fragile across upgrades), `venv`, `framework` (stable), or `other`.
+  prompt.
+
+  It is tempting to assume a Homebrew **framework** build of Python avoids
+  this, since it re-execs through a bundled `Python.app` carrying a stable
+  `CFBundleIdentifier` of `org.python.python`. **Live evidence refutes
+  that** (hq-gxt.7/hq-gxt.10, 2026-09-09): the bare interpreter binary
+  itself (e.g. `.../Frameworks/Python.framework/Versions/3.13/bin/python3.13`)
+  is a *separately* ad-hoc-signed stub, not the `Python.app` bundle -
+  `codesign -dv` reports its own `Identifier` (e.g. `python3-5555...`,
+  `flags=adhoc`), distinct from `org.python.python`. The app-data TCC grant
+  this server actually needs is keyed to that stub's realpath, exactly like
+  the `uvx`-managed case, and a pre-existing `org.python.python` grant does
+  not cover it. **There is no known upgrade-proof identity for a bare
+  python interpreter, uv-managed or Homebrew framework** - every one of
+  three observed Homebrew `python@3.13` patch upgrades on the investigation
+  machine produced its own new path-keyed grant requirement (see "What we
+  observed on a real machine" below). `mcp-server-things doctor`'s
+  "Interpreter identity" check reports the exact resolved binary path and
+  classifies it as `uv-managed`, `venv`, `framework`, or `other` - the
+  classification is informational (which kind of interpreter this is), not
+  a stability guarantee.
 
 ## (c) Fix ladder for an unattended/headless Mac
 
-Ordered per the hq-gxt.1 findings' recommended ordering - **recommended,
-pending verification** (the operator matrix below is not yet confirmed
-live; see hq-gxt.7):
+> **Grant it to the RIGHT interpreter.** Every step below only works if you
+> grant Full Disk Access to the exact binary Claude Desktop itself will run
+> - not whatever `python`/`python3` happens to be on your terminal's PATH,
+> and not a venv you invoke `doctor` from interactively. Find that exact
+> path with, in order of preference:
+> 1. `mcp-server-things doctor`'s **"Claude Desktop interpreter"** check -
+>    it reads `claude_desktop_config.json` (and any installed `.mcpb`
+>    manifest) directly and prints `Claude Desktop will run: <path> - grant
+>    Full Disk Access to THIS file`.
+> 2. `scripts/tcc_probe.sh` for a read-only snapshot you can paste back for
+>    troubleshooting.
+> 3. Manually: read the `command`/`args` for this server out of
+>    `claude_desktop_config.json`, then resolve it yourself with
+>    `readlink -f <command>` (or, for the `.mcpb`/`uvx` case, let `doctor`'s
+>    bounded `uvx`/`uv` probe do this resolution for you - it invokes the
+>    same `uvx` command Claude Desktop would and reports the interpreter it
+>    resolves to).
+>
+> `doctor`'s "Interpreter identity" check instead reports the interpreter
+> running `doctor` itself, which is frequently a *different* binary (e.g. a
+> project venv) - useful for understanding what kind of interpreter you're
+> looking at, but not a substitute for the "Claude Desktop interpreter"
+> check above when deciding where to click "Allow".
+
+Ordered per the hq-gxt.1 findings, corrected by live observation
+(hq-gxt.7/hq-gxt.10, 2026-09-09 - see the matrix and "What we observed on a
+real machine" below):
 
 1. **Grant Full Disk Access to the exact realpath interpreter** (System
    Settings > Privacy & Security > Full Disk Access):
@@ -119,8 +156,10 @@ live; see hq-gxt.7):
      > gets classified as a generic document type instead of a Unix
      > executable - even though it's a real Mach-O executable. Confirmed
      > 2026-09-09 on macOS 26.6: `mdls -name kMDItemContentType
-     > <path-to-python3.X>` reports the dynamic type
-     > `dyn.ah62d4rv4ge8xcqk` with a type tree of only
+     > <path-to-python3.X>` reports a `dyn.*` dynamic type synthesized
+     > per-extension (e.g. `dyn.ah62d4rv4ge8xcqk` for `.11`,
+     > `dyn.ah62d4rv4ge8xcqu` for `.12` - the exact string varies by
+     > extension, it is not one fixed UTI), with a type tree of only
      > `public.item`/`public.data` (no `public.executable`), while a
      > sibling binary without a numeric suffix (e.g. `pip3` in the same
      > directory) correctly reports `public.unix-executable`; the "+"
@@ -147,24 +186,36 @@ live; see hq-gxt.7):
      > `xattr -d com.apple.quarantine <path>`.
    - Quit and relaunch Claude Desktop, then run `mcp-server-things doctor`
      again to verify the database-readability check now PASSes.
-   - **Caveat:** this grant is keyed to the exact path. If it's the
-     `uvx`-managed interpreter, any later `uv python` reinstall/upgrade
-     changes the path and the grant must be redone - this is a known
-     limitation of this option, flagged by doctor's "Interpreter identity"
-     WARN, not a sign the fix failed.
-2. **Use a bundle-identified interpreter** (a Homebrew framework build of
-   Python, invoked via a stable venv path so it re-execs through
-   `Python.app`) instead of the `uvx`-managed interpreter from
-   `manifest.json`. This is the only configuration with direct evidence
-   (TCC.db) of a currently-granted, version-independent identity
-   (`org.python.python`), so the grant should survive interpreter patch
-   upgrades and Claude Desktop restarts - trading step 1's per-upgrade
-   redo for a one-time interpreter-choice change.
-3. **Pin the `uv`-managed interpreter to a stable location**, if `uv`/`uvx`
-   must remain the launch mechanism. This is the findings' uv-pinning
-   recommendation and is not yet implemented or verified - tracked
-   separately as hq-gxt.5; it would avoid step 1's per-upgrade FDA redo
-   without switching away from `uv`.
+   - **Caveat:** this grant is keyed to the resolved path of whichever
+     interpreter you granted it to. Any later patch upgrade of that
+     interpreter - the `uvx`-managed interpreter, **or** a Homebrew
+     framework build - changes its resolved path and the grant must be
+     redone (see step 2 below and the live evidence there); this is a known
+     limitation of this option, not a sign the fix failed. `doctor`'s
+     "Interpreter identity" check currently only WARNs for this on
+     `uv-managed` (tracked separately for `framework` as hq-b49) - a PASS
+     there does not mean the grant is upgrade-proof.
+2. **There is no known upgrade-proof alternative interpreter to switch to.**
+   Any bare interpreter - `uv`-managed or a Homebrew framework build of
+   Python, invoked via a venv or otherwise - is keyed by TCC to its resolved
+   realpath and must be re-granted after that interpreter is next upgraded;
+   live evidence (hq-gxt.7) shows this held true across three separate
+   Homebrew `python@3.13` patch upgrades even though the framework build's
+   `Python.app` carries a stable `org.python.python` bundle id, because the
+   bare `bin/python3.13` binary itself is a separately ad-hoc-signed stub
+   not covered by that bundle id. Switching interpreters does not turn step
+   1 into a one-time cost - budget for re-granting Full Disk Access after
+   every interpreter patch upgrade, whichever interpreter you choose.
+3. **Pinning the `uv`-managed interpreter to a stable symlink path does not
+   help.** A natural next idea is a launch path that stays fixed across
+   upgrades (`uv tool install ... --python 3.12`'s
+   `~/.local/share/uv/tools/.../bin/python3.12` symlink, or a project
+   `venv/bin/python`) so the grant, keyed to that fixed path, survives an
+   underlying interpreter upgrade. Live evidence refutes this: TCC records
+   the fully resolved realpath the symlink points at (the versioned Cellar
+   path), not the stable symlink path itself - a grant made to the symlink
+   path is never actually consulted, and the real per-upgrade path still
+   needs re-granting. This is not implemented or planned for that reason.
 4. **Run the server as a `launchd` LaunchAgent over HTTP transport**, for a
    fully unattended/headless setup - the always-running form of "run from
    Terminal": a Terminal-launched process already has disk access, and a
@@ -262,17 +313,42 @@ structured error instead of results:
 }
 ```
 
-## Interactive verification matrix (not yet verified)
+## Interactive verification matrix
 
-The rows below describe scenarios that require an operator to click through
-dialogs and relaunch Claude Desktop - they have **not** been observed live.
-`hq-gxt.7` will run these and record actual results here.
+Rows (a)-(c) describe scenarios that require an operator to click through
+dialogs and relaunch Claude Desktop and have **not** been observed live yet
+(`hq-gxt.7` remains open to run them). Rows (d) and (e) below **were**
+observed live on 2026-09-09 (macOS 26.6) - see "What we observed on a real
+machine" for the underlying TCC.db rows.
 
-| Row | Scenario | Status | Operator steps |
+| Row | Scenario | Status | Operator steps / observation |
 |---|---|---|---|
 | (a) | Allow the AppData prompt, then quit and relaunch Claude Desktop entirely - does it re-prompt? | not yet verified | 1. Quit Claude Desktop fully (Cmd-Q; confirm no background helper remains via `pgrep -fl things_mcp`). 2. Relaunch Claude Desktop and invoke any Things MCP tool. 3. Watch for the "python wants access to other apps' data" dialog; click **Allow** if shown. 4. Quit and relaunch Claude Desktop a second time and repeat step 3 - record whether the dialog reappears. |
 | (b) | Grant Full Disk Access to the realpath python3.12 binary, then relaunch Claude Desktop - does it re-prompt? | not yet verified | 1. Run `scripts/tcc_probe.sh` and note the resolved realpath under section 1. 2. Open System Settings > Privacy & Security > Full Disk Access. 3. Click "+", press Cmd-Shift-G, paste that exact path, and add it. 4. Quit and relaunch Claude Desktop. 5. Invoke a Things MCP tool and record whether the AppData prompt still appears. Caveat: if `uv` later reinstalls/upgrades this interpreter, the path (and this FDA grant) becomes stale and the new path needs to be added again - expected, not a failure. |
 | (c) | Launch via a stable framework-Python path instead of the manifest.json `uvx` default, then relaunch Claude Desktop - does it re-prompt? | not yet verified | 1. Confirm the server config uses a framework-build interpreter (e.g. `venv/bin/python -m things_mcp` where the venv points at a Homebrew framework Python), not `uvx`. 2. Quit and relaunch Claude Desktop. 3. Invoke a Things MCP tool and record whether any AppData prompt appears. |
+| (d) | Grant Full Disk Access via drag-and-drop (the picker greys out `python3.X`) to a uv-managed interpreter - does the grant register and take effect? | **observed** | Dragged `~/.local/share/uv/python/cpython-3.11.13-macos-aarch64-none/bin/python3.11` directly from a Finder window onto the Full Disk Access list. System TCC.db recorded `kTCCServiceSystemPolicyAllFiles`, `auth_value=2`, at 20:32:31 - the grant registered correctly. It had no effect on a *different* interpreter's app-data prompt (see (e)), which is expected - FDA is still per-binary. |
+| (e) | Launch via a stable symlink path (`uv tool install`, `venv/bin/python`) instead of the versioned realpath - does the TCC grant key on the symlink path or the resolved realpath, and does a framework build's `org.python.python` bundle-id grant survive a patch upgrade? | **observed** | Claude Desktop's configured `venv/bin/python` resolved to the Homebrew framework realpath `.../Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/bin/python3.13`. 55s after the FDA grant in (d) (made to a *different*, python3.11 interpreter), the app-data dialog fired for this python3.13 process; clicking Allow wrote a user TCC.db row keyed to that exact Cellar realpath (`kTCCServiceSystemPolicyAppData`, `client_type=1`) at 20:33:26 - **not** to `venv/bin/python` or the `/opt/homebrew/opt/...` symlink. This is the third such path-keyed row observed across three separate Homebrew `python@3.13` patch upgrades (3.13.11, 3.13.12_1, 3.13.15); a pre-existing `org.python.python` (`client_type=0`) row from an earlier upgrade did not prevent this prompt. Conclusion: TCC keys on the fully resolved realpath, not a stable symlink or launch alias - a symlink-stable launch path does not avoid re-granting after an interpreter upgrade. Answered by this realpath-keying evidence; the specific `uv tool install` symlink variant described in the scenario column was not run separately as its own experiment. |
+
+## What we observed on a real machine
+
+Live TCC.db observations from `<user>`'s Mac, 2026-09-09, macOS 26.6 (paths
+generalised to `<user>`, no secrets):
+
+- User `TCC.db`, `kTCCServiceSystemPolicyAppData`, `client_type=1` (path-keyed),
+  one row per Homebrew `python@3.13` patch upgrade: `3.13.11` (2026-02-25),
+  `3.13.12_1` (2026-07-19), `3.13.15` (2026-09-09 20:33:26).
+- A separate `org.python.python` row (`client_type=0`, dated 2026-08-13) did
+  **not** prevent the 2026-09-09 prompt for `3.13.15` - `codesign` on the
+  Cellar `bin/python3.13` binary reports `Identifier=python3-5555...`,
+  `flags=adhoc`: an ad-hoc-signed stub, not the `Python.app` bundle that
+  `org.python.python` actually names.
+- TCC recorded the fully resolved realpath (the versioned Cellar path) in
+  every row above - never `venv/bin/python`, nor an `/opt/homebrew/opt/...`
+  symlink.
+- System `TCC.db`, `kTCCServiceSystemPolicyAllFiles`, `auth_value=2`,
+  20:32:31: the Full Disk Access drag-and-drop workaround (see the fix
+  ladder's callout above) for a uv-managed `python3.11`, confirming the
+  workaround produces a real grant indistinguishable from a picker-based one.
 
 ---
 
