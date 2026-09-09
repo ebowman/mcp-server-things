@@ -432,6 +432,8 @@ from source.
 
 macOS's TCC (Automation, app-data protection, Full Disk Access) can block reads even when writes work, and grants can be lost after a Claude Desktop restart or interpreter upgrade. `doctor`'s "Interpreter identity" and "Launch parent" checks pinpoint the exact cause. See [docs/MACOS_PERMISSIONS.md](docs/MACOS_PERMISSIONS.md) for the dialogs you'll see, why they recur, and the fix ladder for a headless Mac.
 
+Two further checks close a gap where the interpreter *running doctor* (e.g. a venv opened from a terminal) can differ from the interpreter Claude Desktop actually launches, so granting Full Disk Access to the former does nothing for the latter. **"Claude Desktop interpreter"** reads `~/Library/Application Support/Claude/claude_desktop_config.json` (and any installed `.mcpb` extension's `manifest.json`) for every entry that looks like it launches this server, resolves the interpreter each one would actually run (including a bounded `uvx`/`uv` probe subprocess), and WARNs when it differs from the one running doctor - naming the exact Claude Desktop path to grant Full Disk Access to instead. **"Full Disk Access effective (this process)"** probes whether *this* process currently has Full Disk Access by attempting to read `TCC.db`; a PASS here may only reflect the terminal's own grant, not the Claude Desktop-launched interpreter checked above.
+
 ### Checklist tools return "Things URL-scheme auth token not configured"
 
 `add_checklist_items`, `prepend_checklist_items`, and `replace_checklist_items`

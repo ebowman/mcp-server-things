@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -415,18 +416,31 @@ def check_python_architecture() -> CheckResult:
 _UV_MANAGED_MARKER = "/uv/python/"
 _PYTHON_FRAMEWORK_MARKER = "/Python.framework/"
 
+_DRAG_DROP_HINT = (
+    "If the file is greyed out in the picker, drag it from a Finder window onto "
+    "the list instead (never via a drag-shelf/clipboard utility - it can stamp a "
+    "quarantine flag that makes the binary stop launching)."
+)
+
 
 def check_interpreter_identity() -> CheckResult:
-    """Report the exact interpreter binary macOS TCC will key Full Disk Access to.
+    """Report the interpreter *running doctor* and classify it for TCC purposes.
 
     macOS's TCC (Transparency, Consent, and Control) privacy system keys the
     "App Data" (Full Disk Access-adjacent) grant to the specific on-disk
     binary that requests it - not to a launching parent app such as Claude
-    Desktop. This check reports ``os.path.realpath(sys.executable)`` (always
-    resolving through any symlink, e.g. a venv's ``bin/python``) and
-    classifies the interpreter so the operator knows exactly what to grant
-    Full Disk Access to, and whether that grant will survive an interpreter
-    upgrade:
+    Desktop. This check reports ``os.path.realpath(sys.executable)`` for
+    *this* process (always resolving through any symlink, e.g. a venv's
+    ``bin/python``) and classifies it so the operator understands what kind
+    of interpreter is running doctor right now, and whether a grant made to
+    it would survive an interpreter upgrade.
+
+    Note this is the interpreter running *doctor itself* - when doctor is
+    run from a terminal, that is very often a different interpreter than
+    the one Claude Desktop actually launches (e.g. a venv vs the Homebrew
+    framework Python Claude Desktop's config points at). See the
+    "Claude Desktop interpreter" check below for the interpreter Claude
+    Desktop will actually run and grant Full Disk Access to.
 
     - ``uv-managed``: path lives under a ``.../uv/python/...`` directory
       (e.g. ``~/.local/share/uv/python/cpython-3.12.11-.../bin/python3.12``).
@@ -471,12 +485,11 @@ def check_interpreter_identity() -> CheckResult:
             "Access grant must be redone after any uv-managed interpreter upgrade."
         )
 
-    if kind in ("uv-managed", "venv", "other"):
-        lines.append(
-            "If the file is greyed out in the picker, drag it from a Finder window onto "
-            "the list instead (never via a drag-shelf/clipboard utility - it can stamp a "
-            "quarantine flag that makes the binary stop launching)."
-        )
+    # Framework realpaths also end in a patch-version segment (e.g. .../3.13/
+    # bin/python3.13) and hit the same Launch Services "greyed out" picker bug
+    # as uv-managed/venv/other paths (hq-gxt.9 reviewer nit) - the hint applies
+    # to every classification, not just uv-managed/venv/other.
+    lines.append(_DRAG_DROP_HINT)
 
     status = STATUS_WARN if kind == "uv-managed" else STATUS_PASS
     return CheckResult(name, status, detail=" | ".join(lines))
@@ -568,6 +581,294 @@ def check_launch_parent() -> CheckResult:
             )
 
     return CheckResult(name, STATUS_INFO, detail=f"launch chain: {' <- '.join(comms)}")
+
+
+# ---------------------------------------------------------------------------
+# check_claude_desktop_interpreter
+# ---------------------------------------------------------------------------
+
+_CLAUDE_DESKTOP_CONFIG_PATH = (
+    Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+)
+_CLAUDE_EXTENSIONS_DIR = Path.home() / "Library" / "Application Support" / "Claude" / "Claude Extensions"
+_THINGS_ENTRY_MARKERS = ("things_mcp", "mcp-server-things")
+_UVX_PYTHON_SELECT_FLAGS = ("--python", "--python-preference", "-p")
+_UVX_REALPATH_PROBE_CODE = "import os,sys;print(os.path.realpath(sys.executable))"
+_UVX_PROBE_TOTAL_BUDGET_SECS = 35.0
+_UVX_PROBE_SINGLE_TIMEOUT_SECS = 30.0
+
+
+def _entry_matches_things(command: str, args: List[str]) -> bool:
+    """Return True if this mcpServers entry looks like it launches this server."""
+    haystacks = [command] + [a for a in args if isinstance(a, str)]
+    lowered = [h.lower() for h in haystacks if isinstance(h, str)]
+    return any(marker in h for h in lowered for marker in _THINGS_ENTRY_MARKERS)
+
+
+def _extract_uvx_python_flags(args: List[str]) -> List[str]:
+    """Keep only interpreter-selection flags (and their values) from a uvx arg list.
+
+    Handles both split form (``--python``, ``3.13``) and inline ``=`` form
+    (``--python=3.13``) - the latter is kept as a single whole token.
+    """
+    flags: List[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _UVX_PYTHON_SELECT_FLAGS:
+            flags.append(arg)
+            if i + 1 < len(args):
+                flags.append(str(args[i + 1]))
+                i += 1
+        elif isinstance(arg, str) and "=" in arg and arg.split("=", 1)[0] in _UVX_PYTHON_SELECT_FLAGS:
+            flags.append(arg)
+        i += 1
+    return flags
+
+
+def _resolve_uvx_entry(
+    label: str, command: str, args: List[str], deadline: float
+) -> tuple:
+    """Resolve the interpreter a uvx/uv entry would select, via a probe subprocess.
+
+    Returns (status, detail_line, hint_line_or_empty).
+    """
+    python_flags = _extract_uvx_python_flags(args)
+    probe_cmd = [command] + python_flags + ["python", "-c", _UVX_REALPATH_PROBE_CODE]
+    manual_cmd = " ".join(probe_cmd)
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return (
+            STATUS_INFO,
+            f"{label}: uvx resolution skipped (time budget exhausted) - run manually: {manual_cmd}",
+            "",
+        )
+
+    timeout = min(_UVX_PROBE_SINGLE_TIMEOUT_SECS, remaining)
+    try:
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return (
+            STATUS_INFO,
+            f"{label}: could not resolve uvx-selected interpreter ({e}) - run manually: {manual_cmd}",
+            "",
+        )
+
+    stdout = (result.stdout or "").strip()
+    if result.returncode != 0 or not stdout:
+        stderr = (result.stderr or "").strip()
+        return (
+            STATUS_INFO,
+            f"{label}: uvx probe exited {result.returncode} ({stderr or 'no output'}) - run manually: {manual_cmd}",
+            "",
+        )
+
+    resolved = stdout.splitlines()[-1].strip()
+    return _classify_resolved_interpreter(label, resolved)
+
+
+def _resolve_plain_entry(label: str, command: str) -> tuple:
+    """Resolve the interpreter a non-uvx mcpServers entry would run.
+
+    Returns (status, detail_line, hint_line_or_empty).
+    """
+    expanded = os.path.expanduser(os.path.expandvars(command))
+    if not os.path.isabs(expanded):
+        which_path = shutil.which(expanded)
+        if which_path:
+            expanded = which_path
+
+    resolved = os.path.realpath(expanded)
+    if not os.path.exists(resolved):
+        return (
+            STATUS_WARN,
+            f"{label}: command not found ({command} -> {resolved})",
+            f"Configured command '{command}' does not resolve to an existing file.",
+        )
+
+    return _classify_resolved_interpreter(label, resolved)
+
+
+def _classify_resolved_interpreter(label: str, resolved: str) -> tuple:
+    """Compare a resolved Claude-Desktop-launched interpreter to this process's own."""
+    own_realpath = os.path.realpath(sys.executable)
+    if resolved == own_realpath:
+        return (
+            STATUS_PASS,
+            f"{label}: Claude Desktop will run: {resolved} - grant Full Disk Access to THIS file "
+            "(same as this process)",
+            "",
+        )
+
+    return (
+        STATUS_WARN,
+        f"{label}: Claude Desktop will run: {resolved} - grant Full Disk Access to THIS file",
+        (
+            f"This differs from the interpreter running doctor ({own_realpath}) - Full Disk "
+            f"Access must be granted to the Claude Desktop path ({resolved}), not the doctor "
+            "path, or the app-data TCC prompt will keep recurring after a Claude Desktop "
+            "restart. " + _DRAG_DROP_HINT
+        ),
+    )
+
+
+def _iter_things_entries() -> List[tuple]:
+    """Yield (label, command, args) for every things-matching entry found.
+
+    Reads ``claude_desktop_config.json`` (``mcpServers``) and every installed
+    ``.mcpb`` extension's ``manifest.json`` (``server.mcp_config``). Read-only;
+    any parse/read failure for either source is silently skipped (an absent
+    or unparsable config is reported by the caller as INFO, not a crash).
+    """
+    entries: List[tuple] = []
+
+    import json as _json
+
+    try:
+        with open(_CLAUDE_DESKTOP_CONFIG_PATH, "r", encoding="utf-8") as f:
+            config = _json.load(f)
+        for name, entry in (config.get("mcpServers") or {}).items():
+            command = entry.get("command") if isinstance(entry, dict) else None
+            args = entry.get("args") if isinstance(entry, dict) else None
+            if not isinstance(command, str) or not isinstance(args, list):
+                continue
+            if _entry_matches_things(command, args):
+                entries.append((f"claude_desktop_config.json[{name}]", command, args))
+    except (OSError, ValueError):
+        pass
+
+    try:
+        if _CLAUDE_EXTENSIONS_DIR.is_dir():
+            for child in _CLAUDE_EXTENSIONS_DIR.iterdir():
+                manifest_path = child / "manifest.json"
+                if not manifest_path.is_file():
+                    continue
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = _json.load(f)
+                except (OSError, ValueError):
+                    continue
+                mcp_config = (
+                    manifest.get("server", {}).get("mcp_config", {})
+                    if isinstance(manifest.get("server"), dict)
+                    else {}
+                )
+                command = mcp_config.get("command")
+                args = mcp_config.get("args")
+                if not isinstance(command, str) or not isinstance(args, list):
+                    continue
+                if _entry_matches_things(command, args) or "mcp-server-things" in str(
+                    manifest.get("name", "")
+                ).lower():
+                    entries.append((f"Claude Extensions/{child.name}/manifest.json", command, args))
+    except OSError:
+        pass
+
+    return entries
+
+
+def check_claude_desktop_interpreter() -> CheckResult:
+    """Resolve the interpreter(s) Claude Desktop will actually launch for this server.
+
+    Reads ``~/Library/Application Support/Claude/claude_desktop_config.json``
+    and any installed ``.mcpb`` extension manifest, finds every
+    ``mcpServers``/``mcp_config`` entry that looks like it launches this
+    server (command or any arg containing ``things_mcp`` or
+    ``mcp-server-things``, case-insensitive), and resolves the interpreter
+    each one would actually run - via a bounded ``uvx``/``uv`` probe
+    subprocess for those entries, or plain path resolution otherwise. WARNs
+    when a resolved interpreter differs from the one running doctor (the
+    common failure mode: Full Disk Access granted to the wrong binary).
+    """
+    name = "Claude Desktop interpreter"
+
+    try:
+        entries = _iter_things_entries()
+    except Exception as e:  # noqa: BLE001 - never crash doctor over a diagnostic probe
+        return CheckResult(name, STATUS_INFO, detail=f"could not read Claude Desktop config: {e}")
+
+    if not entries:
+        if not _CLAUDE_DESKTOP_CONFIG_PATH.exists():
+            return CheckResult(
+                name,
+                STATUS_INFO,
+                detail=f"claude_desktop_config.json not found at {_CLAUDE_DESKTOP_CONFIG_PATH}, and no matching .mcpb extension manifest found",
+            )
+        return CheckResult(
+            name,
+            STATUS_INFO,
+            detail="no 'things_mcp'/'mcp-server-things' entry found in claude_desktop_config.json or any installed .mcpb extension",
+        )
+
+    deadline = time.monotonic() + _UVX_PROBE_TOTAL_BUDGET_SECS
+    results = []
+    for label, command, args in entries:
+        basename = os.path.basename(command).lower()
+        if basename in ("uvx", "uv"):
+            results.append(_resolve_uvx_entry(label, command, args, deadline))
+        else:
+            results.append(_resolve_plain_entry(label, command))
+
+    statuses = [s for s, _, _ in results]
+    if STATUS_WARN in statuses:
+        overall = STATUS_WARN
+    elif STATUS_INFO in statuses:
+        overall = STATUS_INFO
+    else:
+        overall = STATUS_PASS
+
+    detail = " || ".join(d for _, d, _ in results)
+    hint = " || ".join(h for _, _, h in results if h)
+    return CheckResult(name, overall, detail=detail, hint=hint)
+
+
+# ---------------------------------------------------------------------------
+# check_full_disk_access_effective
+# ---------------------------------------------------------------------------
+
+_TCC_DB_PATH = Path.home() / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db"
+
+
+def check_full_disk_access_effective() -> CheckResult:
+    """Probe whether *this* process currently has Full Disk Access.
+
+    Attempts a read-only open of the user's TCC.db (a file only readable
+    with Full Disk Access granted to the reading process). This reflects
+    the doctor process only - which may be inheriting a grant made to the
+    launching terminal/shell - not the interpreter Claude Desktop actually
+    launches (see the "Claude Desktop interpreter" check above for that).
+    """
+    name = "Full Disk Access effective (this process)"
+    try:
+        with open(_TCC_DB_PATH, "rb") as f:
+            f.read(16)
+        return CheckResult(
+            name,
+            STATUS_PASS,
+            detail=(
+                "this process has Full Disk Access (own grant or inherited from the "
+                "terminal) - this reflects the doctor process only, not the interpreter "
+                "Claude Desktop launches"
+            ),
+        )
+    except PermissionError:
+        return CheckResult(
+            name,
+            STATUS_WARN,
+            detail="no Full Disk Access for this process (TCC.db could not be read)",
+            hint=(
+                "This reflects the doctor process only, which may inherit the terminal's "
+                "grant, not the Claude Desktop-launched interpreter - see the 'Claude "
+                "Desktop interpreter' check above."
+            ),
+        )
+    except FileNotFoundError:
+        return CheckResult(
+            name,
+            STATUS_INFO,
+            detail=f"TCC.db not found at {_TCC_DB_PATH}",
+        )
 
 
 def _auth_token_paths() -> List[Path]:
@@ -670,6 +971,8 @@ def run_all_checks(db_timeout: float = _DB_READ_TIMEOUT_SECS) -> List[CheckResul
         check_python_architecture(),
         check_interpreter_identity(),
         check_launch_parent(),
+        check_claude_desktop_interpreter(),
+        check_full_disk_access_effective(),
         check_auth_token(),
         check_environment(),
     ]

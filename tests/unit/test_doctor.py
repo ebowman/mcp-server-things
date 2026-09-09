@@ -7,8 +7,10 @@ argv routing in main().
 
 import errno
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -342,6 +344,10 @@ class TestCheckInterpreterIdentity:
         assert result.status == doctor.STATUS_PASS
         assert "framework" in result.detail
         assert "org.python.python" in result.detail
+        # hq-gxt.9 reviewer nit: framework realpaths also end in a patch-version
+        # segment and hit the same greyed-out picker bug - the drag hint must
+        # be included for framework too, not just uv-managed/venv/other.
+        assert "drag it from a Finder window" in result.detail
 
     def test_classifies_other(self, monkeypatch):
         other_path = "/usr/bin/python3"
@@ -426,6 +432,264 @@ class TestCheckAuthToken:
 
 
 # ---------------------------------------------------------------------------
+# check_claude_desktop_interpreter
+# ---------------------------------------------------------------------------
+
+class TestCheckClaudeDesktopInterpreter:
+    def _write_config(self, tmp_path, mcp_servers):
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text(json.dumps({"mcpServers": mcp_servers}))
+        return config_path
+
+    def _patch_paths(self, monkeypatch, config_path, tmp_path, extensions_dir=None):
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(
+            doctor, "_CLAUDE_EXTENSIONS_DIR", extensions_dir or (tmp_path / "Claude Extensions")
+        )
+
+    def test_info_when_config_missing(self, tmp_path, monkeypatch):
+        self._patch_paths(monkeypatch, tmp_path / "missing.json", tmp_path)
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+        assert "not found" in result.detail
+
+    def test_info_when_config_absent_and_no_mcpb(self, tmp_path, monkeypatch):
+        """Both sources absent -> INFO (distinct from the .mcpb-only-install case,
+        which must NOT be masked by config-not-found - bead hq-gxt.11 review fix)."""
+        missing_config = tmp_path / "claude_desktop_config.json"
+        missing_extensions = tmp_path / "Claude Extensions"
+        self._patch_paths(monkeypatch, missing_config, tmp_path, extensions_dir=missing_extensions)
+        assert not missing_config.exists()
+        assert not missing_extensions.exists()
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+        assert "not found" in result.detail
+        assert "no matching .mcpb" in result.detail
+
+    def test_info_when_malformed_json(self, tmp_path, monkeypatch):
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text("{not valid json")
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+
+    def test_info_when_no_things_entry(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path, {"other": {"command": "npx", "args": ["-y", "other-mcp"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+        assert "no 'things_mcp'" in result.detail
+
+    def test_plain_command_mismatch_warns(self, tmp_path, monkeypatch):
+        venv_python = tmp_path / "venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_text("")
+        claude_target = tmp_path / "homebrew_python313"
+        claude_target.write_text("")
+        own_target = tmp_path / "own_python311"
+        own_target.write_text("")
+
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(venv_python), "args": ["-m", "things_mcp"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        real_realpath = os.path.realpath
+        mapping = {str(venv_python): str(claude_target), doctor.sys.executable: str(own_target)}
+        monkeypatch.setattr(
+            doctor.os.path, "realpath", lambda p: mapping.get(str(p), real_realpath(p))
+        )
+
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_WARN
+        assert str(claude_target) in result.detail
+        assert "grant Full Disk Access to THIS file" in result.detail
+        assert str(own_target) in result.hint
+        assert "Claude Desktop path" in result.hint
+
+    def test_plain_command_match_passes(self, tmp_path, monkeypatch):
+        python_path = tmp_path / "venv" / "bin" / "python"
+        python_path.parent.mkdir(parents=True)
+        python_path.write_text("")
+        shared_target = tmp_path / "shared_interpreter"
+        shared_target.write_text("")
+
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(python_path), "args": ["-m", "things_mcp"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        real_realpath = os.path.realpath
+        mapping = {str(python_path): str(shared_target), doctor.sys.executable: str(shared_target)}
+        monkeypatch.setattr(
+            doctor.os.path, "realpath", lambda p: mapping.get(str(p), real_realpath(p))
+        )
+
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_PASS
+        assert result.hint == ""
+
+    def test_plain_command_not_found_warns(self, tmp_path, monkeypatch):
+        missing = tmp_path / "does_not_exist"
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(missing), "args": ["-m", "things_mcp"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_WARN
+        assert "command not found" in result.detail
+
+    def test_uvx_entry_resolved_and_matches(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path,
+            {
+                "things": {
+                    "command": "uvx",
+                    "args": [
+                        "--python-preference",
+                        "only-managed",
+                        "--python",
+                        "3.12",
+                        "mcp-server-things",
+                    ],
+                }
+            },
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        own = os.path.realpath(sys.executable)
+        mock_result = MagicMock(returncode=0, stdout=own + "\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result) as mock_run:
+            result = doctor.check_claude_desktop_interpreter()
+
+        assert result.status == doctor.STATUS_PASS
+        called_cmd = mock_run.call_args[0][0]
+        assert called_cmd[0] == "uvx"
+        assert "--python-preference" in called_cmd
+        assert "only-managed" in called_cmd
+        assert "--python" in called_cmd
+        assert "3.12" in called_cmd
+        assert "mcp-server-things" not in called_cmd
+        assert called_cmd[-2:] == ["-c", doctor._UVX_REALPATH_PROBE_CODE]
+        assert "python" in called_cmd
+
+    def test_extract_uvx_python_flags_handles_inline_equals_form(self):
+        # bead hq-gxt.11 review fix: --python=3.13 / --python-preference=only-managed
+        # must be kept as a single whole token, not silently dropped.
+        args = ["--python-preference=only-managed", "--python=3.13", "mcp-server-things"]
+        flags = doctor._extract_uvx_python_flags(args)
+        assert flags == ["--python-preference=only-managed", "--python=3.13"]
+
+    def test_uvx_entry_inline_equals_flags_preserved_in_probe_command(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path,
+            {
+                "things": {
+                    "command": "uvx",
+                    "args": ["--python-preference=only-managed", "--python=3.13", "mcp-server-things"],
+                }
+            },
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        own = os.path.realpath(sys.executable)
+        mock_result = MagicMock(returncode=0, stdout=own + "\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result) as mock_run:
+            result = doctor.check_claude_desktop_interpreter()
+
+        assert result.status == doctor.STATUS_PASS
+        called_cmd = mock_run.call_args[0][0]
+        assert "--python-preference=only-managed" in called_cmd
+        assert "--python=3.13" in called_cmd
+        assert "mcp-server-things" not in called_cmd
+
+    def test_uvx_entry_mismatch_warns(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        mock_result = MagicMock(returncode=0, stdout="/opt/homebrew/some/python3.13\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result):
+            result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_WARN
+        assert "/opt/homebrew/some/python3.13" in result.detail
+
+    def test_uvx_probe_timeout_is_info_with_manual_command(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        with patch(
+            "things_mcp.doctor.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="uvx", timeout=30),
+        ):
+            result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+        assert "uvx" in result.detail
+        assert "python -c" in result.detail
+
+    def test_uvx_probe_failure_is_info(self, tmp_path, monkeypatch):
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        with patch("things_mcp.doctor.subprocess.run", side_effect=OSError("uvx not found")):
+            result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+
+    def test_mcpb_manifest_entry_detected(self, tmp_path, monkeypatch):
+        # Deliberately no claude_desktop_config.json at all (.mcpb-only install,
+        # bead hq-gxt.11 review fix) - must not be masked by config-not-found.
+        config_path = tmp_path / "claude_desktop_config.json_does_not_exist"
+        ext_dir = tmp_path / "Claude Extensions" / "mcp-server-things-abc123"
+        ext_dir.mkdir(parents=True)
+        manifest = {
+            "name": "mcp-server-things",
+            "server": {"mcp_config": {"command": "uvx", "args": ["mcp-server-things"]}},
+        }
+        (ext_dir / "manifest.json").write_text(json.dumps(manifest))
+        self._patch_paths(monkeypatch, config_path, tmp_path, extensions_dir=tmp_path / "Claude Extensions")
+
+        own = os.path.realpath(sys.executable)
+        mock_result = MagicMock(returncode=0, stdout=own + "\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result):
+            result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_PASS
+        assert "manifest.json" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# check_full_disk_access_effective
+# ---------------------------------------------------------------------------
+
+class TestCheckFullDiskAccessEffective:
+    def test_pass_when_readable(self, tmp_path, monkeypatch):
+        tcc_db = tmp_path / "TCC.db"
+        tcc_db.write_bytes(b"0123456789abcdef")
+        monkeypatch.setattr(doctor, "_TCC_DB_PATH", tcc_db)
+        result = doctor.check_full_disk_access_effective()
+        assert result.status == doctor.STATUS_PASS
+        assert "Full Disk Access" in result.detail
+
+    def test_warn_on_permission_error(self, monkeypatch):
+        monkeypatch.setattr(doctor, "_TCC_DB_PATH", Path("/fake/TCC.db"))
+        with patch("builtins.open", side_effect=PermissionError("denied")):
+            result = doctor.check_full_disk_access_effective()
+        assert result.status == doctor.STATUS_WARN
+        assert "doctor process" in result.hint
+
+    def test_info_when_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(doctor, "_TCC_DB_PATH", tmp_path / "missing.db")
+        result = doctor.check_full_disk_access_effective()
+        assert result.status == doctor.STATUS_INFO
+
+
+# ---------------------------------------------------------------------------
 # check_environment
 # ---------------------------------------------------------------------------
 
@@ -497,7 +761,15 @@ class TestHasFailure:
 # ---------------------------------------------------------------------------
 
 class TestRunAllChecksIncludesNewChecks:
-    def test_interpreter_identity_and_launch_parent_present_and_ordered(self):
+    def test_interpreter_identity_and_launch_parent_present_and_ordered(self, tmp_path, monkeypatch):
+        # Keep check_claude_desktop_interpreter/check_full_disk_access_effective
+        # unmocked (like Interpreter identity/Launch parent above) so their names
+        # are asserted for real, but point them at nonexistent tmp paths so this
+        # test never reads a real ~/Library config or spawns a real uvx probe on
+        # another machine (bead hq-gxt.11 review fix).
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", tmp_path / "claude_desktop_config.json")
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+        monkeypatch.setattr(doctor, "_TCC_DB_PATH", tmp_path / "TCC.db")
         stub_result = doctor.CheckResult("stub", doctor.STATUS_PASS)
         with patch("things_mcp.doctor.check_things_installed", return_value=stub_result), \
                 patch("things_mcp.doctor.check_things_running", return_value=stub_result), \
@@ -509,11 +781,18 @@ class TestRunAllChecksIncludesNewChecks:
             names = [r.name for r in doctor.run_all_checks()]
         assert "Interpreter identity" in names
         assert "Launch parent" in names
+        assert "Claude Desktop interpreter" in names
+        assert "Full Disk Access effective (this process)" in names
         # Ordered immediately after "Python architecture", per the bead.
         assert names.index("Interpreter identity") == names.index("Python architecture") + 1
         assert names.index("Launch parent") == names.index("Interpreter identity") + 1
+        assert names.index("Claude Desktop interpreter") == names.index("Launch parent") + 1
+        assert names.index("Full Disk Access effective (this process)") == names.index("Claude Desktop interpreter") + 1
 
-    def test_interpreter_identity_present_in_json_output(self, capsys):
+    def test_interpreter_identity_present_in_json_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", tmp_path / "claude_desktop_config.json")
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+        monkeypatch.setattr(doctor, "_TCC_DB_PATH", tmp_path / "TCC.db")
         stub_result = doctor.CheckResult("stub", doctor.STATUS_PASS)
         with patch("things_mcp.doctor.check_things_installed", return_value=stub_result), \
                 patch("things_mcp.doctor.check_things_running", return_value=stub_result), \
@@ -527,6 +806,8 @@ class TestRunAllChecksIncludesNewChecks:
         names = [c["name"] for c in payload["checks"]]
         assert "Interpreter identity" in names
         assert "Launch parent" in names
+        assert "Claude Desktop interpreter" in names
+        assert "Full Disk Access effective (this process)" in names
 
 
 class TestRunDoctor:
