@@ -429,6 +429,27 @@ actually needs fixing). Use `mcp-server-things doctor --json` for
 machine-readable output, or `python -m things_mcp doctor` if you're running
 from source.
 
+Two checks specifically target the recurring "app data" TCC prompt:
+
+- **Interpreter identity** prints the exact, symlink-resolved binary
+  (`os.path.realpath(sys.executable)`) that macOS's TCC system keys the Full
+  Disk Access grant to, and classifies it - `uv-managed` (path embeds the
+  interpreter's patch version, e.g.
+  `~/.local/share/uv/python/cpython-3.12.11-.../bin/python3.12` - the grant
+  must be redone after an interpreter upgrade), `venv`, `framework` (keyed
+  by the stable bundle id `org.python.python`, unaffected by patch
+  upgrades), or `other`.
+- **Launch parent** walks the process's parent chain and WARNs when it was
+  launched via `Claude.app/Contents/Helpers/disclaimer` - the TCC grant made
+  to Claude Desktop itself does not extend to this interpreter process; see
+  "Reads fail but writes work" below and grant Full Disk Access to the path
+  reported by "Interpreter identity" instead.
+
+The database check also directly classifies why the database file couldn't
+be opened before falling back to the generic `things.py` probe: a macOS
+privacy (TCC) denial (`PermissionError`, errno `EPERM`/`EACCES`) is reported
+distinctly from a missing database file (`FileNotFoundError`).
+
 ### Reads fail but writes work ("unable to open database file")
 
 | Operation | Result |

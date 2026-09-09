@@ -20,6 +20,8 @@ checks, rendering the table, and choosing the process exit code.
 
 from __future__ import annotations
 
+import errno
+import os
 import platform
 import shutil
 import subprocess
@@ -239,6 +241,41 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
             from .things_import import get_things
 
             things_mod = get_things()
+
+            # Pre-open check: a direct, read-only open() of the database file
+            # classifies a TCC (Full Disk Access) denial distinctly from a
+            # generic "unable to open database file" sqlite3 error string,
+            # and distinguishes a missing database from a permissions denial.
+            # db_path is initialized before the lookup so the except handlers
+            # below never reference an unbound name if resolving the path
+            # itself (things_mod.database.Database().filepath) is what raises.
+            db_path = None
+            try:
+                db_path = things_mod.database.Database().filepath
+                with open(db_path, "rb"):
+                    pass
+            except PermissionError as e:
+                path_desc = db_path if db_path is not None else "Things database path could not be resolved"
+                errno_value = getattr(e, "errno", None)
+                if errno_value in (errno.EPERM, errno.EACCES):
+                    result_holder["preopen_fail"] = (
+                        "tcc",
+                        f"macOS privacy (TCC) denied access to {path_desc}: {e}",
+                    )
+                else:
+                    result_holder["preopen_fail"] = (
+                        "other",
+                        f"Permission denied opening {path_desc}: {e}",
+                    )
+                return
+            except FileNotFoundError as e:
+                if db_path is not None:
+                    message = f"Things database not found at {db_path}: {e}"
+                else:
+                    message = f"Things database path could not be resolved: {e}"
+                result_holder["preopen_fail"] = ("not_found", message)
+                return
+
             todos = things_mod.todos(status="incomplete")
             result_holder["count"] = len(todos)
         except Exception as e:  # noqa: BLE001 - surfaced to caller via result_holder
@@ -258,6 +295,24 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
                 "timing out (especially alongside 'unable to open database file' "
                 "symptoms), see README Troubleshooting 'Reads fail but writes work'."
             ),
+        )
+
+    if "preopen_fail" in result_holder:
+        kind, message = result_holder["preopen_fail"]
+        if kind == "tcc":
+            return CheckResult(name, STATUS_FAIL, detail=message, hint=_TCC_HINT)
+        if kind == "not_found":
+            return CheckResult(
+                name,
+                STATUS_FAIL,
+                detail=message,
+                hint="Ensure Things 3 has been opened at least once and has created its database.",
+            )
+        return CheckResult(
+            name,
+            STATUS_FAIL,
+            detail=message,
+            hint="Unexpected error opening the Things database - see detail above.",
         )
 
     if "error" in result_holder:
@@ -358,6 +413,157 @@ def check_python_architecture() -> CheckResult:
     return CheckResult(name, STATUS_PASS, detail=detail)
 
 
+_UV_MANAGED_MARKER = "/uv/python/"
+_PYTHON_FRAMEWORK_MARKER = "/Python.framework/"
+
+
+def check_interpreter_identity() -> CheckResult:
+    """Report the exact interpreter binary macOS TCC will key Full Disk Access to.
+
+    macOS's TCC (Transparency, Consent, and Control) privacy system keys the
+    "App Data" (Full Disk Access-adjacent) grant to the specific on-disk
+    binary that requests it - not to a launching parent app such as Claude
+    Desktop. This check reports ``os.path.realpath(sys.executable)`` (always
+    resolving through any symlink, e.g. a venv's ``bin/python``) and
+    classifies the interpreter so the operator knows exactly what to grant
+    Full Disk Access to, and whether that grant will survive an interpreter
+    upgrade:
+
+    - ``uv-managed``: path lives under a ``.../uv/python/...`` directory
+      (e.g. ``~/.local/share/uv/python/cpython-3.12.11-.../bin/python3.12``).
+      The path embeds the exact patch version, so upgrading the uv-managed
+      interpreter changes the path and the TCC grant must be redone.
+    - ``venv``: ``sys.prefix != sys.base_prefix`` (a virtualenv's own
+      ``bin/python``, which is typically a symlink resolved by realpath to
+      the base interpreter - reported here as a fallback classification
+      when the resolved path also isn't identifiable as uv-managed or
+      framework).
+    - ``framework``: path lives under a ``Python.framework`` bundle (a
+      framework Python re-execs via ``Python.app`` and is keyed by macOS by
+      its bundle id ``org.python.python``, which is stable across patch
+      upgrades).
+    - ``other``: none of the above.
+
+    This check never FAILs - it is purely informational. Every classification
+    is STATUS_PASS except ``uv-managed``, which is STATUS_WARN since the
+    path embeds the interpreter's patch version and the Full Disk Access
+    grant must be redone after an interpreter upgrade.
+    """
+    name = "Interpreter identity"
+    realpath = os.path.realpath(sys.executable)
+
+    if _UV_MANAGED_MARKER in realpath:
+        kind = "uv-managed"
+    elif sys.prefix != sys.base_prefix:
+        kind = "venv"
+    elif _PYTHON_FRAMEWORK_MARKER in realpath:
+        kind = "framework"
+    else:
+        kind = "other"
+
+    lines = [f"interpreter={realpath} ({kind})", f"Grant Full Disk Access to: {realpath}"]
+    if kind == "framework":
+        lines.append(
+            "TCC keys framework Python by bundle id org.python.python, stable across patch upgrades."
+        )
+    elif kind == "uv-managed":
+        lines.append(
+            "WARNING: this path embeds the interpreter patch version - the Full Disk "
+            "Access grant must be redone after any uv-managed interpreter upgrade."
+        )
+
+    status = STATUS_WARN if kind == "uv-managed" else STATUS_PASS
+    return CheckResult(name, status, detail=" | ".join(lines))
+
+
+def _walk_ppid_chain(max_levels: int = 6) -> List[str]:
+    """Walk the parent-process chain via ``ps``, returning each ancestor's comm.
+
+    Starts at the current process's parent (``os.getppid()``) and walks up
+    to ``max_levels`` ancestors, using ``ps -o ppid=,comm= -p <pid>`` to read
+    each process's own parent pid and command name. Returns as many comm
+    strings as could be read; a ``ps`` failure at any level stops the walk
+    (and any levels already read are still returned) rather than raising.
+    """
+    comms: List[str] = []
+    pid = os.getppid()
+    for _ in range(max_levels):
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=_OSASCRIPT_SHORT_TIMEOUT_SECS,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            break
+
+        line = (result.stdout or "").strip()
+        if not line or result.returncode != 0:
+            break
+
+        parts = line.split(None, 1)
+        if not parts:
+            break
+
+        try:
+            next_pid = int(parts[0])
+        except ValueError:
+            break
+
+        comm = parts[1].strip() if len(parts) > 1 else ""
+        comms.append(comm)
+
+        if next_pid <= 1:
+            break
+        pid = next_pid
+
+    return comms
+
+
+def check_launch_parent() -> CheckResult:
+    """Detect whether the server was launched via Claude Desktop's disclaimer helper.
+
+    Claude Desktop launches MCP servers via
+    ``Claude.app/Contents/Helpers/disclaimer``, which means TCC grants made
+    to Claude Desktop itself do not extend to the launched Python
+    interpreter - the interpreter is its own TCC principal and needs its
+    own Full Disk Access grant (see :func:`check_interpreter_identity`).
+    This check walks the parent-process chain looking for that helper.
+    """
+    name = "Launch parent"
+    try:
+        comms = _walk_ppid_chain()
+    except Exception as e:  # noqa: BLE001 - never crash doctor over a diagnostic probe
+        return CheckResult(
+            name,
+            STATUS_INFO,
+            detail=f"could not determine launch parent: {e}",
+        )
+
+    if not comms:
+        return CheckResult(
+            name,
+            STATUS_INFO,
+            detail="could not determine launch parent (ps produced no output)",
+        )
+
+    for comm in comms:
+        if "Claude.app/Contents/Helpers/disclaimer" in comm:
+            return CheckResult(
+                name,
+                STATUS_WARN,
+                detail=f"launched via {comm}",
+                hint=(
+                    "TCC grants made to Claude Desktop do not apply to this process - "
+                    "the Python interpreter itself needs Full Disk Access. See the "
+                    "'Interpreter identity' check above for the exact path to grant."
+                ),
+            )
+
+    return CheckResult(name, STATUS_INFO, detail=f"launch chain: {' <- '.join(comms)}")
+
+
 def _auth_token_paths() -> List[Path]:
     """Return the auth-token file search paths, matching AppleScriptManager._load_auth_token."""
     # Path from src/things_mcp/doctor.py -> things_mcp -> src -> project root
@@ -456,6 +662,8 @@ def run_all_checks(db_timeout: float = _DB_READ_TIMEOUT_SECS) -> List[CheckResul
         check_database_readable(timeout=db_timeout),
         check_uv_installed(),
         check_python_architecture(),
+        check_interpreter_identity(),
+        check_launch_parent(),
         check_auth_token(),
         check_environment(),
     ]

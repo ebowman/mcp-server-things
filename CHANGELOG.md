@@ -5,6 +5,12 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`doctor` now reports the exact interpreter binary macOS TCC keys Full Disk Access to, detects when the server was launched via Claude Desktop's `disclaimer` helper, and classifies database-open failures** (bead hq-gxt.2). Two new checks: **Interpreter identity** prints `os.path.realpath(sys.executable)` and classifies it (`uv-managed` - path embeds the interpreter's patch version, e.g. `~/.local/share/uv/python/cpython-3.12.11-.../bin/python3.12`, so the Full Disk Access grant must be redone after an interpreter upgrade; `venv`; `framework` - keyed by the stable bundle id `org.python.python`, unaffected by patch upgrades; `other`) - WARN for `uv-managed` (the path embeds the interpreter's patch version, so the grant must be redone after an upgrade), PASS otherwise. **Launch parent** walks the process's parent chain (`ps -o ppid=,comm= -p <pid>`, up to 6 levels) and WARNs when an ancestor is `Claude.app/Contents/Helpers/disclaimer` - the TCC grant made to Claude Desktop does not extend to the launched interpreter (INFO if not found or if `ps` is unavailable, never a crash). Additionally, `check_database_readable` now does a direct `open()` of the database file before falling back to the existing `things.py` probe, classifying a `PermissionError` (errno `EPERM`/`EACCES`) as a distinct "macOS privacy (TCC) denied access" FAIL and a `FileNotFoundError` as a distinct "Things database not found" FAIL, rather than only matching the generic `sqlite3` "unable to open database file" error string. See docs/MACOS_PERMISSIONS_FINDINGS.md for the root-cause investigation these checks are based on.
+
 ## [1.9.0] - 2026-08-22
 
 ### Fixed

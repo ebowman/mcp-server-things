@@ -5,15 +5,26 @@ exit-code logic (any FAIL -> 1, WARN/INFO-only -> 0), --json shape, and CLI
 argv routing in main().
 """
 
+import errno
 import json
 import subprocess
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
 from things_mcp import doctor
+
+
+def _fake_things(todos_fn):
+    """Build a fake `things` module stub with a `database.Database().filepath`."""
+    return SimpleNamespace(
+        todos=todos_fn,
+        database=SimpleNamespace(
+            Database=lambda: SimpleNamespace(filepath="/fake/things.sqlite")
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +144,9 @@ class TestCheckAutomationPermission:
 
 class TestCheckDatabaseReadable:
     def test_pass_returns_count(self):
-        fake_things = SimpleNamespace(todos=lambda status=None: [1, 2, 3])
-        with patch("things_mcp.things_import.get_things", return_value=fake_things):
+        fake_things = _fake_things(lambda status=None: [1, 2, 3])
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", mock_open(read_data=b""), create=True):
             result = doctor.check_database_readable(timeout=2.0)
         assert result.status == doctor.STATUS_PASS
         assert "3" in result.detail
@@ -143,8 +155,9 @@ class TestCheckDatabaseReadable:
         def _raise(**kwargs):
             raise Exception("sqlite3.OperationalError: unable to open database file")
 
-        fake_things = SimpleNamespace(todos=_raise)
-        with patch("things_mcp.things_import.get_things", return_value=fake_things):
+        fake_things = _fake_things(_raise)
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", mock_open(read_data=b""), create=True):
             result = doctor.check_database_readable(timeout=2.0)
         assert result.status == doctor.STATUS_FAIL
         assert "full disk access" in result.hint.lower()
@@ -153,8 +166,9 @@ class TestCheckDatabaseReadable:
         def _raise(**kwargs):
             raise RuntimeError("boom")
 
-        fake_things = SimpleNamespace(todos=_raise)
-        with patch("things_mcp.things_import.get_things", return_value=fake_things):
+        fake_things = _fake_things(_raise)
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", mock_open(read_data=b""), create=True):
             result = doctor.check_database_readable(timeout=2.0)
         assert result.status == doctor.STATUS_FAIL
         assert "boom" in result.detail
@@ -166,10 +180,56 @@ class TestCheckDatabaseReadable:
             time.sleep(1.0)
             return []
 
-        fake_things = SimpleNamespace(todos=_slow)
-        with patch("things_mcp.things_import.get_things", return_value=fake_things):
+        fake_things = _fake_things(_slow)
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", mock_open(read_data=b""), create=True):
             result = doctor.check_database_readable(timeout=0.05)
         assert result.status == doctor.STATUS_WARN
+
+    def test_fail_on_preopen_permission_error_eperm(self):
+        fake_things = _fake_things(lambda status=None: [])
+        err = PermissionError()
+        err.errno = errno.EPERM
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", side_effect=err, create=True):
+            result = doctor.check_database_readable(timeout=2.0)
+        assert result.status == doctor.STATUS_FAIL
+        assert "tcc" in result.detail.lower() or "privacy" in result.detail.lower()
+        assert "full disk access" in result.hint.lower()
+
+    def test_fail_on_preopen_permission_error_eacces(self):
+        fake_things = _fake_things(lambda status=None: [])
+        err = PermissionError()
+        err.errno = errno.EACCES
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", side_effect=err, create=True):
+            result = doctor.check_database_readable(timeout=2.0)
+        assert result.status == doctor.STATUS_FAIL
+        assert "full disk access" in result.hint.lower()
+
+    def test_fail_on_preopen_file_not_found(self):
+        fake_things = _fake_things(lambda status=None: [])
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", side_effect=FileNotFoundError(), create=True):
+            result = doctor.check_database_readable(timeout=2.0)
+        assert result.status == doctor.STATUS_FAIL
+        assert "not found" in result.detail.lower()
+
+    def test_fail_when_database_filepath_lookup_itself_raises(self):
+        """Database().filepath raising must not produce an unbound-name NameError."""
+
+        def _raise_filepath():
+            raise FileNotFoundError("no such Things database")
+
+        fake_things = SimpleNamespace(
+            todos=lambda status=None: [],
+            database=SimpleNamespace(Database=_raise_filepath),
+        )
+        with patch("things_mcp.things_import.get_things", return_value=fake_things):
+            result = doctor.check_database_readable(timeout=2.0)
+        assert result.status == doctor.STATUS_FAIL
+        assert "NameError" not in result.detail
+        assert "could not be resolved" in result.detail.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +300,96 @@ class TestCheckPythonArchitecture:
             result = doctor.check_python_architecture()
         assert result.status in (doctor.STATUS_PASS, doctor.STATUS_WARN)
         assert result.status != doctor.STATUS_FAIL
+
+
+# ---------------------------------------------------------------------------
+# check_interpreter_identity
+# ---------------------------------------------------------------------------
+
+class TestCheckInterpreterIdentity:
+    def test_classifies_uv_managed(self, monkeypatch):
+        uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
+        monkeypatch.setattr(doctor.sys, "executable", uv_path)
+        monkeypatch.setattr(doctor.os.path, "realpath", lambda p: uv_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_WARN
+        assert "uv-managed" in result.detail
+        assert uv_path in result.detail
+        assert "Grant Full Disk Access to" in result.detail
+        assert "patch version" in result.detail.lower()
+
+    def test_classifies_venv(self, monkeypatch):
+        venv_path = "/Users/x/project/venv/bin/python3.11"
+        monkeypatch.setattr(doctor.sys, "executable", venv_path)
+        monkeypatch.setattr(doctor.os.path, "realpath", lambda p: venv_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/Users/x/project/venv")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/usr")
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_PASS
+        assert "venv" in result.detail
+
+    def test_classifies_framework(self, monkeypatch):
+        fw_path = (
+            "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11"
+        )
+        monkeypatch.setattr(doctor.sys, "executable", fw_path)
+        monkeypatch.setattr(doctor.os.path, "realpath", lambda p: fw_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_PASS
+        assert "framework" in result.detail
+        assert "org.python.python" in result.detail
+
+    def test_classifies_other(self, monkeypatch):
+        other_path = "/usr/bin/python3"
+        monkeypatch.setattr(doctor.sys, "executable", other_path)
+        monkeypatch.setattr(doctor.os.path, "realpath", lambda p: other_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_PASS
+        assert "other" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# check_launch_parent
+# ---------------------------------------------------------------------------
+
+class TestCheckLaunchParent:
+    def _ps_result(self, ppid, comm):
+        return MagicMock(returncode=0, stdout=f"{ppid} {comm}\n")
+
+    def test_warn_when_disclaimer_found(self, monkeypatch):
+        monkeypatch.setattr(doctor.os, "getppid", lambda: 100)
+        results = [
+            self._ps_result(1, "/Applications/Claude.app/Contents/Helpers/disclaimer"),
+        ]
+        with patch("things_mcp.doctor.subprocess.run", side_effect=results):
+            result = doctor.check_launch_parent()
+        assert result.status == doctor.STATUS_WARN
+        assert "disclaimer" in result.detail
+
+    def test_info_when_not_found(self, monkeypatch):
+        monkeypatch.setattr(doctor.os, "getppid", lambda: 100)
+        results = [
+            self._ps_result(1, "launchd"),
+        ]
+        with patch("things_mcp.doctor.subprocess.run", side_effect=results):
+            result = doctor.check_launch_parent()
+        assert result.status == doctor.STATUS_INFO
+        assert "launchd" in result.detail
+
+    def test_info_when_ps_fails(self, monkeypatch):
+        monkeypatch.setattr(doctor.os, "getppid", lambda: 100)
+        with patch(
+            "things_mcp.doctor.subprocess.run",
+            side_effect=OSError("ps not found"),
+        ):
+            result = doctor.check_launch_parent()
+        assert result.status == doctor.STATUS_INFO
 
 
 # ---------------------------------------------------------------------------
@@ -343,8 +493,41 @@ class TestHasFailure:
 
 
 # ---------------------------------------------------------------------------
-# run_doctor (drives run_all_checks + rendering + exit code)
+# run_all_checks - new checks wired in (text and --json both derive from this)
 # ---------------------------------------------------------------------------
+
+class TestRunAllChecksIncludesNewChecks:
+    def test_interpreter_identity_and_launch_parent_present_and_ordered(self):
+        stub_result = doctor.CheckResult("stub", doctor.STATUS_PASS)
+        with patch("things_mcp.doctor.check_things_installed", return_value=stub_result), \
+                patch("things_mcp.doctor.check_things_running", return_value=stub_result), \
+                patch("things_mcp.doctor.check_automation_permission", return_value=stub_result), \
+                patch("things_mcp.doctor.check_database_readable", return_value=stub_result), \
+                patch("things_mcp.doctor.check_uv_installed", return_value=stub_result), \
+                patch("things_mcp.doctor.check_auth_token", return_value=stub_result), \
+                patch("things_mcp.doctor.check_environment", return_value=stub_result):
+            names = [r.name for r in doctor.run_all_checks()]
+        assert "Interpreter identity" in names
+        assert "Launch parent" in names
+        # Ordered immediately after "Python architecture", per the bead.
+        assert names.index("Interpreter identity") == names.index("Python architecture") + 1
+        assert names.index("Launch parent") == names.index("Interpreter identity") + 1
+
+    def test_interpreter_identity_present_in_json_output(self, capsys):
+        stub_result = doctor.CheckResult("stub", doctor.STATUS_PASS)
+        with patch("things_mcp.doctor.check_things_installed", return_value=stub_result), \
+                patch("things_mcp.doctor.check_things_running", return_value=stub_result), \
+                patch("things_mcp.doctor.check_automation_permission", return_value=stub_result), \
+                patch("things_mcp.doctor.check_database_readable", return_value=stub_result), \
+                patch("things_mcp.doctor.check_uv_installed", return_value=stub_result), \
+                patch("things_mcp.doctor.check_auth_token", return_value=stub_result), \
+                patch("things_mcp.doctor.check_environment", return_value=stub_result):
+            doctor.run_doctor(json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        names = [c["name"] for c in payload["checks"]]
+        assert "Interpreter identity" in names
+        assert "Launch parent" in names
+
 
 class TestRunDoctor:
     def _patch_all_checks(self, statuses):
