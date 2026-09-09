@@ -466,14 +466,11 @@ def check_interpreter_identity() -> CheckResult:
       upgraded.
     - ``other``: none of the above.
 
-    This check never FAILs - it is purely informational. Every classification
-    reports STATUS_PASS except ``uv-managed``, which is STATUS_WARN since the
-    path embeds the interpreter's patch version and the Full Disk Access
-    grant must be redone after an interpreter upgrade. Live evidence shows
-    ``framework`` grants are just as fragile across patch upgrades (see
-    above) - ``framework`` is not yet marked WARN for this; that is a status
-    behavior change out of scope for this doc-correction pass (tracked
-    separately), not a claim that the grant is actually stable.
+    This check never FAILs - it is purely informational. ``uv-managed`` and
+    ``framework`` report STATUS_WARN because their realpaths embed the
+    interpreter's patch/formula version, so the Full Disk Access grant (keyed
+    by resolved path) must be redone after every interpreter upgrade; ``venv``
+    and ``other`` report STATUS_PASS.
     """
     name = "Interpreter identity"
     realpath = os.path.realpath(sys.executable)
@@ -492,7 +489,10 @@ def check_interpreter_identity() -> CheckResult:
         lines.append(
             "Framework Python.app has a stable bundle id (org.python.python), but live "
             "evidence shows the bare interpreter binary is a separately ad-hoc-signed "
-            "stub not covered by it - this grant must be redone after a patch upgrade too."
+            "stub not covered by it - this grant must be redone after a patch upgrade too. "
+            "WARNING: a Homebrew-installed framework interpreter's path embeds the "
+            "formula version (e.g. Cellar/python@3.13/3.13.15) - the Full Disk Access "
+            "grant must be redone after each brew upgrade."
         )
     elif kind == "uv-managed":
         lines.append(
@@ -506,7 +506,7 @@ def check_interpreter_identity() -> CheckResult:
     # to every classification, not just uv-managed/venv/other.
     lines.append(_DRAG_DROP_HINT)
 
-    status = STATUS_WARN if kind == "uv-managed" else STATUS_PASS
+    status = STATUS_WARN if kind in ("uv-managed", "framework") else STATUS_PASS
     return CheckResult(name, status, detail=" | ".join(lines))
 
 

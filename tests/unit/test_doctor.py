@@ -341,9 +341,13 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "prefix", "/a")
         monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_PASS
+        assert result.status == doctor.STATUS_WARN
         assert "framework" in result.detail
         assert "org.python.python" in result.detail
+        # hq-b49: Homebrew framework interpreters embed the formula version
+        # (e.g. Cellar/python@3.13/3.13.15) in their realpath, same as
+        # uv-managed - the FDA grant must be redone after each brew upgrade.
+        assert "brew upgrade" in result.detail
         # hq-gxt.9 reviewer nit: framework realpaths also end in a patch-version
         # segment and hit the same greyed-out picker bug - the drag hint must
         # be included for framework too, not just uv-managed/venv/other.

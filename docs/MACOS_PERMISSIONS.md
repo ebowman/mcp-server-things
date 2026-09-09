@@ -192,9 +192,9 @@ real machine" below):
      framework build - changes its resolved path and the grant must be
      redone (see step 2 below and the live evidence there); this is a known
      limitation of this option, not a sign the fix failed. `doctor`'s
-     "Interpreter identity" check currently only WARNs for this on
-     `uv-managed` (tracked separately for `framework` as hq-b49) - a PASS
-     there does not mean the grant is upgrade-proof.
+     "Interpreter identity" check WARNs for both `uv-managed` and `framework`
+     interpreters for this reason (hq-b49) - a WARN there is a reminder to
+     re-grant after the next upgrade, not a failure.
 2. **There is no known upgrade-proof alternative interpreter to switch to.**
    Any bare interpreter - `uv`-managed or a Homebrew framework build of
    Python, invoked via a venv or otherwise - is keyed by TCC to its resolved
@@ -286,10 +286,10 @@ you can grant it again cleanly.
 ## How to verify
 
 **`mcp-server-things doctor`**, healthy:
-- "Interpreter identity" reports PASS (unless `uv-managed`, which reports
-  WARN even when currently working, since the grant is fragile) with the
-  resolved path and classification (`uv-managed` / `venv` / `framework` /
-  `other`).
+- "Interpreter identity" reports PASS (unless `uv-managed` or `framework`,
+  which both report WARN even when currently working, since the grant is
+  fragile) with the resolved path and classification (`uv-managed` / `venv`
+  / `framework` / `other`).
 - "Launch parent" reports INFO with the launch chain when no `disclaimer`
   helper is present, or WARN naming `disclaimer` when it is.
 - The database-readability check reports PASS.
