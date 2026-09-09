@@ -19,6 +19,23 @@ import pytest
 from things_mcp import doctor
 
 
+@pytest.fixture(autouse=True)
+def _isolate_claude_desktop_resolution(monkeypatch, tmp_path):
+    """Autouse (hq-gxt.13): never let a test read the real ~/Library Claude
+    config, and always start each test with a clean shared-resolver cache.
+
+    Individual tests may still call ``doctor``'s own path-patching helpers
+    (e.g. ``TestCheckClaudeDesktopInterpreter._patch_paths``) afterward to
+    point at their own fixture config - those calls simply override the
+    defaults set here.
+    """
+    doctor._reset_claude_desktop_targets_cache()
+    monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", tmp_path / "claude_desktop_config.json")
+    monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+    yield
+    doctor._reset_claude_desktop_targets_cache()
+
+
 def _fake_things(todos_fn):
     """Build a fake `things` module stub with a `database.Database().filepath`."""
     return SimpleNamespace(
@@ -363,6 +380,69 @@ class TestCheckInterpreterIdentity:
         assert result.status == doctor.STATUS_PASS
         assert "other" in result.detail
 
+    def test_demoted_to_info_when_claude_desktop_resolves_a_different_interpreter(
+        self, monkeypatch, tmp_path
+    ):
+        """hq-gxt.13: when Claude Desktop will launch a *different* interpreter
+        than the one running doctor, this check must not tell the operator to
+        grant Full Disk Access to the (wrong) doctor interpreter."""
+        uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
+        monkeypatch.setattr(doctor.sys, "executable", uv_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+
+        claude_target = tmp_path / "homebrew_python313"
+        claude_target.write_text("")
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text(
+            json.dumps({"mcpServers": {"things": {"command": str(claude_target), "args": ["-m", "things_mcp"]}}})
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_INFO
+        assert "Grant Full Disk Access" not in result.detail
+        assert uv_path in result.detail
+        assert "Claude Desktop interpreter" in result.detail
+
+    def test_warn_unchanged_when_claude_desktop_resolves_the_same_interpreter(
+        self, monkeypatch, tmp_path
+    ):
+        """When the Claude-Desktop-resolved interpreter equals this process's
+        own, today's WARN + grant-line behavior is unchanged."""
+        shared = tmp_path / "uv" / "python" / "cpython-3.12.11-macos-aarch64-none" / "bin" / "python3.12"
+        shared.parent.mkdir(parents=True)
+        shared.write_text("")
+        shared_path = str(shared)
+        monkeypatch.setattr(doctor.sys, "executable", shared_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text(
+            json.dumps({"mcpServers": {"things": {"command": shared_path, "args": ["-m", "things_mcp"]}}})
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_WARN
+        assert "Grant Full Disk Access to" in result.detail
+
+    def test_warn_unchanged_when_no_claude_desktop_interpreter_resolved(self, monkeypatch):
+        """When Claude Desktop config is absent/unmatched, today's behavior is
+        unchanged (the autouse fixture already points paths at empty dirs)."""
+        uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
+        monkeypatch.setattr(doctor.sys, "executable", uv_path)
+        monkeypatch.setattr(doctor.os.path, "realpath", lambda p: uv_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+
+        result = doctor.check_interpreter_identity()
+        assert result.status == doctor.STATUS_WARN
+        assert "Grant Full Disk Access to" in result.detail
+
 
 # ---------------------------------------------------------------------------
 # check_launch_parent
@@ -509,7 +589,7 @@ class TestCheckClaudeDesktopInterpreter:
         result = doctor.check_claude_desktop_interpreter()
         assert result.status == doctor.STATUS_WARN
         assert str(claude_target) in result.detail
-        assert "grant Full Disk Access to THIS file" in result.detail
+        assert "GRANT FULL DISK ACCESS TO THIS FILE" in result.detail
         assert str(own_target) in result.hint
         assert "Claude Desktop path" in result.hint
 
@@ -665,6 +745,99 @@ class TestCheckClaudeDesktopInterpreter:
             result = doctor.check_claude_desktop_interpreter()
         assert result.status == doctor.STATUS_PASS
         assert "manifest.json" in result.detail
+
+    def test_grant_instruction_is_unmistakable(self, tmp_path, monkeypatch):
+        """hq-gxt.13 step 3: the grant instruction is the first sentence,
+        upper-cased exactly as written."""
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        mock_result = MagicMock(returncode=0, stdout="/opt/homebrew/some/python3.13\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result):
+            result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_WARN
+        assert "GRANT FULL DISK ACCESS TO THIS FILE: /opt/homebrew/some/python3.13" in result.detail
+        assert result.detail.index("GRANT FULL DISK ACCESS TO THIS FILE") == 0
+        assert "does not persist for an interpreter launched by Claude Desktop" in result.hint
+
+    def test_shared_resolver_invoked_once_per_run(self, tmp_path, monkeypatch):
+        """hq-gxt.13 step 1: the (potentially slow) uvx probe subprocess must run
+        at most once per process, no matter how many checks consult the shared
+        resolver - even when both check_interpreter_identity and
+        check_claude_desktop_interpreter run in the same process."""
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": "uvx", "args": ["mcp-server-things"]}}
+        )
+        self._patch_paths(monkeypatch, config_path, tmp_path)
+
+        mock_result = MagicMock(returncode=0, stdout="/opt/homebrew/some/python3.13\n", stderr="")
+        with patch("things_mcp.doctor.subprocess.run", return_value=mock_result) as mock_run:
+            doctor.check_interpreter_identity()
+            doctor.check_claude_desktop_interpreter()
+            # Calling either check again still must not re-probe.
+            doctor.check_interpreter_identity()
+
+        assert mock_run.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Footer / JSON: Full Disk Access target for Claude Desktop
+# ---------------------------------------------------------------------------
+
+class TestFullDiskAccessTargetsFooter:
+    def _write_config(self, tmp_path, mcp_servers):
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text(json.dumps({"mcpServers": mcp_servers}))
+        return config_path
+
+    def test_footer_present_in_text_output_when_resolved(self, tmp_path, monkeypatch, capsys):
+        claude_target = tmp_path / "homebrew_python313"
+        claude_target.write_text("")
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(claude_target), "args": ["-m", "things_mcp"]}}
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        results = [doctor.CheckResult("stub", doctor.STATUS_PASS, detail="d")]
+        with patch("things_mcp.doctor.run_all_checks", return_value=results):
+            doctor.run_doctor()
+        out = capsys.readouterr().out
+        expected_path = os.path.realpath(str(claude_target))
+        assert f"Full Disk Access target for Claude Desktop: {expected_path}" in out
+
+    def test_footer_absent_when_unresolved(self, capsys):
+        # autouse fixture already points paths at empty dirs -> nothing resolved
+        results = [doctor.CheckResult("stub", doctor.STATUS_PASS, detail="d")]
+        with patch("things_mcp.doctor.run_all_checks", return_value=results):
+            doctor.run_doctor()
+        out = capsys.readouterr().out
+        assert "Full Disk Access target for Claude Desktop" not in out
+
+    def test_json_full_disk_access_targets_present_when_resolved(self, tmp_path, monkeypatch, capsys):
+        claude_target = tmp_path / "homebrew_python313"
+        claude_target.write_text("")
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(claude_target), "args": ["-m", "things_mcp"]}}
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        results = [doctor.CheckResult("stub", doctor.STATUS_PASS, detail="d")]
+        with patch("things_mcp.doctor.run_all_checks", return_value=results):
+            doctor.run_doctor(json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        expected_path = os.path.realpath(str(claude_target))
+        assert payload["full_disk_access_targets"] == [expected_path]
+
+    def test_json_full_disk_access_targets_empty_when_unresolved(self, capsys):
+        results = [doctor.CheckResult("stub", doctor.STATUS_PASS, detail="d")]
+        with patch("things_mcp.doctor.run_all_checks", return_value=results):
+            doctor.run_doctor(json_output=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["full_disk_access_targets"] == []
 
 
 # ---------------------------------------------------------------------------

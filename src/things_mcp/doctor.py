@@ -484,6 +484,24 @@ def check_interpreter_identity() -> CheckResult:
     else:
         kind = "other"
 
+    # Consult the shared/memoized Claude Desktop resolution (order-independent
+    # with check_claude_desktop_interpreter, and the uvx probe runs at most
+    # once per process even if both checks run). If Claude Desktop launches a
+    # *different* interpreter than the one running doctor right now, demote
+    # this check to INFO with no grant instruction at all - granting Full
+    # Disk Access to the wrong (doctor-only) interpreter is exactly the
+    # recurring-TCC-prompt failure mode this bead fixes (hq-gxt/hq-gxt.13).
+    claude_data = _resolve_claude_desktop_targets()
+    claude_resolved_paths = [r for (_, _, _, r) in claude_data.get("results", []) if r]
+
+    if claude_resolved_paths and realpath not in claude_resolved_paths:
+        detail = (
+            f"this is the interpreter running doctor ({kind}): {realpath}. It is NOT "
+            "the one Claude Desktop launches - do not grant it Full Disk Access for "
+            'the Things MCP server; see "Claude Desktop interpreter" below.'
+        )
+        return CheckResult(name, STATUS_INFO, detail=detail)
+
     lines = [f"interpreter={realpath} ({kind})", f"Grant Full Disk Access to: {realpath}"]
     if kind == "framework":
         lines.append(
@@ -646,7 +664,7 @@ def _resolve_uvx_entry(
 ) -> tuple:
     """Resolve the interpreter a uvx/uv entry would select, via a probe subprocess.
 
-    Returns (status, detail_line, hint_line_or_empty).
+    Returns (status, detail_line, hint_line_or_empty, resolved_path_or_None).
     """
     python_flags = _extract_uvx_python_flags(args)
     probe_cmd = [command] + python_flags + ["python", "-c", _UVX_REALPATH_PROBE_CODE]
@@ -658,6 +676,7 @@ def _resolve_uvx_entry(
             STATUS_INFO,
             f"{label}: uvx resolution skipped (time budget exhausted) - run manually: {manual_cmd}",
             "",
+            None,
         )
 
     timeout = min(_UVX_PROBE_SINGLE_TIMEOUT_SECS, remaining)
@@ -668,6 +687,7 @@ def _resolve_uvx_entry(
             STATUS_INFO,
             f"{label}: could not resolve uvx-selected interpreter ({e}) - run manually: {manual_cmd}",
             "",
+            None,
         )
 
     stdout = (result.stdout or "").strip()
@@ -677,6 +697,7 @@ def _resolve_uvx_entry(
             STATUS_INFO,
             f"{label}: uvx probe exited {result.returncode} ({stderr or 'no output'}) - run manually: {manual_cmd}",
             "",
+            None,
         )
 
     resolved = stdout.splitlines()[-1].strip()
@@ -686,7 +707,7 @@ def _resolve_uvx_entry(
 def _resolve_plain_entry(label: str, command: str) -> tuple:
     """Resolve the interpreter a non-uvx mcpServers entry would run.
 
-    Returns (status, detail_line, hint_line_or_empty).
+    Returns (status, detail_line, hint_line_or_empty, resolved_path_or_None).
     """
     expanded = os.path.expanduser(os.path.expandvars(command))
     if not os.path.isabs(expanded):
@@ -700,31 +721,45 @@ def _resolve_plain_entry(label: str, command: str) -> tuple:
             STATUS_WARN,
             f"{label}: command not found ({command} -> {resolved})",
             f"Configured command '{command}' does not resolve to an existing file.",
+            None,
         )
 
     return _classify_resolved_interpreter(label, resolved)
 
 
+_ALLOW_DIALOG_DOES_NOT_PERSIST = (
+    'Clicking Allow on the "would like to access data from other apps" dialog does not '
+    "persist for an interpreter launched by Claude Desktop - only Full Disk Access on "
+    "this file stops the dialog (verified macOS 26.6)."
+)
+
+
 def _classify_resolved_interpreter(label: str, resolved: str) -> tuple:
-    """Compare a resolved Claude-Desktop-launched interpreter to this process's own."""
+    """Compare a resolved Claude-Desktop-launched interpreter to this process's own.
+
+    Returns (status, detail_line, hint_line_or_empty, resolved_path).
+    """
     own_realpath = os.path.realpath(sys.executable)
     if resolved == own_realpath:
         return (
             STATUS_PASS,
-            f"{label}: Claude Desktop will run: {resolved} - grant Full Disk Access to THIS file "
-            "(same as this process)",
+            f"GRANT FULL DISK ACCESS TO THIS FILE: {resolved}. {label}: Claude Desktop "
+            f"will run: {resolved} (same as this process). {_ALLOW_DIALOG_DOES_NOT_PERSIST}",
             "",
+            resolved,
         )
 
     return (
         STATUS_WARN,
-        f"{label}: Claude Desktop will run: {resolved} - grant Full Disk Access to THIS file",
+        f"GRANT FULL DISK ACCESS TO THIS FILE: {resolved}. {label}: Claude Desktop will "
+        f"run: {resolved}",
         (
             f"This differs from the interpreter running doctor ({own_realpath}) - Full Disk "
             f"Access must be granted to the Claude Desktop path ({resolved}), not the doctor "
             "path, or the app-data TCC prompt will keep recurring after a Claude Desktop "
-            "restart. " + _DRAG_DROP_HINT
+            f"restart. {_ALLOW_DIALOG_DOES_NOT_PERSIST} " + _DRAG_DROP_HINT
         ),
+        resolved,
     )
 
 
@@ -783,6 +818,95 @@ def _iter_things_entries() -> List[tuple]:
     return entries
 
 
+_claude_desktop_targets_cache: Optional[dict] = None
+
+
+def _reset_claude_desktop_targets_cache() -> None:
+    """Test-only: clear the memoized Claude Desktop resolution.
+
+    Production code never needs to call this - the resolution is stable for
+    the life of a single doctor invocation (a fresh process each run), so
+    memoizing it for the whole process is safe. Tests that monkeypatch the
+    config path/subprocess between cases must call this to avoid observing a
+    stale result from a previous test.
+    """
+    global _claude_desktop_targets_cache
+    _claude_desktop_targets_cache = None
+
+
+def _resolve_claude_desktop_targets() -> dict:
+    """Resolve every Claude-Desktop-launched interpreter entry, once per process.
+
+    Shared by :func:`check_interpreter_identity` and
+    :func:`check_claude_desktop_interpreter` so check *order* never matters
+    (either check can run first and both see the same resolution) and the
+    potentially slow ``uvx``/``uv`` probe subprocess runs at most once per
+    process no matter how many checks consult it. The result is memoized in
+    a module-level cache for the remainder of the process.
+
+    Returns a dict:
+      - ``entries_found`` (bool): whether any things-matching mcpServers/
+        mcp_config entry was found.
+      - ``no_entries_detail`` (str | None): ready-made INFO detail text to
+        use when ``entries_found`` is False.
+      - ``error`` (str | None): set (with ``entries_found`` False) if reading
+        the config itself raised.
+      - ``results`` (list of (status, detail, hint, resolved_path_or_None)):
+        one tuple per matching entry, only meaningful when ``entries_found``
+        is True.
+    """
+    global _claude_desktop_targets_cache
+    if _claude_desktop_targets_cache is not None:
+        return _claude_desktop_targets_cache
+
+    try:
+        entries = _iter_things_entries()
+    except Exception as e:  # noqa: BLE001 - never crash doctor over a diagnostic probe
+        _claude_desktop_targets_cache = {
+            "entries_found": False,
+            "no_entries_detail": None,
+            "error": str(e),
+            "results": [],
+        }
+        return _claude_desktop_targets_cache
+
+    if not entries:
+        if not _CLAUDE_DESKTOP_CONFIG_PATH.exists():
+            detail = (
+                f"claude_desktop_config.json not found at {_CLAUDE_DESKTOP_CONFIG_PATH}, "
+                "and no matching .mcpb extension manifest found"
+            )
+        else:
+            detail = (
+                "no 'things_mcp'/'mcp-server-things' entry found in "
+                "claude_desktop_config.json or any installed .mcpb extension"
+            )
+        _claude_desktop_targets_cache = {
+            "entries_found": False,
+            "no_entries_detail": detail,
+            "error": None,
+            "results": [],
+        }
+        return _claude_desktop_targets_cache
+
+    deadline = time.monotonic() + _UVX_PROBE_TOTAL_BUDGET_SECS
+    results = []
+    for label, command, args in entries:
+        basename = os.path.basename(command).lower()
+        if basename in ("uvx", "uv"):
+            results.append(_resolve_uvx_entry(label, command, args, deadline))
+        else:
+            results.append(_resolve_plain_entry(label, command))
+
+    _claude_desktop_targets_cache = {
+        "entries_found": True,
+        "no_entries_detail": None,
+        "error": None,
+        "results": results,
+    }
+    return _claude_desktop_targets_cache
+
+
 def check_claude_desktop_interpreter() -> CheckResult:
     """Resolve the interpreter(s) Claude Desktop will actually launch for this server.
 
@@ -795,37 +919,23 @@ def check_claude_desktop_interpreter() -> CheckResult:
     subprocess for those entries, or plain path resolution otherwise. WARNs
     when a resolved interpreter differs from the one running doctor (the
     common failure mode: Full Disk Access granted to the wrong binary).
+
+    Uses :func:`_resolve_claude_desktop_targets` (shared/memoized with
+    :func:`check_interpreter_identity`) so this check's result is identical
+    regardless of which check runs first.
     """
     name = "Claude Desktop interpreter"
 
-    try:
-        entries = _iter_things_entries()
-    except Exception as e:  # noqa: BLE001 - never crash doctor over a diagnostic probe
-        return CheckResult(name, STATUS_INFO, detail=f"could not read Claude Desktop config: {e}")
+    data = _resolve_claude_desktop_targets()
 
-    if not entries:
-        if not _CLAUDE_DESKTOP_CONFIG_PATH.exists():
-            return CheckResult(
-                name,
-                STATUS_INFO,
-                detail=f"claude_desktop_config.json not found at {_CLAUDE_DESKTOP_CONFIG_PATH}, and no matching .mcpb extension manifest found",
-            )
-        return CheckResult(
-            name,
-            STATUS_INFO,
-            detail="no 'things_mcp'/'mcp-server-things' entry found in claude_desktop_config.json or any installed .mcpb extension",
-        )
+    if data["error"] is not None:
+        return CheckResult(name, STATUS_INFO, detail=f"could not read Claude Desktop config: {data['error']}")
 
-    deadline = time.monotonic() + _UVX_PROBE_TOTAL_BUDGET_SECS
-    results = []
-    for label, command, args in entries:
-        basename = os.path.basename(command).lower()
-        if basename in ("uvx", "uv"):
-            results.append(_resolve_uvx_entry(label, command, args, deadline))
-        else:
-            results.append(_resolve_plain_entry(label, command))
+    if not data["entries_found"]:
+        return CheckResult(name, STATUS_INFO, detail=data["no_entries_detail"])
 
-    statuses = [s for s, _, _ in results]
+    results = data["results"]
+    statuses = [s for s, _, _, _ in results]
     if STATUS_WARN in statuses:
         overall = STATUS_WARN
     elif STATUS_INFO in statuses:
@@ -833,8 +943,8 @@ def check_claude_desktop_interpreter() -> CheckResult:
     else:
         overall = STATUS_PASS
 
-    detail = " || ".join(d for _, d, _ in results)
-    hint = " || ".join(h for _, _, h in results if h)
+    detail = " || ".join(d for _, d, _, _ in results)
+    hint = " || ".join(h for _, _, h, _ in results if h)
     return CheckResult(name, overall, detail=detail, hint=hint)
 
 
@@ -998,6 +1108,24 @@ def has_failure(results: List[CheckResult]) -> bool:
     return any(r.status == STATUS_FAIL for r in results)
 
 
+def _full_disk_access_targets() -> List[str]:
+    """Return the deduped Claude-Desktop-resolved interpreter path(s), in encounter order.
+
+    Consults the same memoized resolution used by
+    :func:`check_interpreter_identity` and :func:`check_claude_desktop_interpreter`
+    (:func:`_resolve_claude_desktop_targets`) - calling this never spawns an
+    extra probe subprocess. Returns an empty list when no Claude Desktop
+    interpreter could be resolved (config missing, no matching entry, or a
+    read error).
+    """
+    data = _resolve_claude_desktop_targets()
+    paths: List[str] = []
+    for _status, _detail, _hint, resolved in data.get("results", []):
+        if resolved and resolved not in paths:
+            paths.append(resolved)
+    return paths
+
+
 _STATUS_COLORS = {
     STATUS_PASS: "\033[32m",  # green
     STATUS_WARN: "\033[33m",  # yellow
@@ -1043,6 +1171,10 @@ def format_table(results: List[CheckResult], use_color: Optional[bool] = None) -
 
     lines.append("")
     lines.append(summary)
+
+    for path in _full_disk_access_targets():
+        lines.append(f"Full Disk Access target for Claude Desktop: {path}")
+
     return "\n".join(lines)
 
 
@@ -1051,6 +1183,7 @@ def results_to_json(results: List[CheckResult]) -> dict:
     return {
         "ok": not has_failure(results),
         "checks": [r.to_dict() for r in results],
+        "full_disk_access_targets": _full_disk_access_targets(),
     }
 
 
