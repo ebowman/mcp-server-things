@@ -54,8 +54,7 @@ _DB_UNREADABLE_MARKER = "unable to open database file"
 
 _TCC_HINT = (
     "Grant Full Disk Access to the process launching the server, or run the "
-    "server via HTTP transport from Terminal - see README Troubleshooting "
-    "'Reads fail but writes work'."
+    "server via HTTP transport from Terminal - see docs/MACOS_PERMISSIONS.md."
 )
 
 
@@ -293,7 +292,7 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
             hint=(
                 "Large database or first Spotlight scan - re-run doctor; if it keeps "
                 "timing out (especially alongside 'unable to open database file' "
-                "symptoms), see README Troubleshooting 'Reads fail but writes work'."
+                "symptoms), see docs/MACOS_PERMISSIONS.md."
             ),
         )
 
