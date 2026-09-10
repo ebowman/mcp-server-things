@@ -32,6 +32,7 @@
 # Run tests before committing
 pytest                          # Run all tests
 pytest tests/unit/              # Unit tests only
+.venv/bin/python -m pytest tests/unit -q   # canonical env, see docs/TESTING.md
 pytest tests/integration/       # Integration tests (mostly mock-based;
                                  # real_things_tools/cleanup_test_todos, and the local fixtures in
                                  # test_bulk_operations_comprehensive.py/test_search_comprehensive.py/

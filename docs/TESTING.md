@@ -1,5 +1,21 @@
 # Testing Policy
 
+## Test environment
+
+Create/refresh the canonical env with uv on Python 3.12, then run the suite:
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[test,dev]'
+.venv/bin/python -m pytest tests/unit -q
+```
+
+`uv sync` currently fails to resolve across the project's full
+requires-python range, so `uv pip install` (above) is the supported path.
+**Warning:** another virtualenv may exist elsewhere in this tree (e.g. one
+referenced by `claude_desktop_config.json`) that is the live interpreter
+Claude Desktop is running from - do not upgrade it in place.
+
 This document is the short version of the testing gap analysis behind the
 hq-f0w epic (hq-f0w.14). It states the rules; it does not re-derive them.
 
