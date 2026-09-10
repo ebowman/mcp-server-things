@@ -34,9 +34,25 @@ class TestIsDbAccessError:
         exc = sqlite3.OperationalError("authorization denied")
         assert is_db_access_error(exc) is True
 
-    def test_permission_error(self):
-        exc = PermissionError("Operation not permitted")
+    def test_permission_error_on_things_database_container(self):
+        exc = PermissionError(
+            13,
+            "Operation not permitted",
+        )
+        exc.filename = (
+            "/Users/x/Library/Group Containers/JLMPQHK86H.com.culturedcode.ThingsMac/"
+            "ThingsData-abc123/Things Database.thingsdatabase/main.sqlite"
+        )
         assert is_db_access_error(exc) is True
+
+    def test_permission_error_on_unrelated_file_is_not_classified(self):
+        exc = PermissionError(13, "Operation not permitted")
+        exc.filename = "/some/other/file"
+        assert is_db_access_error(exc) is False
+
+    def test_permission_error_with_no_filename_is_not_classified(self):
+        exc = PermissionError("Operation not permitted")
+        assert is_db_access_error(exc) is False
 
     def test_operational_error_unrelated_message_is_not_classified(self):
         exc = sqlite3.OperationalError("no such table: TMTask")
@@ -76,45 +92,44 @@ def _make_server_with_mock_tools(**overrides):
     return server
 
 
-class TestGetTodayDbAccessDenied:
+class TestDbAccessDeniedEndToEnd:
     """End-to-end: a real things.py call raising a Full-Disk-Access denial
     propagates all the way through the real ReadOperations/ThingsTools/
     ThingsMCPServer stack (no mocked tools layer) and surfaces as a
     structured database_access_denied error instead of an opaque
-    internal_error/ToolError."""
+    internal_error/ToolError.
 
+    Covers both call shapes documented in CLAUDE.md/the bead: the
+    raise-then-gate path (get_today, get_todos, get_projects, search_todos -
+    the exception propagates up to server.py's except block, which now
+    delegates to ThingsMCPServer._handle_read_exception) and the
+    return-envelope path (get_tag_usage, get_project_headings - the tools
+    layer catches the exception itself and returns the structured error
+    directly, never raising into server.py at all).
+    """
+
+    @pytest.mark.parametrize(
+        "tool_name,tool_args,patch_target",
+        [
+            ("get_today", {}, "things_mcp.tools_helpers.read_operations.things.today"),
+            ("get_todos", {}, "things_mcp.tools_helpers.read_operations.things.todos"),
+            ("get_projects", {}, "things_mcp.tools_helpers.read_operations.things.projects"),
+            ("search_todos", {"query": "test"}, "things_mcp.tools_helpers.read_operations.things.todos"),
+            ("get_tag_usage", {}, "things_mcp.tools_helpers.read_operations.things.tags"),
+            ("get_project_headings", {"project_id": "abc123"}, "things_mcp.tools_helpers.read_operations.things.get"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_get_today_reports_database_access_denied(self):
+    async def test_reports_database_access_denied(self, tool_name, tool_args, patch_target):
         server = ThingsMCPServer()
 
         client = Client(server.mcp)
         with patch(
-            "things_mcp.tools_helpers.read_operations.things.today",
+            patch_target,
             side_effect=sqlite3.OperationalError("unable to open database file"),
         ):
             async with client:
-                result = await client.call_tool("get_today", {})
-
-        sc = result.structured_content
-        assert sc is not None
-        assert sc["success"] is False
-        assert sc["error"] == "database_access_denied"
-        assert os.path.realpath(sys.executable) in sc["hint"]
-
-    @pytest.mark.asyncio
-    async def test_get_todos_reports_database_access_denied(self):
-        """Same end-to-end check via get_todos (things.todos), since
-        get_today and get_todos read through different things.py entry
-        points but must classify identically."""
-        server = ThingsMCPServer()
-
-        client = Client(server.mcp)
-        with patch(
-            "things_mcp.tools_helpers.read_operations.things.todos",
-            side_effect=sqlite3.OperationalError("unable to open database file"),
-        ):
-            async with client:
-                result = await client.call_tool("get_todos", {})
+                result = await client.call_tool(tool_name, tool_args)
 
         sc = result.structured_content
         assert sc is not None

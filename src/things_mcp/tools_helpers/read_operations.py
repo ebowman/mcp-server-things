@@ -97,22 +97,26 @@ def is_db_access_error(exc: BaseException) -> bool:
     Distinguishes a permission-denied failure reading the Things SQLite
     database (things.py raises ``sqlite3.OperationalError`` in this case,
     or occasionally a plain ``PermissionError``) from any other exception
-    (e.g. a schema mismatch, a bad query) that should still surface as a
-    generic internal error.
+    (e.g. a schema mismatch, a bad query, or an unrelated PermissionError on
+    some other file) that should still surface as a generic internal error.
 
     Args:
         exc: The caught exception instance.
 
     Returns:
-        True if `exc` is a PermissionError, or a sqlite3.OperationalError
-        whose message contains 'unable to open database file' or
-        'authorization denied' (case-insensitive). False otherwise.
+        True if `exc` is a sqlite3.OperationalError whose message contains
+        'unable to open database file' or 'authorization denied'
+        (case-insensitive), or a PermissionError whose `filename` contains
+        'com.culturedcode.ThingsMac' or '.thingsdatabase' (i.e. it names a
+        path inside the Things database container, not some unrelated
+        file). False otherwise.
     """
-    if isinstance(exc, PermissionError):
-        return True
     if isinstance(exc, sqlite3.OperationalError):
         message = str(exc).lower()
         return "unable to open database file" in message or "authorization denied" in message
+    if isinstance(exc, PermissionError):
+        filename = getattr(exc, "filename", "") or ""
+        return "com.culturedcode.ThingsMac" in filename or ".thingsdatabase" in filename
     return False
 
 
