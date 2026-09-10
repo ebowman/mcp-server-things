@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/TESTING.md` documents the canonical test environment (`.venv` via `uv`) and warns that a repo-root `venv/` directory may be a live Claude Desktop interpreter, not a disposable test sandbox.
 - README's former "Reads fail but writes work" troubleshooting section, including the HTTP transport + `mcp-remote` workaround, moved into `docs/MACOS_PERMISSIONS.md`'s "Headless / unattended setup" section; README now carries a short summary and links to it.
 
+### Tests
+
+- Unit tests now run against a nonexistent Things database by design (THINGSDB guard in `tests/unit/conftest.py`; opt-out `THINGS_MCP_UNIT_TESTS_ALLOW_REAL_DB=1`). 14 tests that only passed because a real database was present, or because errors used to be swallowed, were removed as duplicates of hermetic coverage, and 1 was rewritten with real assertions.
+
 ## [1.9.0] - 2026-08-22
 
 ### Fixed

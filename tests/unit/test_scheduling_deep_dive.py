@@ -5,14 +5,13 @@ This test suite thoroughly exercises:
 1. Reminder functionality with various formats
 2. Date scheduling (relative and absolute)
 3. Temporal queries (upcoming, due, activating)
-4. Logbook and history retrieval
-5. Edge cases and format validation
+4. Edge cases and format validation
 
 Tests document expected behavior and verify the hybrid AppleScript/URL scheme approach.
 """
 
 import pytest
-from datetime import datetime, timedelta, date
+from datetime import timedelta, date
 from typing import Dict, Any, List
 from unittest.mock import AsyncMock, MagicMock, patch
 import things  # For mocking things.py database access
@@ -206,26 +205,57 @@ class TestTemporalQueries:
             assert len(upcoming) > 0
 
     @pytest.mark.asyncio
-    async def test_get_upcoming_in_days_7(self, tools):
-        """Test get_upcoming with 7-day range."""
-        result = await tools.get_upcoming(days=7)
+    async def test_upcoming_in_days_returns_only_in_window_todos(self, tools):
+        """get_upcoming(days=7) -> get_todos_upcoming_in_days's real filter logic.
 
-        # Should return a list (even if empty)
-        assert isinstance(result, list)
+        A todo is included if EITHER:
+        - its deadline is <= the cutoff date (today + days), with NO lower
+          bound - an already-overdue deadline is still included (matches the
+          actual `if due_dt <= cutoff_date` check in
+          _get_todos_upcoming_in_days_sync, which has no `>= now` guard on
+          the deadline branch, unlike the start_date branch below); or
+        - its start_date falls within [today, today + days] (both bounds
+          checked - a past start_date is excluded).
 
-    @pytest.mark.asyncio
-    async def test_get_upcoming_in_days_14(self, tools):
-        """Test get_upcoming with 14-day range."""
-        result = await tools.get_upcoming(days=14)
+        Todos with neither field, or with only an out-of-window start_date/
+        deadline, are excluded. This asserts the real uuid set produced by
+        that filter against a mix of rows spanning both branches and both
+        boundaries.
+        """
+        past = (date.today() - timedelta(days=5)).strftime('%Y-%m-%d')
+        window = (date.today() + timedelta(days=3)).strftime('%Y-%m-%d')
+        target = (date.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+        beyond = (date.today() + timedelta(days=10)).strftime('%Y-%m-%d')
 
-        assert isinstance(result, list)
+        with patch('things.todos') as mock_todos:
+            mock_todos.return_value = [
+                {'uuid': 'deadline-in-window', 'title': 'Deadline in window',
+                 'deadline': window, 'status': 'incomplete'},
+                {'uuid': 'deadline-past', 'title': 'Overdue deadline still surfaces',
+                 'deadline': past, 'status': 'incomplete'},
+                {'uuid': 'deadline-boundary', 'title': 'Deadline exactly on target day',
+                 'deadline': target, 'status': 'incomplete'},
+                {'uuid': 'deadline-beyond', 'title': 'Deadline beyond window',
+                 'deadline': beyond, 'status': 'incomplete'},
+                {'uuid': 'start-in-window', 'title': 'Start date in window',
+                 'start_date': window, 'status': 'incomplete'},
+                {'uuid': 'start-past', 'title': 'Start date already past',
+                 'start_date': past, 'status': 'incomplete'},
+                {'uuid': 'start-boundary', 'title': 'Start date exactly on target day',
+                 'start_date': target, 'status': 'incomplete'},
+                {'uuid': 'start-beyond', 'title': 'Start date beyond window',
+                 'start_date': beyond, 'status': 'incomplete'},
+                {'uuid': 'no-dates', 'title': 'No deadline or start date',
+                 'status': 'incomplete'},
+            ]
 
-    @pytest.mark.asyncio
-    async def test_get_upcoming_in_days_30(self, tools):
-        """Test get_upcoming with 30-day range."""
-        result = await tools.get_upcoming(days=30)
+            result = await tools.get_upcoming(days=7)
 
-        assert isinstance(result, list)
+            uuids = {t['uuid'] for t in result}
+            assert uuids == {
+                'deadline-in-window', 'deadline-past', 'deadline-boundary',
+                'start-in-window', 'start-boundary',
+            }
 
     @pytest.mark.asyncio
     async def test_get_due_in_days_7(self, tools, mock_applescript_manager):
@@ -371,93 +401,6 @@ class TestDueAndActivatingWindowBoundaries:
 
 
 # ============================================================================
-# TEST CLASS 5: LOGBOOK & HISTORY
-# ============================================================================
-
-class TestLogbookAndHistory:
-    """Test logbook retrieval and history queries."""
-
-    @pytest.mark.asyncio
-    async def test_get_logbook_default(self, tools):
-        """Test get_logbook with default parameters (50 items, 7 days)."""
-        with patch('things.logbook') as mock_logbook:
-            mock_logbook.return_value = [
-                {
-                    'uuid': 'completed-1',
-                    'title': 'Completed task',
-                    'status': 'completed',
-                    'stop_date': datetime.now().isoformat(),
-                    'tags': []
-                }
-            ]
-
-            logbook = await tools.get_logbook()
-
-            assert isinstance(logbook, list)
-
-    @pytest.mark.asyncio
-    async def test_get_logbook_with_limit(self, tools):
-        """Test get_logbook with custom limit."""
-        with patch('things.logbook') as mock_logbook:
-            # Create 100 mock completed items
-            mock_items = [
-                {
-                    'uuid': f'completed-{i}',
-                    'title': f'Task {i}',
-                    'status': 'completed',
-                    'stop_date': datetime.now().isoformat(),
-                    'tags': []
-                }
-                for i in range(100)
-            ]
-            mock_logbook.return_value = mock_items
-
-            logbook = await tools.get_logbook(limit=20)
-
-            # Should be limited to 20 items
-            assert len(logbook) <= 20
-
-    @pytest.mark.asyncio
-    async def test_get_logbook_different_periods(self, tools):
-        """Test get_logbook with different time periods."""
-        periods = ['3d', '7d', '1w', '1m']
-
-        for period in periods:
-            with patch('things.logbook') as mock_logbook:
-                mock_logbook.return_value = []
-
-                logbook = await tools.get_logbook(period=period)
-
-                assert isinstance(logbook, list)
-
-    @pytest.mark.asyncio
-    async def test_get_recent_week(self, tools, mock_applescript_manager):
-        """Test get_recent with 1 week period."""
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': [
-                'ID:recent-1|TITLE:Completed recently|COMPLETED:Saturday, October 5, 2025 at 3:00:00 PM'
-            ]
-        }
-
-        recent = await tools.get_recent('7d')
-
-        assert isinstance(recent, list)
-
-    @pytest.mark.asyncio
-    async def test_get_recent_month(self, tools, mock_applescript_manager):
-        """Test get_recent with 1 month period."""
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': []
-        }
-
-        recent = await tools.get_recent('1m')
-
-        assert isinstance(recent, list)
-
-
-# ============================================================================
 # TEST CLASS 6: ACTIVATION DATE QUERIES
 # ============================================================================
 
@@ -514,70 +457,6 @@ class TestFormatValidationAndEdgeCases:
         )
 
         assert mock_applescript_manager.execute_applescript.called
-
-
-# ============================================================================
-# TEST CLASS 8: INTEGRATION SCENARIOS
-# ============================================================================
-
-class TestIntegrationScenarios:
-    """Test realistic integration scenarios combining multiple features."""
-
-    @pytest.mark.asyncio
-    async def test_daily_review_workflow(self, tools):
-        """Test a typical daily review workflow."""
-        # 1. Get today's todos
-        with patch('things_mcp.tools_helpers.read_operations.things.today') as mock_today:
-            mock_today.return_value = []
-            today_todos = await tools.get_today()
-
-        # 2. Get upcoming in next 7 days (things.py-backed; the
-        # AppleScriptManager.get_todos_upcoming_in_days method this used to
-        # patch was dead code with no callers and was removed in hq-nxu.8 -
-        # ReadOperations.get_upcoming never called it).
-        with patch('things_mcp.tools_helpers.read_operations.things.upcoming') as mock_upcoming_things:
-            mock_upcoming_things.return_value = []
-            upcoming = await tools.get_upcoming(days=7)
-
-        # 3. Check what's due soon (things.py-backed; the
-        # AppleScriptManager.get_todos_due_in_days method this used to
-        # patch was dead code with no callers and was removed in hq-nxu.8 -
-        # ReadOperations.get_due_in_days never called it).
-        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_due_todos:
-            mock_due_todos.return_value = []
-            due_soon = await tools.get_due_in_days(7)
-
-        # All should return lists
-        assert isinstance(today_todos, list)
-        assert isinstance(upcoming, list)
-        assert isinstance(due_soon, list)
-
-    @pytest.mark.asyncio
-    async def test_weekly_planning_workflow(self, tools, mock_applescript_manager):
-        """Test a typical weekly planning workflow."""
-        # 1. Review completed items from last week
-        with patch('things.logbook') as mock_logbook:
-            mock_logbook.return_value = []
-            completed = await tools.get_logbook(period='7d')
-
-        # 2. Check what's coming up
-        upcoming = await tools.get_upcoming(days=14)
-
-        # 3. Create a new todo for next week with reminder
-        mock_applescript_manager.execute_applescript.return_value = {
-            'success': True,
-            'output': 'new-todo-id'
-        }
-
-        next_monday = date.today() + timedelta(days=(7 - date.today().weekday()))
-        result = await tools.add_todo(
-            title="Weekly team meeting",
-            when=f"{next_monday.strftime('%Y-%m-%d')}@09:00",
-            tags=["work", "meeting"]
-        )
-
-        assert isinstance(completed, list)
-        assert isinstance(upcoming, list)
 
 
 # ============================================================================

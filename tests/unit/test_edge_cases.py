@@ -71,20 +71,6 @@ class TestBoundaryConditions:
             assert len(result) == 500  # Should be capped at 500
 
     @pytest.mark.asyncio
-    async def test_max_logbook_limit(self, tools_with_mock):
-        """Test logbook with maximum limit (100)."""
-        with patch('things_mcp.tools_helpers.read_operations.things.logbook') as mock_logbook:
-            # Create 150 mock completed todos
-            mock_logbook.return_value = [
-                {"uuid": f"todo-{i}", "title": f"Completed {i}", "status": "completed"}
-                for i in range(150)
-            ]
-
-            result = await tools_with_mock.get_logbook(limit=100)
-
-            assert len(result) <= 100  # Should be capped at 100
-
-    @pytest.mark.asyncio
     async def test_max_days_parameter(self, tools_with_mock):
         """Test date range functions with maximum days (365)."""
         with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:

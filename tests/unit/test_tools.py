@@ -85,26 +85,6 @@ class TestGetTodos:
 
             assert isinstance(result, list)
             assert len(result) > 0
-    
-    @pytest.mark.asyncio
-    async def test_get_todos_by_project(self, tools_with_mock):
-        """Test getting todos by project."""
-        project_uuid = "project-456"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value=[{
-                "id": "todo-789",
-                "name": "Project Todo",
-                "project_id": project_uuid
-            }])
-            mock_get_queue.return_value = mock_queue
-            
-            result = await tools_with_mock.get_todos(project_uuid=project_uuid)
-            
-            assert isinstance(result, list)
 
 
 class TestAddTodo:
@@ -223,33 +203,6 @@ class TestDeleteTodo:
                 assert result["success"] is True
 
 
-class TestGetProjects:
-    """Test get_projects functionality."""
-    
-    @pytest.fixture
-    def tools_with_mock(self, mock_applescript_manager_with_data):
-        """Fixture providing tools with mocked AppleScript manager."""
-        return ThingsTools(mock_applescript_manager_with_data)
-    
-    @pytest.mark.asyncio
-    async def test_get_projects_all(self, tools_with_mock):
-        """Test getting all projects."""
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value=[{
-                "id": "project-456",
-                "name": "Sample Project",
-                "status": "open"
-            }])
-            mock_get_queue.return_value = mock_queue
-            
-            result = await tools_with_mock.get_projects()
-            
-            assert isinstance(result, list)
-
-
 class TestMoveOperations:
     """Test move operations."""
     
@@ -279,58 +232,6 @@ class TestMoveOperations:
             assert result["success"] is True
             assert result["destination"] == destination
             mock_move.assert_called_once()
-
-
-class TestSearchOperations:
-    """Test search operations."""
-    
-    @pytest.fixture
-    def tools_with_mock(self, mock_applescript_manager_with_data):
-        """Fixture providing tools with mocked AppleScript manager."""
-        return ThingsTools(mock_applescript_manager_with_data)
-    
-    @pytest.mark.asyncio
-    async def test_search_todos(self, tools_with_mock):
-        """Test searching todos."""
-        query = "test"
-        
-        # Mock operation queue
-        with patch('things_mcp.tools.get_operation_queue') as mock_get_queue:
-            mock_queue = AsyncMock()
-            mock_queue.enqueue = AsyncMock(return_value="op-id")
-            mock_queue.wait_for_operation = AsyncMock(return_value=[{
-                "id": "todo-123",
-                "name": "Test Todo",
-                "status": "open"
-            }])
-            mock_get_queue.return_value = mock_queue
-            
-            result = await tools_with_mock.search_todos(query=query)
-            
-            assert isinstance(result, list)
-
-
-class TestGetAreas:
-    """Test get_areas functionality."""
-    
-    @pytest.fixture
-    def tools_with_mock(self, mock_applescript_manager_with_data):
-        """Fixture providing tools with mocked AppleScript manager."""
-        return ThingsTools(mock_applescript_manager_with_data)
-    
-    @pytest.mark.asyncio
-    async def test_get_areas(self, tools_with_mock):
-        """Test getting all areas."""
-        # Mock the applescript manager's get_areas method directly
-        tools_with_mock.applescript.get_areas = AsyncMock(return_value=[{
-            "id": "area-789",
-            "name": "Work Area",
-            "collapsed": False
-        }])
-        
-        result = await tools_with_mock.get_areas()
-        
-        assert isinstance(result, list)
 
 
 class TestGetTags:
