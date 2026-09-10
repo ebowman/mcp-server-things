@@ -16,6 +16,15 @@ requires-python range, so `uv pip install` (above) is the supported path.
 referenced by `claude_desktop_config.json`) that is the live interpreter
 Claude Desktop is running from - do not upgrade it in place.
 
+`tests/unit/conftest.py` forces `THINGSDB` to a nonexistent path for the whole
+unit session (overriding any pre-existing value), so any unit test that
+reaches a real, unmocked `things.py` call fails loudly
+(`sqlite3.OperationalError: unable to open database file`) instead of
+silently depending on whatever Things database happens to exist on the
+developer's machine; set `THINGS_MCP_UNIT_TESTS_ALLOW_REAL_DB=1` to opt out
+and run the unit suite against a real database instead (a warning is emitted
+when this is active).
+
 This document is the short version of the testing gap analysis behind the
 hq-f0w epic (hq-f0w.14). It states the rules; it does not re-derive them.
 
