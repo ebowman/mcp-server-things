@@ -44,7 +44,7 @@ interpreter is a broad grant, not a narrow one.
      `uvx --python-preference only-managed --python 3.12 python -c "import os,sys;print(os.path.realpath(sys.executable))"`
      (adjust the `--python` flags to match your `args`). Only if the command
      is a Python path of your own, run `readlink -f <command>` on it.
-   - Or run `scripts/tcc_probe.sh` for a read-only snapshot.
+   - Or run `scripts/tcc_probe.sh` for a read-only support bundle (paste its output into a bug report).
 2. In Finder, press **Cmd+Shift+G** and paste the directory containing that
    file (the path above, minus the filename).
 3. Open **System Settings > Privacy & Security > Full Disk Access**. Cancel
@@ -233,7 +233,7 @@ Three mechanisms were observed directly (the `disclaimer` parent chain via
 >    it reads `claude_desktop_config.json` (and any installed `.mcpb`
 >    manifest) directly and prints `Claude Desktop will run: <path> - grant
 >    Full Disk Access to THIS file`.
-> 2. `scripts/tcc_probe.sh` for a read-only snapshot you can paste back for
+> 2. `scripts/tcc_probe.sh` for a read-only support bundle you can paste back for
 >    troubleshooting.
 > 3. Manually: read the `command`/`args` for this server out of
 >    `claude_desktop_config.json`, then resolve it yourself with
@@ -262,8 +262,8 @@ real machine" below):
    - Find the exact path to add via either:
      - `mcp-server-things doctor` and read the "Interpreter identity" row
        (`Grant Full Disk Access to: <path>`), or
-     - `scripts/tcc_probe.sh`, a read-only diagnostic you can run and paste
-       the output back for troubleshooting.
+     - `scripts/tcc_probe.sh`, a read-only support bundle you can run and paste
+       the output back for troubleshooting (e.g. into a bug report).
    - Open System Settings > Privacy & Security > Full Disk Access, click
      "+", press Cmd-Shift-G, paste the exact path, and add it. (The FDA
      picker sometimes greys out these paths - drag-and-drop from Finder
