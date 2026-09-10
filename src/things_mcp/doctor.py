@@ -548,7 +548,7 @@ def check_launch_parent() -> CheckResult:
     ``Claude.app/Contents/Helpers/disclaimer``, which means TCC grants made
     to Claude Desktop itself do not extend to the launched Python
     interpreter - the interpreter is its own TCC principal and needs its
-    own Full Disk Access grant (see :func:`check_interpreter_identity`).
+    own Full Disk Access grant (see :func:`check_claude_desktop_interpreter`).
     This check walks the parent-process chain looking for that helper.
     """
     name = "Launch parent"
@@ -577,7 +577,7 @@ def check_launch_parent() -> CheckResult:
                 hint=(
                     "TCC grants made to Claude Desktop do not apply to this process - "
                     "the Python interpreter itself needs Full Disk Access. See the "
-                    "'Interpreter identity' check above for the exact path to grant."
+                    "'Claude Desktop interpreter' check above for the exact path to grant."
                 ),
             )
 
