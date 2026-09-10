@@ -38,7 +38,12 @@ interpreter is a broad grant, not a narrow one.
      `GRANT FULL DISK ACCESS TO THIS FILE:` (also echoed in the footer line
      `Full Disk Access target for Claude Desktop: <path>`).
    - Or resolve it yourself: read the `command`/`args` for this server out of
-     `claude_desktop_config.json` and run `readlink -f <command>`.
+     `claude_desktop_config.json`. If the command is `uvx` (the `.mcpb` bundle
+     and the README's JSON snippet both use it), the interpreter is the one
+     `uvx` selects, not the `uvx` binary itself - print it with
+     `uvx --python-preference only-managed --python 3.12 python -c "import os,sys;print(os.path.realpath(sys.executable))"`
+     (adjust the `--python` flags to match your `args`). Only if the command
+     is a Python path of your own, run `readlink -f <command>` on it.
    - Or run `scripts/tcc_probe.sh` for a read-only snapshot.
 2. In Finder, press **Cmd+Shift+G** and paste the directory containing that
    file (the path above, minus the filename).
