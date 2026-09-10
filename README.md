@@ -192,7 +192,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 - **[User Examples](docs/USER_EXAMPLES.md)** - Rich examples of how to use Things 3 with AI assistants
 - **[Architecture Overview](docs/ARCHITECTURE.md)** - Technical design and implementation details
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[macOS Permissions](docs/MACOS_PERMISSIONS.md)** - The TCC dialogs you'll see, why they recur, and the fix ladder for a headless Mac
+- **[macOS Permissions](docs/MACOS_PERMISSIONS.md)** - The TCC dialogs you'll see, why they recur, and headless setup
 
 ## Features
 
@@ -421,7 +421,17 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ## Troubleshooting
 
-Run `mcp-server-things doctor` (`--json` for machine-readable output, or `python -m things_mcp doctor` from source) first - it's a read-only diagnostic covering Things 3 installation/running state, macOS Automation permission, database readability (Full Disk Access/TCC), the interpreter Claude Desktop actually launches, `uv`/`uvx` availability, the auth token, and environment info, printing a PASS/FAIL/WARN table (exiting non-zero only on an actual FAIL). The most common failure is TCC blocking reads even when writes work and the "would like to access data from other apps" dialog recurring on every Claude Desktop restart; the fix is granting Full Disk Access to the exact interpreter Claude Desktop launches, which the **"Claude Desktop interpreter"** row prints as `GRANT FULL DISK ACCESS TO THIS FILE: <path>` (also echoed in a footer line and the `--json` `full_disk_access_targets` field) - clicking "Allow" on the dialog does not fix the recurrence. That grant is broad (it covers every program run with that interpreter, not just this server), so read [docs/MACOS_PERMISSIONS.md](docs/MACOS_PERMISSIONS.md)'s ["Risks of granting Full Disk Access to a Python interpreter"](docs/MACOS_PERMISSIONS.md#risks-of-granting-full-disk-access-to-a-python-interpreter) section before granting it. The separate **"Interpreter identity"** row is purely informational and never prints a grant instruction - it just reports which interpreter is running doctor itself and whether that's the same one Claude Desktop launches.
+Run `mcp-server-things doctor` (`--json` for machine-readable output, or
+`python -m things_mcp doctor` from source) first - it's a read-only
+diagnostic covering Things 3 installation/running state, macOS Automation
+permission, database readability (Full Disk Access/TCC), the interpreter
+Claude Desktop actually launches, `uv`/`uvx` availability, the auth token,
+and environment info. The most common failure is TCC blocking reads on
+every Claude Desktop restart even when writes work; see
+[docs/MACOS_PERMISSIONS.md](docs/MACOS_PERMISSIONS.md) for the fix, and read
+its ["Risks of granting Full Disk Access to a Python
+interpreter"](docs/MACOS_PERMISSIONS.md#risks-of-granting-full-disk-access-to-a-python-interpreter)
+section before granting it.
 
 ### Checklist tools return "Things URL-scheme auth token not configured"
 
