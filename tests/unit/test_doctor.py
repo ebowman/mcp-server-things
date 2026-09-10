@@ -326,6 +326,11 @@ class TestCheckPythonArchitecture:
 # ---------------------------------------------------------------------------
 
 class TestCheckInterpreterIdentity:
+    """check_interpreter_identity is always STATUS_INFO and never prints a
+    grant instruction - the sole grant instruction lives in
+    check_claude_desktop_interpreter (see TestCheckClaudeDesktopInterpreter
+    and TestSingleGrantInstruction below)."""
+
     def test_classifies_uv_managed(self, monkeypatch):
         uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
         monkeypatch.setattr(doctor.sys, "executable", uv_path)
@@ -333,11 +338,10 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "prefix", "/a")
         monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_WARN
+        assert result.status == doctor.STATUS_INFO
         assert "uv-managed" in result.detail
         assert uv_path in result.detail
-        assert "Grant Full Disk Access to" in result.detail
-        assert "patch version" in result.detail.lower()
+        assert "Grant Full Disk Access" not in result.detail
 
     def test_classifies_venv(self, monkeypatch):
         venv_path = "/Users/x/project/venv/bin/python3.11"
@@ -346,8 +350,9 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "prefix", "/Users/x/project/venv")
         monkeypatch.setattr(doctor.sys, "base_prefix", "/usr")
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_PASS
+        assert result.status == doctor.STATUS_INFO
         assert "venv" in result.detail
+        assert "Grant Full Disk Access" not in result.detail
 
     def test_classifies_framework(self, monkeypatch):
         fw_path = (
@@ -358,17 +363,9 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "prefix", "/a")
         monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_WARN
+        assert result.status == doctor.STATUS_INFO
         assert "framework" in result.detail
-        assert "org.python.python" in result.detail
-        # hq-b49: Homebrew framework interpreters embed the formula version
-        # (e.g. Cellar/python@3.13/3.13.15) in their realpath, same as
-        # uv-managed - the FDA grant must be redone after each brew upgrade.
-        assert "brew upgrade" in result.detail
-        # hq-gxt.9 reviewer nit: framework realpaths also end in a patch-version
-        # segment and hit the same greyed-out picker bug - the drag hint must
-        # be included for framework too, not just uv-managed/venv/other.
-        assert "drag it from a Finder window" in result.detail
+        assert "Grant Full Disk Access" not in result.detail
 
     def test_classifies_other(self, monkeypatch):
         other_path = "/usr/bin/python3"
@@ -377,15 +374,15 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "prefix", "/a")
         monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_PASS
+        assert result.status == doctor.STATUS_INFO
         assert "other" in result.detail
 
-    def test_demoted_to_info_when_claude_desktop_resolves_a_different_interpreter(
+    def test_info_notes_not_the_claude_desktop_interpreter_when_different(
         self, monkeypatch, tmp_path
     ):
-        """hq-gxt.13: when Claude Desktop will launch a *different* interpreter
-        than the one running doctor, this check must not tell the operator to
-        grant Full Disk Access to the (wrong) doctor interpreter."""
+        """When Claude Desktop will launch a *different* interpreter than the
+        one running doctor, the detail says so but still names no grant
+        target (that instruction lives only in check_claude_desktop_interpreter)."""
         uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
         monkeypatch.setattr(doctor.sys, "executable", uv_path)
         monkeypatch.setattr(doctor.sys, "prefix", "/a")
@@ -404,13 +401,15 @@ class TestCheckInterpreterIdentity:
         assert result.status == doctor.STATUS_INFO
         assert "Grant Full Disk Access" not in result.detail
         assert uv_path in result.detail
+        assert "NOT" in result.detail
         assert "Claude Desktop interpreter" in result.detail
 
-    def test_warn_unchanged_when_claude_desktop_resolves_the_same_interpreter(
+    def test_info_notes_is_the_claude_desktop_interpreter_when_same(
         self, monkeypatch, tmp_path
     ):
         """When the Claude-Desktop-resolved interpreter equals this process's
-        own, today's WARN + grant-line behavior is unchanged."""
+        own, the detail says this IS the interpreter Claude Desktop launches -
+        still no grant instruction here."""
         shared = tmp_path / "uv" / "python" / "cpython-3.12.11-macos-aarch64-none" / "bin" / "python3.12"
         shared.parent.mkdir(parents=True)
         shared.write_text("")
@@ -427,12 +426,14 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
 
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_WARN
-        assert "Grant Full Disk Access to" in result.detail
+        assert result.status == doctor.STATUS_INFO
+        assert "Grant Full Disk Access" not in result.detail
+        assert "is the interpreter Claude Desktop launches" in result.detail
 
-    def test_warn_unchanged_when_no_claude_desktop_interpreter_resolved(self, monkeypatch):
-        """When Claude Desktop config is absent/unmatched, today's behavior is
-        unchanged (the autouse fixture already points paths at empty dirs)."""
+    def test_info_when_no_claude_desktop_interpreter_resolved(self, monkeypatch):
+        """When Claude Desktop config is absent/unmatched (the autouse fixture
+        already points paths at empty dirs), this check is still INFO-only
+        with no grant instruction."""
         uv_path = "/Users/x/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/bin/python3.12"
         monkeypatch.setattr(doctor.sys, "executable", uv_path)
         monkeypatch.setattr(doctor.os.path, "realpath", lambda p: uv_path)
@@ -440,8 +441,8 @@ class TestCheckInterpreterIdentity:
         monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
 
         result = doctor.check_interpreter_identity()
-        assert result.status == doctor.STATUS_WARN
-        assert "Grant Full Disk Access to" in result.detail
+        assert result.status == doctor.STATUS_INFO
+        assert "Grant Full Disk Access" not in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +781,81 @@ class TestCheckClaudeDesktopInterpreter:
             doctor.check_interpreter_identity()
 
         assert mock_run.call_count == 1
+
+
+class TestSingleGrantInstruction:
+    """Exactly one 'FULL DISK ACCESS TO THIS FILE' grant instruction is ever
+    printed across a full run - from check_claude_desktop_interpreter alone.
+    check_interpreter_identity (INFO-only) and the footer never repeat it."""
+
+    def _write_config(self, tmp_path, mcp_servers):
+        config_path = tmp_path / "claude_desktop_config.json"
+        config_path.write_text(json.dumps({"mcpServers": mcp_servers}))
+        return config_path
+
+    def _joined_output(self, tmp_path, monkeypatch):
+        identity = doctor.check_interpreter_identity()
+        claude = doctor.check_claude_desktop_interpreter()
+        results = [identity, claude]
+        footer_lines = [
+            f"Full Disk Access target for Claude Desktop: {path} "
+            '(Full Disk Access is broad - see docs/MACOS_PERMISSIONS.md "Risks" before granting.)'
+            for path in doctor._full_disk_access_targets()
+        ]
+        return " ".join([identity.detail, claude.detail] + footer_lines)
+
+    def test_mismatch_case_single_grant_instruction(self, tmp_path, monkeypatch):
+        """The interpreter running doctor differs from the one Claude Desktop
+        will launch (WARN case)."""
+        venv_python = tmp_path / "venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_text("")
+        claude_target = tmp_path / "homebrew_python313"
+        claude_target.write_text("")
+
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": str(venv_python), "args": ["-m", "things_mcp"]}}
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        real_realpath = os.path.realpath
+        mapping = {str(venv_python): str(claude_target)}
+        monkeypatch.setattr(
+            doctor.os.path, "realpath", lambda p: mapping.get(str(p), real_realpath(p))
+        )
+
+        output = self._joined_output(tmp_path, monkeypatch)
+        assert output.lower().count("grant full disk access") == 1
+        claude = doctor.check_claude_desktop_interpreter()
+        assert claude.status == doctor.STATUS_WARN
+        assert len([s for s in claude.detail.split(". ") if s.strip()]) <= 3
+
+    def test_uv_managed_target_single_grant_instruction(self, tmp_path, monkeypatch):
+        """The resolved Claude Desktop target is uv-managed (embeds a patch
+        version) and matches this process's own interpreter (PASS case with
+        the upgrade-after-version sentence)."""
+        uv_path = str(
+            tmp_path / "uv" / "python" / "cpython-3.12.11-macos-aarch64-none" / "bin" / "python3.12"
+        )
+        Path(uv_path).parent.mkdir(parents=True)
+        Path(uv_path).write_text("")
+        monkeypatch.setattr(doctor.sys, "executable", uv_path)
+        monkeypatch.setattr(doctor.sys, "prefix", "/a")
+        monkeypatch.setattr(doctor.sys, "base_prefix", "/a")
+
+        config_path = self._write_config(
+            tmp_path, {"things": {"command": uv_path, "args": ["-m", "things_mcp"]}}
+        )
+        monkeypatch.setattr(doctor, "_CLAUDE_DESKTOP_CONFIG_PATH", config_path)
+        monkeypatch.setattr(doctor, "_CLAUDE_EXTENSIONS_DIR", tmp_path / "Claude Extensions")
+
+        output = self._joined_output(tmp_path, monkeypatch)
+        assert output.lower().count("grant full disk access") == 1
+        assert "redone after this interpreter is upgraded" in output
+        claude = doctor.check_claude_desktop_interpreter()
+        assert claude.status == doctor.STATUS_PASS
+        assert len([s for s in claude.detail.split(". ") if s.strip()]) <= 3
 
 
 # ---------------------------------------------------------------------------

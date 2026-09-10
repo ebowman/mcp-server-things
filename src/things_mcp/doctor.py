@@ -422,110 +422,78 @@ _DRAG_DROP_HINT = (
     "quarantine flag that makes the binary stop launching)."
 )
 
+_VERSIONED_PATH_UPGRADE_SENTENCE = (
+    "This path embeds the interpreter's version, so the Full Disk Access grant "
+    "must be redone after this interpreter is upgraded."
+)
 
-def check_interpreter_identity() -> CheckResult:
-    """Report the interpreter *running doctor* and classify it for TCC purposes.
 
-    macOS's TCC (Transparency, Consent, and Control) privacy system keys the
-    "App Data" (Full Disk Access-adjacent) grant to the specific on-disk
-    binary that requests it - not to a launching parent app such as Claude
-    Desktop. This check reports ``os.path.realpath(sys.executable)`` for
-    *this* process (always resolving through any symlink, e.g. a venv's
-    ``bin/python``) and classifies it so the operator understands what kind
-    of interpreter is running doctor right now, and whether a grant made to
-    it would survive an interpreter upgrade.
-
-    Note this is the interpreter running *doctor itself* - when doctor is
-    run from a terminal, that is very often a different interpreter than
-    the one Claude Desktop actually launches (e.g. a venv vs the Homebrew
-    framework Python Claude Desktop's config points at). See the
-    "Claude Desktop interpreter" check below for the interpreter Claude
-    Desktop will actually run and grant Full Disk Access to.
+def _classify_interpreter_kind(realpath: str) -> str:
+    """Classify a resolved interpreter realpath for TCC purposes.
 
     - ``uv-managed``: path lives under a ``.../uv/python/...`` directory
       (e.g. ``~/.local/share/uv/python/cpython-3.12.11-.../bin/python3.12``).
-      The path embeds the exact patch version, so upgrading the uv-managed
-      interpreter changes the path and the TCC grant must be redone.
     - ``venv``: ``sys.prefix != sys.base_prefix`` (a virtualenv's own
-      ``bin/python``, which is typically a symlink resolved by realpath to
-      the base interpreter - reported here as a fallback classification
-      when the resolved path also isn't identifiable as uv-managed or
-      framework).
-    - ``framework``: path lives under a ``Python.framework`` bundle. A
-      framework *build* of Python has a ``Python.app`` with stable bundle id
-      ``org.python.python``, but live evidence (hq-gxt.7/hq-gxt.10, macOS
-      26.6) shows the bare interpreter binary this check resolves to (e.g.
-      ``.../Versions/3.13/bin/python3.13``) is a separately ad-hoc-signed
-      stub (``codesign -dv`` reports its own ``Identifier``, distinct from
-      ``org.python.python``) - TCC keyed a fresh, path-scoped app-data grant
-      to it on every one of three observed Homebrew ``python@3.13`` patch
-      upgrades, and the pre-existing ``org.python.python`` grant did not
-      cover it. There is no known upgrade-proof identity for a bare
-      interpreter binary, framework or otherwise; every classification below
-      is keyed by realpath and must be re-granted after that interpreter is
-      upgraded.
+      ``bin/python``, typically a symlink resolved by realpath to the base
+      interpreter).
+    - ``framework``: path lives under a ``Python.framework`` bundle.
     - ``other``: none of the above.
 
-    This check never FAILs - it is purely informational. ``uv-managed`` and
-    ``framework`` report STATUS_WARN because their realpaths embed the
-    interpreter's patch/formula version, so the Full Disk Access grant (keyed
-    by resolved path) must be redone after every interpreter upgrade; ``venv``
-    and ``other`` report STATUS_PASS.
+    Both ``uv-managed`` and ``framework`` paths embed a version segment, so a
+    Full Disk Access grant keyed to them must be redone after an upgrade -
+    see :data:`_VERSIONED_PATH_UPGRADE_SENTENCE`.
+    """
+    if _UV_MANAGED_MARKER in realpath:
+        return "uv-managed"
+    if sys.prefix != sys.base_prefix:
+        return "venv"
+    if _PYTHON_FRAMEWORK_MARKER in realpath:
+        return "framework"
+    return "other"
+
+
+def _path_embeds_version(path: str) -> bool:
+    """Return True if ``path`` (any resolved interpreter path, not necessarily
+    this process's own) is uv-managed or framework-hosted, i.e. its realpath
+    embeds the interpreter's version and a Full Disk Access grant keyed to it
+    must be redone after that interpreter is upgraded.
+
+    Unlike :func:`_classify_interpreter_kind`, this never consults
+    ``sys.prefix``/``sys.base_prefix`` (those only describe *this* process,
+    not an arbitrary path such as one resolved for Claude Desktop), so it
+    correctly identifies uv-managed/framework targets even when this
+    process's own interpreter happens to be a venv.
+    """
+    return _UV_MANAGED_MARKER in path or _PYTHON_FRAMEWORK_MARKER in path
+
+
+def check_interpreter_identity() -> CheckResult:
+    """Report the interpreter *running doctor* itself. Always informational.
+
+    Note this is the interpreter running *doctor*, not necessarily the one
+    Claude Desktop launches (e.g. a venv vs the Homebrew framework Python
+    Claude Desktop's config points at) - see the "Claude Desktop interpreter"
+    check for the grant instruction and the interpreter that actually
+    matters.
     """
     name = "Interpreter identity"
     realpath = os.path.realpath(sys.executable)
+    kind = _classify_interpreter_kind(realpath)
 
-    if _UV_MANAGED_MARKER in realpath:
-        kind = "uv-managed"
-    elif sys.prefix != sys.base_prefix:
-        kind = "venv"
-    elif _PYTHON_FRAMEWORK_MARKER in realpath:
-        kind = "framework"
-    else:
-        kind = "other"
-
-    # Consult the shared/memoized Claude Desktop resolution (order-independent
-    # with check_claude_desktop_interpreter, and the uvx probe runs at most
-    # once per process even if both checks run). If Claude Desktop launches a
-    # *different* interpreter than the one running doctor right now, demote
-    # this check to INFO with no grant instruction at all - granting Full
-    # Disk Access to the wrong (doctor-only) interpreter is exactly the
-    # recurring-TCC-prompt failure mode this bead fixes (hq-gxt/hq-gxt.13).
     claude_data = _resolve_claude_desktop_targets()
     claude_resolved_paths = [r for (_, _, _, r) in claude_data.get("results", []) if r]
+    is_claude_desktop_interpreter = bool(claude_resolved_paths) and realpath in claude_resolved_paths
 
-    if claude_resolved_paths and realpath not in claude_resolved_paths:
-        detail = (
-            f"this is the interpreter running doctor ({kind}): {realpath}. It is NOT "
-            "the one Claude Desktop launches - do not grant it Full Disk Access for "
-            'the Things MCP server; see "Claude Desktop interpreter" below.'
+    detail = (
+        f"this is the interpreter running doctor ({kind}): {realpath}. "
+        + (
+            "This is the interpreter Claude Desktop launches."
+            if is_claude_desktop_interpreter
+            else 'This is NOT the interpreter Claude Desktop launches - see "Claude Desktop '
+            'interpreter" below.'
         )
-        return CheckResult(name, STATUS_INFO, detail=detail)
-
-    lines = [f"interpreter={realpath} ({kind})", f"Grant Full Disk Access to: {realpath}"]
-    if kind == "framework":
-        lines.append(
-            "Framework Python.app has a stable bundle id (org.python.python), but live "
-            "evidence shows the bare interpreter binary is a separately ad-hoc-signed "
-            "stub not covered by it - this grant must be redone after a patch upgrade too. "
-            "WARNING: a Homebrew-installed framework interpreter's path embeds the "
-            "formula version (e.g. Cellar/python@3.13/3.13.15) - the Full Disk Access "
-            "grant must be redone after each brew upgrade."
-        )
-    elif kind == "uv-managed":
-        lines.append(
-            "WARNING: this path embeds the interpreter patch version - the Full Disk "
-            "Access grant must be redone after any uv-managed interpreter upgrade."
-        )
-
-    # Framework realpaths also end in a patch-version segment (e.g. .../3.13/
-    # bin/python3.13) and hit the same Launch Services "greyed out" picker bug
-    # as uv-managed/venv/other paths (hq-gxt.9 reviewer nit) - the hint applies
-    # to every classification, not just uv-managed/venv/other.
-    lines.append(_DRAG_DROP_HINT)
-
-    status = STATUS_WARN if kind in ("uv-managed", "framework") else STATUS_PASS
-    return CheckResult(name, status, detail=" | ".join(lines))
+    )
+    return CheckResult(name, STATUS_INFO, detail=detail)
 
 
 def _walk_ppid_chain(max_levels: int = 6) -> List[str]:
@@ -740,19 +708,19 @@ def _classify_resolved_interpreter(label: str, resolved: str) -> tuple:
     Returns (status, detail_line, hint_line_or_empty, resolved_path).
     """
     own_realpath = os.path.realpath(sys.executable)
+    upgrade_suffix = f" {_VERSIONED_PATH_UPGRADE_SENTENCE}" if _path_embeds_version(resolved) else ""
+
     if resolved == own_realpath:
-        return (
-            STATUS_PASS,
-            f"GRANT FULL DISK ACCESS TO THIS FILE: {resolved}. {label}: Claude Desktop "
-            f"will run: {resolved} (same as this process). {_ALLOW_DIALOG_DOES_NOT_PERSIST}",
-            "",
-            resolved,
-        )
+        detail = f"GRANT FULL DISK ACCESS TO THIS FILE: {resolved} ({label})."
+        if upgrade_suffix:
+            detail += upgrade_suffix
+        detail += f" {_ALLOW_DIALOG_DOES_NOT_PERSIST}"
+        return (STATUS_PASS, detail, "", resolved)
 
     return (
         STATUS_WARN,
         f"GRANT FULL DISK ACCESS TO THIS FILE: {resolved}. {label}: Claude Desktop will "
-        f"run: {resolved}",
+        f"run: {resolved}.{upgrade_suffix}",
         (
             f"This differs from the interpreter running doctor ({own_realpath}) - Full Disk "
             f"Access must be granted to the Claude Desktop path ({resolved}), not the doctor "
