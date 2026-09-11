@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `doctor`'s database check distinguishes a macOS privacy (TCC) denial from a missing database file, reporting each as its own distinct failure.
 - `doctor`'s "Interpreter identity" check is informational only, so exactly one Full Disk Access grant instruction is ever shown across the interpreter-related checks.
 
+### Fixed
+
+- `add_project`'s `todos` payload silently filed the new to-dos in the Inbox (`todos_created` reported 0) because Things 3.23.x no longer honours the `make new to do in <project>` targeting form; to-dos are now created with the `project` property and land in the project.
+
 ### Documentation
 
 - Restructured `docs/MACOS_PERMISSIONS.md` around the recurring "would like to access data from other apps" dialog: what it is, the verified fix (granting Full Disk Access to the exact interpreter Claude Desktop launches, since clicking Allow does not persist), the risks of granting Full Disk Access to an interpreter, headless setup, and the dialog wording in English and Russian. Linked from README and TROUBLESHOOTING.

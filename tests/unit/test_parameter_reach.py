@@ -682,7 +682,7 @@ PARAM_ASSERTIONS: Dict[Tuple[str, str], Dict[str, Any]] = {
     },
     ("add_project", "todos"): {
         "build": lambda s: f"{s}\nSecond todo",
-        "check": _property_value_check("make new to do in newProject"),
+        "check": _property_value_check("make new to do with properties"),
     },
 
     # --- update_project ---
