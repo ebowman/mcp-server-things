@@ -94,6 +94,25 @@ class TestAppleScriptPathCountVerification:
         assert "warnings" not in result
 
     @pytest.mark.asyncio
+    async def test_generated_script_uses_project_property_not_in_form(self):
+        # hq-xhk: Things 3.23.4 no longer honours 'make new to do in
+        # newProject' - the to-do is created but lands in the Inbox
+        # (project: None), not the target project. The fix passes
+        # 'project:newProject' as a creation property instead, which was
+        # confirmed live to file the to-do correctly.
+        manager = make_applescript_manager(
+            execute_applescript_return={"success": True, "output": "PROJECT-1\n2"}
+        )
+        ops = TodoOperations(manager, Mock())
+
+        await ops.add_project("My Project", todos="Line A\nLine B")
+
+        script = manager.execute_applescript.call_args.args[0]
+        assert "in newProject" not in script
+        assert "project:newProject" in script
+        assert "make new to do with properties" in script
+
+    @pytest.mark.asyncio
     async def test_fewer_todos_created_than_requested_warns(self):
         # Only 1 of 2 requested to-dos actually landed - the historical
         # "dropped line" symptom from the bead description.

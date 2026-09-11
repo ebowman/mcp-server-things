@@ -2,6 +2,10 @@
 
 Common issues and solutions for the Things 3 MCP Server.
 
+For the macOS TCC/Automation/Full-Disk-Access dialogs specifically (why the
+"app data" prompt recurs and headless setup), see
+[docs/MACOS_PERMISSIONS.md](MACOS_PERMISSIONS.md).
+
 ## Common Issues
 
 ### Things 3 Integration

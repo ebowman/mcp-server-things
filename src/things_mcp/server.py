@@ -24,6 +24,8 @@ from .boot_trace import boot_marker
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .tools_helpers.read_operations import read_error as _tools_read_error
+from .tools_helpers.read_operations import read_error_from_exception as _tools_read_error_from_exception
+from .tools_helpers.read_operations import is_db_access_error
 from .tools_helpers.errors import write_error as _tools_write_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
 from .config import ThingsMCPConfig, load_config_from_env
@@ -403,7 +405,7 @@ class ThingsMCPServer:
 
             except Exception as e:
                 logger.error(f"Error getting todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def create_tag(
@@ -1054,7 +1056,7 @@ class ThingsMCPServer:
                 )
             except Exception as e:
                 logger.error(f"Error getting projects: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def add_project(
@@ -1258,7 +1260,7 @@ class ThingsMCPServer:
                 )
             except Exception as e:
                 logger.error(f"Error getting areas: {e}")
-                raise
+                return self._handle_read_exception(e)
 
         @self.mcp.tool()
         async def add_area(
@@ -1330,7 +1332,7 @@ class ThingsMCPServer:
                 return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_today(
@@ -1363,7 +1365,7 @@ class ThingsMCPServer:
                 return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_upcoming(
@@ -1422,7 +1424,7 @@ class ThingsMCPServer:
                 return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_anytime(
@@ -1455,7 +1457,7 @@ class ThingsMCPServer:
                 return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_someday(
@@ -1491,7 +1493,7 @@ class ThingsMCPServer:
                 return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_logbook(
@@ -1510,7 +1512,7 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting logbook: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_trash(
@@ -1545,7 +1547,7 @@ class ThingsMCPServer:
                 )
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         # Efficient date-range query tools using AppleScript 'whose' clause
         @self.mcp.tool()
@@ -1580,8 +1582,8 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos due in {days} days: {e}")
-                return self._read_error(
-                    "internal_error", str(e),
+                return self._read_error_from_exception(
+                    e,
                     todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
                 )
 
@@ -1615,8 +1617,8 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting todos activating in {days} days: {e}")
-                return self._read_error(
-                    "internal_error", str(e),
+                return self._read_error_from_exception(
+                    e,
                     todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
                 )
         
@@ -1631,7 +1633,7 @@ class ThingsMCPServer:
                 return self._read_result(tags_data, mode='standard', requested_mode=None)
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_tagged_items(
@@ -1656,7 +1658,7 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting tagged items: {e}")
-                raise
+                return self._handle_read_exception(e)
 
         @self.mcp.tool()
         async def get_project_headings(
@@ -1715,7 +1717,7 @@ class ThingsMCPServer:
                 )
             except Exception as e:
                 logger.error(f"Error getting project headings: {e}")
-                raise
+                return self._handle_read_exception(e)
 
         @self.mcp.tool()
         async def get_tag_usage(
@@ -1753,7 +1755,7 @@ class ThingsMCPServer:
                 return self._read_result(usage_data, mode=mode)
             except Exception as e:
                 logger.error(f"Error getting tag usage: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         # Search tools
         @self.mcp.tool()
@@ -1846,7 +1848,7 @@ class ThingsMCPServer:
 
             except Exception as e:
                 logger.error(f"Error searching todos: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def search_advanced(
@@ -1985,7 +1987,7 @@ class ThingsMCPServer:
 
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         @self.mcp.tool()
         async def get_recent(
@@ -2013,7 +2015,7 @@ class ThingsMCPServer:
                 return result
             except Exception as e:
                 logger.error(f"Error getting recent items: {e}")
-                raise
+                return self._handle_read_exception(e)
         
         # Navigation tools
         @self.mcp.tool()
@@ -2483,6 +2485,56 @@ class ThingsMCPServer:
             A dict with 'success', 'error', 'message', plus any extra fields.
         """
         return _tools_read_error(code, message, **extra)
+
+    @staticmethod
+    def _read_error_from_exception(exc: Exception, **extra: Any) -> Dict[str, Any]:
+        """Build a structured read-tool error from a caught exception.
+
+        Classifies `exc` as a macOS Full Disk Access / TCC database-access
+        denial (returning ``database_access_denied`` with a Full Disk
+        Access hint) or falls back to the existing generic
+        ``internal_error`` shape. Delegates to
+        ``tools_helpers.read_operations.read_error_from_exception`` - the
+        single shared implementation used by both this server-tool layer
+        and the tools layer.
+
+        Args:
+            exc: The caught exception instance.
+            **extra: Additional fields to merge into the result.
+
+        Returns:
+            A dict with 'success', 'error', 'message', plus any extra fields.
+        """
+        return _tools_read_error_from_exception(exc, **extra)
+
+    def _handle_read_exception(self, exc: Exception, **extra: Any) -> Dict[str, Any]:
+        """Single call site for a read tool's `except Exception as e:` block.
+
+        Replaces the 17 copy-pasted gate-then-raise blocks that used to be
+        duplicated across every read tool: a DB-access denial is converted
+        into the structured `database_access_denied` envelope, and any
+        other exception is re-raised unchanged (surfaced by FastMCP as an
+        opaque ToolError, same as before this consolidation).
+
+        Must be called from inside the `except` block whose exception it
+        is meant to handle - the bare `raise` below re-raises whatever
+        exception is currently being handled on the calling thread.
+
+        Args:
+            exc: The caught exception instance.
+            **extra: Additional fields to merge into the result if `exc`
+                is classified as a DB-access denial.
+
+        Returns:
+            The structured `database_access_denied` error dict.
+
+        Raises:
+            Exception: Re-raises `exc` unchanged when it is not a DB-access
+                denial.
+        """
+        if is_db_access_error(exc):
+            return self._read_error_from_exception(exc, **extra)
+        raise
 
     _VALID_RESPONSE_MODES = ["auto", "summary", "minimal", "standard", "detailed", "raw"]
 

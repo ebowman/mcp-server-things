@@ -5,6 +5,34 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-10
+
+### Added
+
+- `doctor`'s new "Claude Desktop interpreter" check resolves the interpreter that Claude Desktop actually launches (via `claude_desktop_config.json` and any installed `.mcpb` manifest), prints a single Full Disk Access target per configured server entry in the text footer and in `--json`'s `full_disk_access_targets` array, warns when that interpreter differs from the one running doctor, and notes when the target path embeds a version number that must be re-granted after upgrades.
+- `doctor` gained "Full Disk Access effective (this process)" and "Launch parent" checks, reporting whether the current process can read the TCC database and whether it was launched through Claude Desktop's disclaimer helper.
+- Read tools now return a structured `database_access_denied` error, carrying `hint` and `interpreter` fields, when macOS privacy settings block access to the Things database, instead of an empty list or a generic error.
+- Added `scripts/tcc_probe.sh`, a read-only diagnostic bundle for macOS permission problems.
+
+### Changed
+
+- `doctor`'s database check distinguishes a macOS privacy (TCC) denial from a missing database file, reporting each as its own distinct failure.
+- `doctor`'s "Interpreter identity" check is informational only, so exactly one Full Disk Access grant instruction is ever shown across the interpreter-related checks.
+
+### Fixed
+
+- `add_project`'s `todos` payload silently filed the new to-dos in the Inbox (`todos_created` reported 0) because Things 3.23.x no longer honours the `make new to do in <project>` targeting form; to-dos are now created with the `project` property and land in the project.
+
+### Documentation
+
+- Restructured `docs/MACOS_PERMISSIONS.md` around the recurring "would like to access data from other apps" dialog: what it is, the verified fix (granting Full Disk Access to the exact interpreter Claude Desktop launches, since clicking Allow does not persist), the risks of granting Full Disk Access to an interpreter, headless setup, and the dialog wording in English and Russian. The fix was verified across Claude Desktop restarts and a full reboot on two machines. Linked from README and TROUBLESHOOTING.
+- `docs/TESTING.md` documents the canonical test environment (`.venv` via `uv`) and warns that a repo-root `venv/` directory may be a live Claude Desktop interpreter, not a disposable test sandbox.
+- README's former "Reads fail but writes work" troubleshooting section, including the HTTP transport + `mcp-remote` workaround, moved into `docs/MACOS_PERMISSIONS.md`'s "Headless / unattended setup" section; README now carries a short summary and links to it.
+
+### Tests
+
+- Unit tests now run against a nonexistent Things database by design (THINGSDB guard in `tests/unit/conftest.py`; opt-out `THINGS_MCP_UNIT_TESTS_ALLOW_REAL_DB=1`). 14 tests that only passed because a real database was present, or because errors used to be swallowed, were removed as duplicates of hermetic coverage, and 1 was rewritten with real assertions.
+
 ## [1.9.0] - 2026-08-22
 
 ### Fixed

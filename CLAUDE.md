@@ -32,6 +32,7 @@
 # Run tests before committing
 pytest                          # Run all tests
 pytest tests/unit/              # Unit tests only
+.venv/bin/python -m pytest tests/unit -q   # canonical env, see docs/TESTING.md
 pytest tests/integration/       # Integration tests (mostly mock-based;
                                  # real_things_tools/cleanup_test_todos, and the local fixtures in
                                  # test_bulk_operations_comprehensive.py/test_search_comprehensive.py/
@@ -472,9 +473,11 @@ When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-ran
 ```
 
 - `success` - always `false` on a structured error.
-- `error` - a short, stable, machine-readable snake_case code (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`, `unknown_tag`, `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`). Safe to switch on; does not change wording across releases.
+- `error` - a short, stable, machine-readable snake_case code (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`, `unknown_tag`, `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`, `database_access_denied`). Safe to switch on; does not change wording across releases.
 - `message` - a human-readable explanation, safe to display but not safe to pattern-match on (wording may change).
-- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`).
+- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`; `database_access_denied` also carries `hint` - naming the exact interpreter binary macOS Full Disk Access must be granted to - and `interpreter`).
+
+**`database_access_denied`** - a macOS privacy (Full Disk Access / TCC) denial while reading the Things database; carries `hint` and `interpreter` (the exact binary to grant). Any other exception is unchanged (`internal_error` or `ToolError`).
 
 This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items` - reports errors identically, and the two layers cannot drift apart. `get_todo_by_id` is the one exception: it raises (surfaced by FastMCP as a `ToolError`, no `structured_content`) rather than returning a structured error, because it has no natural "envelope" shape to fall back to.
 

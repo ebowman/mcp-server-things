@@ -1824,7 +1824,7 @@ class TodoOperations:
                 if todo_title.strip():
                     escaped_todo = AppleScriptTemplates.escape_string(todo_title.strip())
                     script += f'''
-                    set newTodoInProject to make new to do in newProject with properties {{name:{escaped_todo}}}
+                    set newTodoInProject to make new to do with properties {{name:{escaped_todo}, project:newProject}}
                         '''
 
         # Return the new project's id and the number of to-dos it actually

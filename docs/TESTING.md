@@ -1,5 +1,30 @@
 # Testing Policy
 
+## Test environment
+
+Create/refresh the canonical env with uv on Python 3.12, then run the suite:
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[test,dev]'
+.venv/bin/python -m pytest tests/unit -q
+```
+
+`uv sync` currently fails to resolve across the project's full
+requires-python range, so `uv pip install` (above) is the supported path.
+**Warning:** another virtualenv may exist elsewhere in this tree (e.g. one
+referenced by `claude_desktop_config.json`) that is the live interpreter
+Claude Desktop is running from - do not upgrade it in place.
+
+`tests/unit/conftest.py` forces `THINGSDB` to a nonexistent path for the whole
+unit session (overriding any pre-existing value), so any unit test that
+reaches a real, unmocked `things.py` call fails loudly
+(`sqlite3.OperationalError: unable to open database file`) instead of
+silently depending on whatever Things database happens to exist on the
+developer's machine; set `THINGS_MCP_UNIT_TESTS_ALLOW_REAL_DB=1` to opt out
+and run the unit suite against a real database instead (a warning is emitted
+when this is active).
+
 This document is the short version of the testing gap analysis behind the
 hq-f0w epic (hq-f0w.14). It states the rules; it does not re-derive them.
 

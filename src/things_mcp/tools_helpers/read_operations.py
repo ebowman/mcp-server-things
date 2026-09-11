@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import os
 import sqlite3
+import sys
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
@@ -87,6 +89,69 @@ def read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
         A dict with 'success', 'error', 'message', plus any extra fields.
     """
     return {"success": False, "error": code, "message": message, **extra}
+
+
+def is_db_access_error(exc: BaseException) -> bool:
+    """Return True if `exc` looks like a macOS TCC (Full Disk Access) denial.
+
+    Distinguishes a permission-denied failure reading the Things SQLite
+    database (things.py raises ``sqlite3.OperationalError`` in this case,
+    or occasionally a plain ``PermissionError``) from any other exception
+    (e.g. a schema mismatch, a bad query, or an unrelated PermissionError on
+    some other file) that should still surface as a generic internal error.
+
+    Args:
+        exc: The caught exception instance.
+
+    Returns:
+        True if `exc` is a sqlite3.OperationalError whose message contains
+        'unable to open database file' or 'authorization denied'
+        (case-insensitive), or a PermissionError whose `filename` contains
+        'com.culturedcode.ThingsMac' or '.thingsdatabase' (i.e. it names a
+        path inside the Things database container, not some unrelated
+        file). False otherwise.
+    """
+    if isinstance(exc, sqlite3.OperationalError):
+        message = str(exc).lower()
+        return "unable to open database file" in message or "authorization denied" in message
+    if isinstance(exc, PermissionError):
+        filename = getattr(exc, "filename", "") or ""
+        return "com.culturedcode.ThingsMac" in filename or ".thingsdatabase" in filename
+    return False
+
+
+def read_error_from_exception(exc: BaseException, **extra: Any) -> Dict[str, Any]:
+    """Build a structured read-tool error from a caught exception.
+
+    Classifies `exc` via :func:`is_db_access_error`: a macOS Full Disk
+    Access / TCC denial reading the Things database is reported as a
+    distinct, actionable ``database_access_denied`` error (with a hint
+    naming the exact interpreter binary that needs the Full Disk Access
+    grant); anything else falls back to the existing generic
+    ``internal_error`` shape.
+
+    Args:
+        exc: The caught exception instance.
+        **extra: Additional fields to merge into the result (forwarded to
+            :func:`read_error` unchanged either way).
+
+    Returns:
+        A structured read-tool error dict (see :func:`read_error`).
+    """
+    if is_db_access_error(exc):
+        interpreter = os.path.realpath(sys.executable)
+        return read_error(
+            "database_access_denied",
+            "macOS privacy settings are blocking access to the Things database",
+            hint=(
+                f"Grant Full Disk Access to {interpreter}; run "
+                "`mcp-server-things doctor` for diagnostics; see "
+                "docs/MACOS_PERMISSIONS.md."
+            ),
+            interpreter=interpreter,
+            **extra,
+        )
+    return read_error("internal_error", str(exc), **extra)
 
 
 def _build_unknown_tag_error(tag: str) -> Dict[str, Any]:
@@ -458,6 +523,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_todos_sync: {e}")
             return []
 
@@ -488,6 +555,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_projects_sync: {e}")
             return []
 
@@ -521,6 +590,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_areas_sync: {e}")
             return []
 
@@ -566,6 +637,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_tags_sync: {e}")
             return []
 
@@ -682,7 +755,7 @@ class ReadOperations:
 
         except Exception as e:
             logger.error(f"Error in _get_tag_usage_sync: {e}")
-            return read_error('internal_error', str(e), tags=[])
+            return read_error_from_exception(e, tags=[])
 
     @staticmethod
     def _format_tag_usage_response(rows: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
@@ -773,6 +846,8 @@ class ReadOperations:
             return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _search_sync: {e}")
             return ListWithTotal([], total_count=0)
 
@@ -798,6 +873,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_inbox_sync: {e}")
             return []
 
@@ -832,6 +909,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_today_sync: {e}")
             return []
 
@@ -866,6 +945,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_upcoming_sync: {e}")
             return []
 
@@ -900,6 +981,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_anytime_sync: {e}")
             return []
 
@@ -972,6 +1055,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_someday_sync: {e}")
             return []
 
@@ -1047,6 +1132,8 @@ class ReadOperations:
             return ListWithTotal(windowed, total_count=total_count)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_logbook_sync: {e}")
             return ListWithTotal([], total_count=0)
 
@@ -1088,6 +1175,8 @@ class ReadOperations:
             }
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_trash_sync: {e}")
             return {
                 'items': [],
@@ -1130,6 +1219,8 @@ class ReadOperations:
             return _build_unknown_tag_error(tag)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_tagged_items_sync: {e}")
             return []
 
@@ -1191,7 +1282,7 @@ class ReadOperations:
 
         except Exception as e:
             logger.error(f"Error in _get_project_headings_sync: {e}")
-            return read_error('internal_error', str(e))
+            return read_error_from_exception(e)
 
     async def get_todo_by_id(self, todo_id: str) -> Dict[str, Any]:
         """Get a specific Things item by ID.
@@ -1444,6 +1535,8 @@ class ReadOperations:
             converted = [ToolsHelpers.convert_todo(t) for t in due_todos]
             return _fill_project_from_heading(converted)
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_due_in_days_sync: {e}")
             return []
 
@@ -1481,6 +1574,8 @@ class ReadOperations:
             converted = [ToolsHelpers.convert_todo(t) for t in activating_todos]
             return _fill_project_from_heading(converted)
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_activating_in_days_sync: {e}")
             return []
 
@@ -1538,6 +1633,8 @@ class ReadOperations:
             return _fill_project_from_heading(results)
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _get_todos_upcoming_in_days_sync: {e}")
             return []
 
@@ -1701,6 +1798,8 @@ class ReadOperations:
             return [read_error('invalid_parameter', str(e))]
 
         except Exception as e:
+            if is_db_access_error(e):
+                raise
             logger.error(f"Error in _search_advanced_sync: {e}")
             return ListWithTotal([], total_count=0)
 
@@ -1762,6 +1861,8 @@ class ReadOperations:
                 return _fill_project_from_heading(results)
 
             except Exception as e:
+                if is_db_access_error(e):
+                    raise
                 logger.error(f"Error in _get_recent_sync: {e}")
                 return []
 
