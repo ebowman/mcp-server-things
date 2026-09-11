@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- Restructured `docs/MACOS_PERMISSIONS.md` around the recurring "would like to access data from other apps" dialog: what it is, the verified fix (granting Full Disk Access to the exact interpreter Claude Desktop launches, since clicking Allow does not persist), the risks of granting Full Disk Access to an interpreter, headless setup, and the dialog wording in English and Russian. Linked from README and TROUBLESHOOTING.
+- Restructured `docs/MACOS_PERMISSIONS.md` around the recurring "would like to access data from other apps" dialog: what it is, the verified fix (granting Full Disk Access to the exact interpreter Claude Desktop launches, since clicking Allow does not persist), the risks of granting Full Disk Access to an interpreter, headless setup, and the dialog wording in English and Russian. The fix was verified across Claude Desktop restarts and a full reboot on two machines. Linked from README and TROUBLESHOOTING.
 - `docs/TESTING.md` documents the canonical test environment (`.venv` via `uv`) and warns that a repo-root `venv/` directory may be a live Claude Desktop interpreter, not a disposable test sandbox.
 - README's former "Reads fail but writes work" troubleshooting section, including the HTTP transport + `mcp-remote` workaround, moved into `docs/MACOS_PERMISSIONS.md`'s "Headless / unattended setup" section; README now carries a short summary and links to it.
 

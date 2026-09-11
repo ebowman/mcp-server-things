@@ -184,7 +184,8 @@ way on a headless/unattended Mac. Steps 2-4 of that procedure (Finder and
 System Settings) need a GUI session on the Mac - Screen Sharing/Remote
 Desktop, or a physical login - to grant the permission once; after that,
 the machine can run unattended. The grant survives Claude Desktop restarts
-(observed). A full reboot has not been tested.
+(observed) and a full reboot (confirmed by a user running the server
+unattended on a headless Mac mini).
 
 For a fully unattended setup with no Claude Desktop involved, run the
 server as a `launchd` LaunchAgent over HTTP transport instead - it launches
@@ -285,4 +286,5 @@ usernames):
   next relaunch (three Allow clicks observed, none persisted).
 - FDA (`auth_value=2`, `csreq` 40 bytes) granted directly to the exact
   Claude Desktop interpreter, dragged from Finder: next relaunch produced
-  no dialog; toggling it off and relaunching reproduced it. Reboot untested.
+  no dialog; toggling it off and relaunching reproduced it. Reboot survival
+  confirmed on a second machine (headless Mac mini, user report).
