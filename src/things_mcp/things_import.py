@@ -19,6 +19,7 @@ import importlib
 import os
 import sys
 import threading
+from functools import wraps
 from typing import Optional
 from types import ModuleType
 
@@ -192,4 +193,21 @@ class LazyThingsProxy:
     """
 
     def __getattr__(self, name: str):
-        return getattr(get_things(), name)
+        method = getattr(get_things(), name)
+        if not os.environ.get("THINGS_MCP_SCOPED_HELPER_APP") or name not in {
+            "anytime", "areas", "canceled", "checklist_items", "completed",
+            "deadlines", "get", "inbox", "last", "logbook", "projects",
+            "search", "someday", "tags", "tasks", "today", "todos",
+            "token", "trash", "upcoming",
+        }:
+            return method
+
+        @wraps(method)
+        def scoped_method(*args, **kwargs):
+            if "database" not in kwargs:
+                from .scoped_database import ScopedDatabase
+
+                kwargs["database"] = ScopedDatabase()
+            return method(*args, **kwargs)
+
+        return scoped_method

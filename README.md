@@ -421,6 +421,37 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ## Troubleshooting
 
+### Scoped database access on macOS
+
+The optional scoped reader lets the connector read Things without granting
+Full Disk Access to the connector host or Python interpreter. Build the signed,
+sandboxed helper from a source checkout, then select the exact
+`Things Database.thingsdatabase` bundle in its picker:
+
+```bash
+THINGS_MCP_SCOPED_BUILD_DIR="$HOME/Applications" sh native/build.sh
+open -n -W "$HOME/Applications/ThingsReadHelper.app" --args select
+export THINGS_MCP_SCOPED_HELPER_APP="$HOME/Applications/ThingsReadHelper.app"
+PYTHONPATH=src python -m things_mcp doctor
+```
+
+The picker starts in the Things Group Container. Open the `ThingsData-*`
+folder and choose `Things Database.thingsdatabase` as one package. Set the
+same `THINGS_MCP_SCOPED_HELPER_APP` value in the MCP server's environment.
+Use a local build directory; some File Provider folders alter app bundle
+metadata and invalidate its signature. Re-select the bundle if a rebuild
+invalidates the saved grant.
+
+macOS confines the helper to the selected bundle. It opens only `main.sqlite`
+read-only; a SQLite authorizer permits the task, project, area, tag, and
+checklist tables used by read tools and denies writes, schema inspection, and
+the `TMSettings` table that contains the Things URL auth token. The data
+returned by read tools still reaches the MCP server. Writes use Things'
+separate AppleScript or URL scheme permissions. The database read row in
+`doctor` verifies this path even if its separate Full Disk Access row reports
+that the broader permission is off. To revoke the saved grant, run
+`open -n -W "$THINGS_MCP_SCOPED_HELPER_APP" --args clear`.
+
 Run `mcp-server-things doctor` (`--json` for machine-readable output, or
 `python -m things_mcp doctor` from source) first - it's a read-only
 diagnostic covering Things 3 installation/running state, macOS Automation

@@ -162,6 +162,23 @@ class TestCheckAutomationPermission:
 # ---------------------------------------------------------------------------
 
 class TestCheckDatabaseReadable:
+    def test_scoped_helper_skips_direct_database_preopen(self, monkeypatch):
+        monkeypatch.setenv("THINGS_MCP_SCOPED_HELPER_APP", "/tmp/ThingsReadHelper.app")
+        monkeypatch.setattr("things_mcp.scoped_database.ScopedDatabase", lambda: object())
+        fake_things = _fake_things(lambda status=None, database=None: [1])
+        with patch("things_mcp.things_import.get_things", return_value=fake_things), \
+                patch("things_mcp.doctor.open", side_effect=PermissionError("denied"), create=True):
+            result = doctor.check_database_readable(timeout=2.0)
+        assert result.status == doctor.STATUS_PASS
+        assert "1 incomplete" in result.detail
+
+    def test_scoped_helper_does_not_recommend_full_disk_access(self, monkeypatch):
+        monkeypatch.setenv("THINGS_MCP_SCOPED_HELPER_APP", "/tmp/ThingsReadHelper.app")
+        result = doctor.check_claude_desktop_interpreter()
+        assert result.status == doctor.STATUS_INFO
+        assert "same helper path" in result.detail
+        assert doctor._full_disk_access_targets() == []
+
     def test_pass_returns_count(self):
         fake_things = _fake_things(lambda status=None: [1, 2, 3])
         with patch("things_mcp.things_import.get_things", return_value=fake_things), \
