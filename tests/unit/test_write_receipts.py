@@ -203,3 +203,29 @@ async def test_move_record_surfaces_structured_readback_failure() -> None:
             "do not retry the write automatically."
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_update_todo_readback_failure_preserves_existing_warnings() -> None:
+    server = _server_with_mock_tools()
+    server.tools.update_todo.return_value = {
+        "success": True,
+        "message": "Todo updated successfully",
+        "warnings": ["original warning"],
+    }
+    server.tools.get_todo_by_id.side_effect = RuntimeError("database unavailable")
+
+    async with Client(server.mcp) as client:
+        result = await client.call_tool(
+            "update_todo",
+            {"id": TODO_ID, "title": "Updated title"},
+            raise_on_error=False,
+        )
+
+    assert result.is_error is False
+    assert result.structured_content["success"] is True
+    assert result.structured_content["warnings"] == [
+        "original warning",
+        "Write reported success, but post-write readback failed; "
+        "do not retry the write automatically.",
+    ]

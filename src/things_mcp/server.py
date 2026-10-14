@@ -557,7 +557,11 @@ class ThingsMCPServer:
             A successful response includes ``todo_id`` and a post-write
             readback. ``readback_succeeded`` reports only whether that read
             succeeded; it does not claim the requested fields were applied.
-            When true, ``item`` contains the observed item snapshot. If the
+            When true, ``item`` is what the database showed immediately after the write; for
+            URL-scheme-routed fields (heading moves, when='evening'/'tonight',
+            when='YYYY-MM-DD@HH:MM') Things applies the write asynchronously, so it
+            may still reflect pre-write state. A mismatch is not evidence the write
+            failed: do not retry the write, poll get_todo_by_id with a short backoff. If the
             read fails after the write reports success, ``success`` remains
             true and ``readback_error`` plus a warning explain that callers
             must not retry the write automatically.
@@ -987,7 +991,11 @@ class ThingsMCPServer:
             A successful response includes ``todo_id`` and a post-write
             readback. ``readback_succeeded`` reports only whether that read
             succeeded; it does not claim the requested destination was
-            applied. When true, ``item`` contains the observed item snapshot.
+            applied. When true, ``item`` is what the database showed immediately after the write; for
+            URL-scheme-routed fields (heading moves, when='evening'/'tonight',
+            when='YYYY-MM-DD@HH:MM') Things applies the write asynchronously, so it
+            may still reflect pre-write state. A mismatch is not evidence the write
+            failed: do not retry the write, poll get_todo_by_id with a short backoff.
             If the read fails after the write reports success, ``success``
             remains true and ``readback_error`` plus a warning explain that
             callers must not retry the write automatically.
