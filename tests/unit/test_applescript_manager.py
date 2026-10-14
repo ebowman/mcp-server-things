@@ -23,7 +23,7 @@ class TestAppleScriptManagerInit:
         manager = AppleScriptManager()
         
         assert manager.timeout == 45  # default timeout
-        assert manager.retry_count == 3  # default retry count
+        assert manager.retry_count == 2  # default retry count
         # Cache removed in hybrid implementation
         assert hasattr(manager, 'auth_token')
     
@@ -42,7 +42,7 @@ class TestAppleScriptManagerInit:
         
         # Should initialize without error
         assert manager.timeout == 45
-        assert manager.retry_count == 3
+        assert manager.retry_count == 2
         # Cache removed in hybrid implementation
 
 
@@ -509,7 +509,7 @@ class TestRetryLogic:
     @pytest.fixture
     def manager_with_retries(self):
         """Fixture providing manager with retry configuration."""
-        return AppleScriptManager(timeout=5, retry_count=2)
+        return AppleScriptManager(timeout=5, retry_count=1)
     
     @pytest.mark.asyncio
     async def test_applescript_retry_success_on_second_attempt(self, manager_with_retries):
@@ -555,7 +555,7 @@ class TestRetryLogic:
             
             assert result["success"] is False
             assert "Persistent error" in result["error"]
-            assert mock_create.call_count == 2  # Initial + 1 retry (retry_count=2)
+            assert mock_create.call_count == 2  # Initial + 1 retry (retry_count=1)
             assert mock_sleep.call_count == 1  # One retry delay
     
     # URL scheme retry test removed - retry logic is already tested for AppleScript execution
@@ -578,7 +578,7 @@ class TestRetryLogic:
             
             # Check that sleep was called with exponential backoff
             sleep_calls = [call.args[0] for call in mock_sleep.call_args_list]
-            assert len(sleep_calls) == 1  # 1 retry (retry_count=2 -> initial + 1 retry)
+            assert len(sleep_calls) == 1  # 1 retry (retry_count=1 -> initial + 1 retry)
             assert sleep_calls[0] == 1  # First retry: 2^0 = 1
 
 
@@ -595,12 +595,12 @@ class TestRetryOnErrorStdout:
     @pytest.fixture
     def manager_with_retries(self):
         """Fixture providing manager with retry configuration."""
-        return AppleScriptManager(timeout=5, retry_count=3)
+        return AppleScriptManager(timeout=5, retry_count=2)
 
     @pytest.mark.asyncio
     async def test_error_stdout_retried_then_exhausted_returns_as_is(self, manager_with_retries):
         """rc=0 + 'ERROR: ...' stdout on every attempt -> retried up to the
-        bound (attempt count == retry_count), then returned exactly as
+        bound (attempt count == retry_count + 1), then returned exactly as
         produced (success=True, output starts with 'ERROR:') rather than
         being wrapped in a different failure envelope - callers such as
         move_operations.py parse `output.startswith("ERROR:")` on the
@@ -664,7 +664,7 @@ class TestRetryOnErrorStdout:
             assert mock_sleep.call_count == 2
             assert result["success"] is False
             assert "Persistent error" in result["error"]
-            assert "Failed after 3 attempts" in result["error"]
+            assert "Failed after 3 attempt(s)" in result["error"]
 
     @pytest.mark.asyncio
     async def test_success_on_second_attempt_after_error_stdout(self, manager_with_retries):

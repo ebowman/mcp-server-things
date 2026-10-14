@@ -98,7 +98,7 @@ class ServerManager:
         Args:
             debug: Enable debug logging
             timeout: AppleScript timeout in seconds
-            retry_count: Number of retries for failed operations
+            retry_count: Number of retries after the initial attempt
             env_file: Optional path to .env file
             transport: Optional transport override ('stdio' or 'http'); CLI flag
                 takes precedence over THINGS_MCP_TRANSPORT when provided
@@ -173,7 +173,7 @@ Examples:
   %(prog)s                          # Start server with default settings
   %(prog)s --debug                  # Start with debug logging
   %(prog)s --timeout 60             # Set AppleScript timeout to 60 seconds
-  %(prog)s --retry-count 5          # Set retry count to 5 attempts
+  %(prog)s --retry-count 5          # Retry failed AppleScript calls up to 5 times after the first attempt
   %(prog)s --health-check           # Check system health and exit
   %(prog)s --version                # Show version information
   %(prog)s doctor                   # Run diagnostic checks and exit
@@ -247,7 +247,7 @@ Environment:
         "--retry-count",
         type=int,
         default=None,
-        help="Number of retries for failed operations (default: configuration, normally 3)"
+        help="Number of retries after the initial attempt; 0 = run once (default: configuration, normally 2)"
     )
     
     parser.add_argument(

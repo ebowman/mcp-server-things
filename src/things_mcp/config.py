@@ -77,10 +77,10 @@ class ThingsMCPConfig(BaseSettings):
     )
     
     applescript_retry_count: int = Field(
-        default=3,
+        default=2,
         ge=0,
         le=10,
-        description="Number of retries for failed AppleScript operations"
+        description="Number of retries after the initial attempt for failed AppleScript operations"
     )
     
     preferred_execution_method: ExecutionMethod = Field(

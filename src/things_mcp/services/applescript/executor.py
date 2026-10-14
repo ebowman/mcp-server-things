@@ -63,14 +63,17 @@ class AppleScriptExecutor:
             cls._locks_by_loop[loop] = lock
         return lock
 
-    def __init__(self, timeout: float = 45, retry_count: int = 3):
+    def __init__(self, timeout: float = 45, retry_count: int = 2):
         """Initialize the AppleScript executor.
 
         Args:
             timeout: Command timeout in seconds
-            retry_count: Number of retries for failed commands
+            retry_count: Number of retries after the initial attempt (0 = run
+                once, no retries; N = up to N+1 total attempts)
         """
         self.timeout = timeout
+        if retry_count < 0:
+            raise ValueError(f"retry_count must be >= 0, got {retry_count}")
         self.retry_count = retry_count
 
     async def is_things_running(self) -> bool:
@@ -119,7 +122,10 @@ class AppleScriptExecutor:
         last_error = None
         last_result: Dict[str, Any] = {}
 
-        for attempt in range(self.retry_count):
+        attempts = 0
+
+        for attempt in range(self.retry_count + 1):
+            attempts += 1
             result = await self._execute_script(script)
             last_result = result
 
@@ -134,7 +140,7 @@ class AppleScriptExecutor:
             else:
                 last_error = result.get("error")
 
-            if attempt < self.retry_count - 1:
+            if attempt < self.retry_count:
                 wait_time = 2 ** attempt  # Exponential backoff
                 logger.warning(f"Script execution failed, retrying in {wait_time}s: {last_error}")
                 await asyncio.sleep(wait_time)
@@ -148,7 +154,7 @@ class AppleScriptExecutor:
 
         return {
             "success": False,
-            "error": f"Failed after {self.retry_count} attempts: {last_error}"
+            "error": f"Failed after {attempts} attempt(s): {last_error}"
         }
 
     @staticmethod
