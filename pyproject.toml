@@ -88,6 +88,7 @@ include = ["things_mcp*"]
 things_mcp = ["*.json"]
 
 # Testing Configuration
+# DEAD CONFIG: pytest.ini takes precedence and this section is ignored. Edit pytest.ini instead.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]

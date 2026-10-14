@@ -8,6 +8,8 @@ Things 3 installation.
 
 import asyncio
 import json
+import os
+
 import pytest
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -17,6 +19,15 @@ from things_mcp.models import Todo, Project, Area, Tag, TodoResult
 from things_mcp.config import ThingsMCPConfig
 from things_mcp.server import ThingsMCPServer
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+
+# hq-8wr: in-process CLI/main() tests call boot_trace.arm_boot_watchdog(), which
+# arms a real faulthandler.dump_traceback_later() timer (25s default) that is
+# never cancelled. When it fires near interpreter shutdown, the dump thread can
+# spin at 100% CPU and wedge the process after the summary line (observed under
+# CI and locally). Disable it for the test process; test_boot_trace.py sets the
+# env var explicitly (with a fake faulthandler) wherever it needs it.
+os.environ.setdefault("THINGS_MCP_BOOT_WATCHDOG_SECS", "0")
 
 
 # Test Data Fixtures
@@ -617,3 +628,30 @@ async def cleanup_test_todos():
             logger.debug(f"Cleaned up test project: {project_id}")
         except Exception as e:
             logger.warning(f"Failed to cleanup project {project_id}: {e}")
+
+def pytest_sessionfinish(session, exitstatus):
+    """Optional shutdown diagnostics (THINGS_MCP_DEBUG_SHUTDOWN=1).
+
+    Dumps live threads and unclosed asyncio loops to stderr to help diagnose
+    interpreter-shutdown hangs. Off by default.
+    """
+    try:
+        import faulthandler
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass
+    if os.environ.get("THINGS_MCP_DEBUG_SHUTDOWN") != "1":
+        return
+    import gc
+    import sys
+    import threading
+    out = sys.stderr
+    out.write("\n[debug-shutdown] threads alive at session finish:\n")
+    for t in threading.enumerate():
+        out.write(f"  name={t.name!r} daemon={t.daemon} alive={t.is_alive()}\n")
+    loops = [o for o in gc.get_objects()
+             if isinstance(o, asyncio.AbstractEventLoop) and not o.is_closed()]
+    out.write(f"[debug-shutdown] non-closed asyncio loops: {len(loops)}\n")
+    for lp in loops:
+        out.write(f"  {lp!r}\n")
+    out.flush()
