@@ -59,7 +59,8 @@ def test_valid_overrides_forwarded(flag, capsys):
 
 @pytest.mark.parametrize("flag", FLAGS)
 def test_invalid_env_file_value_exit_2(flag, tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("THINGS_MCP_APPLESCRIPT_RETRY_COUNT", raising=False)
+    # Env-file loading mutates os.environ; setenv first so monkeypatch restores it.
+    monkeypatch.setenv("THINGS_MCP_APPLESCRIPT_RETRY_COUNT", "2")
     env = tmp_path / "bad.env"
     env.write_text("THINGS_MCP_APPLESCRIPT_RETRY_COUNT=99\n")
     code, err, hc, ta = run([flag, "--env-file", str(env)], capsys)
