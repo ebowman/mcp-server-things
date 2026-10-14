@@ -104,3 +104,23 @@ async def test_truncation_hint_reports_true_total_and_paging_reaches_all(tool):
         offset = sc["next_offset"]
     assert pages > 1
     assert seen == [d["uuid"] for d in data]
+
+
+@pytest.mark.asyncio
+async def test_get_logbook_next_offset():
+    server = ThingsMCPServer()
+    mock_tools = MagicMock()
+    mock_tools.tag_validation_service = None
+
+    class _L(list):
+        total_count = 20
+
+    async def fake(limit=None, period=None, offset=0, include_canceled=True):
+        return _L(_items(20)[offset:offset + limit])
+
+    mock_tools.get_logbook = fake
+    server.tools = mock_tools
+    sc = await _call(server, "get_logbook", {"limit": 5})
+    assert sc["total"] == 20 and sc["next_offset"] == 5
+    sc = await _call(server, "get_logbook", {"limit": 5, "offset": 15})
+    assert sc["count"] == 5 and "next_offset" not in sc

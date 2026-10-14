@@ -942,7 +942,7 @@
     "required": []
   },
   "get_upcoming": {
-    "description_sha256": "1d92dd78a11b29b6921d5b858635feca32f692ad33cd16ec8737c1eae6574b1d",
+    "description_sha256": "e6654dd1b049c9e82d29a168566b9e2ad2d4bdbd0f8f70be0faff5dfbfffc81b",
     "has_output_schema": true,
     "name": "get_upcoming",
     "properties": {

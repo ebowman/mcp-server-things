@@ -1395,7 +1395,6 @@ class ThingsMCPServer:
         ) -> Dict[str, Any]:
             """Get upcoming todos. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation).
 
-
             If 'days' is provided, returns todos due or activating within that timeframe.
             Without 'days', returns items from Things 3's built-in Upcoming list.
             """
@@ -2763,6 +2762,10 @@ class ThingsMCPServer:
                 "limit": limit,
                 "offset": offset,
             }
+            # hq-gix: same cursor rule as the dict path (list responses, e.g.
+            # get_logbook, are never budget-truncated).
+            if offset is not None and len(items) > 0 and offset + len(items) < result["total"]:
+                result["next_offset"] = offset + len(items)
             return result
 
         # response is already a dict (e.g. from context_manager.optimize_response,

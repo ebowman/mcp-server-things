@@ -386,9 +386,9 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 - `get_inbox(mode?, limit?, offset?)` - Get Inbox todos
 - `get_today(mode?, limit?, offset?, include_projects?)` - Get Today's todos
-- `get_upcoming(days?, offset?, include_projects?)` - Get upcoming todos (with optional days filter)
+- `get_upcoming(mode?, limit?, offset?, days?, include_projects?)` - Get upcoming todos (with optional days filter)
 - `get_anytime(mode?, limit?, offset?, include_projects?)` - Get Anytime todos. Responses over the ~80KB budget are truncated (`truncated: true`); page with `offset` / the returned `next_offset` to reach every item (also on get_inbox/get_today/get_upcoming/get_someday)
-- `get_someday(offset?, include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
+- `get_someday(mode?, limit?, offset?, include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?, offset?, include_canceled?)` - Get completed todos; includes canceled todos by default (`include_canceled=true`), matching the Things app's own Logbook view
 - `get_trash(include_projects?)` - Get trashed todos
 
