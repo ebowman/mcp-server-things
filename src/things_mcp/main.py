@@ -103,7 +103,7 @@ class ServerManager:
             if self._shutdown_signalled:
                 # Second signal while shutting down: raising again can abort
                 # inside threading._shutdown, so exit immediately instead.
-                self._force_exit()
+                self._force_exit("Second signal during shutdown; forcing exit")
             self._shutdown_signalled = True
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             timer = threading.Timer(_SHUTDOWN_GRACE_SECS, self._force_exit)
@@ -115,10 +115,10 @@ class ServerManager:
         signal.signal(signal.SIGTERM, signal_handler)
 
     @staticmethod
-    def _force_exit() -> None:
-        """Hard-exit after the shutdown grace period expired."""
+    def _force_exit(reason: str = "Graceful shutdown timed out; forcing exit") -> None:
+        """Hard-exit (grace period expired, or a second signal arrived)."""
         try:
-            logger.warning("Graceful shutdown timed out; forcing exit")
+            logger.warning(reason)
             logging.shutdown()
         finally:
             os._exit(0)
