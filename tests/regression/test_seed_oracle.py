@@ -8,7 +8,7 @@ are not asserted on for that tool (deliberately - not every class is
 relevant to every list).
 
 Results are always read with mode='minimal', limit=500 (get_trash is
-capped at 100 by its own schema - paged via offset instead), and paged via
+verified by id, not paged - hq-8vx), and paged via
 offset (following next_offset) for the tools that support it
 (get_inbox/today/upcoming/anytime/someday, search_todos, get_logbook,
 get_trash) so a full page of the sandbox's own throwaway objects can never
@@ -125,9 +125,12 @@ def _build_tool_calls(sandbox) -> List[ToolCall]:
             # validation error, not a Things behavior difference.
             mcp, "get_logbook", {"limit": 500, "period": "1d"},
             paged=True, page_size=500)),
-        ToolCall("get_trash", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_trash", {"limit": 100},
-            paged=True, page_size=100)),
+        # hq-8vx: get_trash is NOT paged through (the user's Trash can hold
+        # tens of thousands of items; runtime must not scale with it). Its
+        # pairs use the id-based strategy in test_seed_oracle_pair
+        # (_ID_BASED_TRASH_TOOLS); this fetch is only a bounded structure
+        # sanity probe (one page, limit=100) - see the trash_envelope_sanity fixture.
+        ToolCall("get_trash", lambda mcp: set()),
         ToolCall("get_due_in_days7_overdueT", lambda mcp: _collect_minimal_uuids(
             mcp, "get_due_in_days", {"days": 7, "include_overdue": True})),
         ToolCall("get_due_in_days7_overdueF", lambda mcp: _collect_minimal_uuids(
@@ -451,9 +454,38 @@ def _get_uuids(tool_key: str, tool_call_map, tool_result_cache, mcp) -> Set[str]
     return tool_result_cache[tool_key]
 
 
+# hq-8vx: tools whose membership is verified by id instead of by collecting
+# the full result set. Intent preserved: 'must' = the seed item IS in the
+# Trash (get_todo_by_id reports trashed:true directly, not merely via a
+# trashed parent); 'must_not' = it is NOT in the Trash (not trashed, or not
+# found). Headings (never returned by get_trash) are verified the same way:
+# a sandbox heading's own project is live, so it is not trashed. Plus a
+# once-per-session envelope sanity check that get_trash itself responds with
+# the standard list shape and a total covering the trashed seed.
+_ID_BASED_TRASH_TOOLS = {"get_trash"}
+
+
+def _in_trash(mcp, item_id: str) -> bool:
+    result = mcp.call_sync("get_todo_by_id", todo_id=item_id)
+    item = result.get("item") if isinstance(result, dict) else None
+    if not item:
+        return False  # tool_error / not found: not in the Trash
+    return bool(item.get("trashed")) and not item.get("trashedViaParent")
+
+
+@pytest.fixture(scope="module")
+def trash_envelope_sanity(mcp, sandbox, seeded):
+    result = mcp.call_sync("get_trash", limit=100)
+    assert isinstance(result, dict) and "items" in result, f"get_trash envelope: {result}"
+    if seeded.uuid("trashed"):
+        assert result.get("total", 0) >= 1, f"get_trash total < 1 with a trashed seed: {result.get('total')}"
+    return result
+
+
 @pytest.mark.parametrize("tool_key,class_name,direction", _iter_pairs(), ids=PAIR_IDS)
 def test_seed_oracle_pair(
-    tool_key, class_name, direction, mcp, sandbox, seeded, tool_call_map, tool_result_cache
+    tool_key, class_name, direction, mcp, sandbox, seeded, tool_call_map, tool_result_cache,
+    request,
 ):
     # XFAILS pairs already carry a real pytest.mark.xfail(strict=True, ...)
     # from _pair_or_xfail_param() (see _iter_pairs) - the assertion below
@@ -467,6 +499,21 @@ def test_seed_oracle_pair(
         if todo_id is None:
             skip_reason = seeded.skipped.get(class_name)
             pytest.skip(skip_reason or f"seed class {class_name!r} was not created")
+
+    if tool_key in _ID_BASED_TRASH_TOOLS:
+        request.getfixturevalue("trash_envelope_sanity")
+        in_trash = _in_trash(mcp, todo_id)
+        if direction == "must":
+            assert in_trash, (
+                f"{tool_key}: expected seed class {class_name!r} (uuid {todo_id}) "
+                f"to be in the Trash (trashed: true), but it is not"
+            )
+        else:
+            assert not in_trash, (
+                f"{tool_key}: expected seed class {class_name!r} (uuid {todo_id}) "
+                f"to be ABSENT from the Trash, but it is trashed"
+            )
+        return
 
     uuids = _get_uuids(tool_key, tool_call_map, tool_result_cache, mcp)
 

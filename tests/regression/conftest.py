@@ -34,10 +34,19 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from regression.helpers import sandbox_title, ts
+from regression import suite_cleanup
+from regression.helpers import SANDBOX_PREFIX, sandbox_title, ts
 from regression.seed import create_seed_set
 
 _OSASCRIPT_PROBE_TIMEOUT_SECS = 5
+
+# hq-8vx: session cleanup state, consumed by pytest_sessionfinish (below).
+# Cleanup deliberately does NOT live in fixture finalizers: pytest-timeout's
+# per-test timer spans setup+call+teardown, so a session-fixture finalizer
+# runs inside the LAST test's 300s timer and was killed mid-cleanup, leaking
+# sandbox objects into the user's active lists. sessionfinish is outside
+# every item's timer.
+_STATE: Dict[str, Any] = {"sandbox": None, "guard": None}
 
 
 def _things_running() -> bool:
@@ -318,6 +327,7 @@ def sandbox(request, live_server, mcp):
     import things
 
     session = Sandbox()
+    _STATE["sandbox"] = session  # cleaned up in pytest_sessionfinish (hq-8vx)
 
     # (a) area
     session.area_title = sandbox_title("area")
@@ -406,10 +416,6 @@ def sandbox(request, live_server, mcp):
         f"Failed to mark sandbox done project completed: {complete_result}"
     )
 
-    def _teardown():
-        _teardown_sandbox(session)
-
-    request.addfinalizer(_teardown)
     return session
 
 
@@ -421,19 +427,17 @@ def seeded(sandbox, mcp):
     the sandbox project - inbox, area, project B - which live outside the
     sandbox project subtree and would not otherwise be found by the
     session teardown's per-project child sweep), so no additional teardown
-    is needed here - `sandbox`'s own finalizer (registered when `sandbox`
-    was first requested, which happens implicitly via this fixture's own
-    dependency) handles cleanup.
+    is needed here - cleanup happens in `pytest_sessionfinish` (hq-8vx).
     """
     return create_seed_set(mcp, sandbox)
 
 
-def _teardown_sandbox(session: Sandbox) -> None:
+def _teardown_sandbox(session: Sandbox, budget: Optional[suite_cleanup.Budget] = None) -> List[str]:
     """Sweep every child of every sandbox project, trash to-dos then
     projects, delete the tag then the area, then verify via things.py that
-    everything tracked is gone/trashed. Raises (surfacing as a test/fixture
-    error) listing any leftovers - runs even if tests failed
-    (request.addfinalizer).
+    everything tracked is gone/trashed. Returns the list of leftovers (the
+    caller, pytest_sessionfinish, reports them and fails the run) - runs even
+    if tests failed.
 
     Order matters (REGRESSION_SPIKE_FINDINGS.md's "Recipe for the harness"):
     tag delete first (cheap, no cascade), then to-dos (including any swept
@@ -461,6 +465,8 @@ def _teardown_sandbox(session: Sandbox) -> None:
     (step 4) and independently verified gone via things.areas().
     """
     import things
+
+    budget = budget or suite_cleanup.Budget()
 
     # Extra areas: pull in any project things.py reports as belonging to a
     # tracked extra area, so its to-dos/headings are swept the same way as
@@ -516,29 +522,19 @@ def _teardown_sandbox(session: Sandbox) -> None:
         if matching:
             _delete_tag_via_applescript(matching[0]["uuid"])
 
-    # 2. Trash every to-do (including ones swept up above), before their
-    #    parent projects, so `delete (to do id ...)` doesn't hit the
-    #    "Can't get to do id" orphan gap. Headings are skipped - see
-    #    docstring; nothing to delete/move for them directly.
-    for todo_id in all_todo_ids:
-        _delete_via_applescript(todo_id)
-
-    # 3. Trash every project directly (in case the area-delete cascade
-    #    below doesn't run, e.g. area creation itself failed earlier).
-    #    Includes projects swept from tracked extra areas above.
-    for project_id in all_project_ids:
-        if project_id:
-            _delete_via_applescript(project_id)
-
-    # 4. Delete the area(s) last - purges each area itself and trashes any
-    #    projects still inside it (to-dos were already swept in step 2).
-    #    Extra tracked areas are handled the same way as the main sandbox
-    #    area, after their contained projects/todos above.
-    if session.area_id:
-        _delete_area_via_applescript(session.area_id)
-    for area_id in session.tracked_area_ids:
-        if area_id:
-            _delete_area_via_applescript(area_id)
+    # 2-4. Batched deletes (one osascript per kind, per-id try inside):
+    #    to-dos first (so `delete (to do id ...)` doesn't hit the "Can't get
+    #    to do id" orphan gap; the script falls back to move-to-Trash),
+    #    then projects (incl. those swept from tracked extra areas), then
+    #    areas last (area delete purges the area and trashes any projects
+    #    still inside it, but NOT their to-dos). Headings are skipped - see
+    #    docstring. Anything not deleted is logged to stderr by delete_all.
+    suite_cleanup.delete_all(
+        all_todo_ids,
+        [pid for pid in all_project_ids if pid],
+        [a for a in [session.area_id] + list(session.tracked_area_ids) if a],
+        budget,
+    )
 
     # Give Things a moment to process the deletes before verifying.
     time.sleep(1)
@@ -600,11 +596,7 @@ def _teardown_sandbox(session: Sandbox) -> None:
         if still_listed:
             leftovers.append(f"tag (unresolved id) still present: {session.tag_name!r}")
 
-    if leftovers:
-        raise AssertionError(
-            "Regression sandbox teardown failed to clean up the following "
-            f"objects: {leftovers}"
-        )
+    return leftovers
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +656,11 @@ def _collateral_guard(request):
     """
     skip_reason_env = os.environ.get("THINGS_MCP_REG_SKIP_COLLATERAL_GUARD") == "1"
 
+    # hq-8vx: session-START sweep of any prefixed leftovers from previous
+    # (crashed/killed) runs - BEFORE the snapshot so they aren't treated as
+    # pre-existing objects whose disappearance is "collateral".
+    suite_cleanup.sweep_prefix(SANDBOX_PREFIX, "regression start", suite_cleanup.Budget())
+
     try:
         before = _snapshot_db()
     except Exception:
@@ -715,4 +712,38 @@ def _collateral_guard(request):
             else:
                 raise AssertionError(message)
 
-    request.addfinalizer(_check)
+    _STATE["guard"] = _check
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """hq-8vx: leak-proof session cleanup, outside every per-test timeout.
+
+    Order: sandbox teardown (batched, tracked ids + children) -> end sweep of
+    every active SANDBOX_PREFIX item -> optional empty-trash -> collateral
+    guard check. Total budget 240s (own wall clock); failures are logged to
+    stderr and flip the exit status instead of raising.
+    """
+    sandbox_session = _STATE.pop("sandbox", None)
+    guard = _STATE.pop("guard", None)
+    if sandbox_session is None and guard is None:
+        return
+    failures: List[str] = []
+    budget = suite_cleanup.Budget()
+    if sandbox_session is not None:
+        try:
+            left = _teardown_sandbox(sandbox_session, budget)
+            if left:
+                failures.append(f"sandbox teardown leftovers: {left}")
+        except Exception as e:  # never let cleanup crash the session
+            failures.append(f"sandbox teardown raised: {e!r}")
+    suite_cleanup.sweep_prefix(SANDBOX_PREFIX, "regression end", budget)
+    suite_cleanup.maybe_empty_trash()
+    if guard is not None:
+        try:
+            guard()
+        except AssertionError as e:
+            failures.append(str(e))
+    for f in failures:
+        suite_cleanup.log(f"FAILURE: {f}")
+    if failures and session.exitstatus == 0:
+        session.exitstatus = int(pytest.ExitCode.TESTS_FAILED)

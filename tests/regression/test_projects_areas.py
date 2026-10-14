@@ -1124,6 +1124,21 @@ class TestGetProjects:
             result = mcp.call_sync("get_projects", mode=mode)
             items = result.get("items") or []
             by_uuid = {item["uuid"]: item for item in items}
+            if sandbox.project_id not in by_uuid and result.get("truncated"):
+                # hq-8vx: get_projects has no limit/offset, so on a very large
+                # project set the budget-truncated prefix can legitimately
+                # omit the sandbox project. Assert the truncation contract
+                # (count < total + hint) and verify the project's area via a
+                # targeted lookup instead of failing on list position. The
+                # untruncated path below (the normal, clean-DB case) still
+                # checks the per-mode area field exactly as before.
+                assert result.get("count", len(items)) < result.get("total", 0), result
+                assert result.get("truncation_hint"), result
+                looked_up = mcp.call_sync("get_todo_by_id", todo_id=sandbox.project_id)
+                project = looked_up.get("item") or {}
+                assert project.get("type") == "project", looked_up
+                assert project.get("area") == sandbox.area_id, (mode, project)
+                continue
             assert sandbox.project_id in by_uuid, f"mode={mode}: sandbox project not found"
             assert by_uuid[sandbox.project_id].get("area") == sandbox.area_id, (
                 mode,

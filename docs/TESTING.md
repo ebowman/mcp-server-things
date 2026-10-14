@@ -225,6 +225,40 @@ tool registration, and all).
      add oracle rows/assertions there too rather than duplicating seed
      setup.
 
+## Live-suite hygiene: teardown, sweep, Trash (hq-8vx)
+
+Both live suites (`tests/regression/`, `tests/live/`) share
+`tests/regression/suite_cleanup.py`:
+
+- **Leak-proof teardown.** Cleanup runs from `pytest_sessionfinish`, not a
+  fixture finalizer. pytest-timeout's per-test timer (300s, `pytest.ini`)
+  spans setup+call+teardown, so a session-fixture finalizer runs inside the
+  last test's timer and used to be killed mid-cleanup, leaking sandbox
+  objects into active lists. `sessionfinish` is outside every timer.
+  Deletes are batched (one `osascript` per kind - to-dos, then projects, then
+  areas - up to 50 ids each, per-id `try` inside the script, to-do
+  `move ... to list "Trash"` fallback) under a 240s wall-clock budget.
+  Anything not deleted is logged to stderr (`[suite-cleanup] NOT DELETED ...`)
+  and a teardown leftover fails the run's exit status.
+- **Prefix sweeps.** At session start AND end each suite deletes every active
+  (non-trashed) to-do/project/area titled with its suite-owned prefix
+  (`hq-gbl-reg ` / `hq-f0w-smoke live `), plus the children of prefixed
+  projects/areas, regardless of age (catches earlier killed runs). Counts are
+  printed to stderr (visible with `-s`). Trashed items are never touched.
+- **Trash oracle.** `get_trash` seed-oracle pairs do NOT page through the
+  Trash (runtime would scale with Trash size). `must` = `get_todo_by_id`
+  reports `trashed: true` (not merely via a trashed parent); `must_not` =
+  not trashed / not found; plus one `get_trash(limit=100)` envelope sanity
+  check. `get_projects` has no limit/offset, so
+  `TestGetProjects::test_sandbox_projects_present_every_mode_with_area`
+  falls back to a targeted lookup of the project's area when the response is
+  budget-truncated.
+- **Opt-in empty Trash.** `THINGS_MCP_LIVE_EMPTY_TRASH=1` makes the session
+  end run `tell application "Things3" to empty trash` (asynchronous - Things
+  purges in the background). Default OFF; it is the user's Trash.
+- A very large Trash (tens of thousands of items) makes Things' AppleScript
+  slow and unreliable (timeouts); empty it periodically.
+
 ## Release gate
 
 `THINGS_MCP_LIVE_TESTS=1 pytest tests/live -q` and

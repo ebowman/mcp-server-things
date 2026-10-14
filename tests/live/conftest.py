@@ -8,10 +8,12 @@ This whole directory is skipped unless BOTH:
 When the suite does run, a single throwaway project (see
 `SMOKE_PROJECT_PREFIX`) is created once per session and every test-created
 item (todos, the project itself) is tracked and trashed in a
-session-scoped teardown that runs even if tests fail (via
-`request.addfinalizer`). Teardown verifies via things.py that every
-tracked uuid is actually trashed and raises (test error) listing any
-leftover uuids if not - this suite must never leave live data behind.
+session-level cleanup that runs even if tests fail. hq-8vx: cleanup runs
+from `pytest_sessionfinish` (NOT a fixture finalizer - pytest-timeout's
+per-test timer would cover a finalizer and could kill it mid-way), uses
+batched deletes with its own 240s budget, sweeps leaked SMOKE_PROJECT_PREFIX
+items at session start and end, and logs any leftover to stderr (and fails
+the run) - this suite must never leave live data behind.
 
 LIVE-WRITE SAFETY: every fixture in this file creates its own brand-new
 project scoped to this test session. Nothing here ever writes into,
@@ -26,10 +28,15 @@ from typing import List, Optional
 
 import pytest
 
+from regression import suite_cleanup
+
 # Marker registration lives in pytest.ini/pyproject.toml (see hq-f0w.14).
 
 SMOKE_PROJECT_PREFIX = "hq-f0w-smoke live "
 _OSASCRIPT_PROBE_TIMEOUT_SECS = 5
+
+# hq-8vx: consumed by pytest_sessionfinish (see module docstring).
+_STATE: dict = {"session": None}
 
 
 def _things_running() -> bool:
@@ -138,6 +145,9 @@ def smoke_session(request, live_things_tools):
     """
     import things
 
+    # hq-8vx: session-START sweep of leaked smoke projects from earlier runs.
+    suite_cleanup.sweep_prefix(SMOKE_PROJECT_PREFIX, "live start", suite_cleanup.Budget())
+
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     project_name = f"{SMOKE_PROJECT_PREFIX}{ts}"
     heading_title = "Smoke Heading"
@@ -178,17 +188,15 @@ def smoke_session(request, live_things_tools):
     for t in things.tasks(project=project_id, type="to-do") or []:
         session.track(t["uuid"])
 
-    def _teardown():
-        _trash_and_verify(session)
-
-    request.addfinalizer(_teardown)
+    _STATE["session"] = session  # cleaned up in pytest_sessionfinish (hq-8vx)
     return session
 
 
-def _trash_and_verify(session: _SmokeSession) -> None:
+def _trash_and_verify(session: _SmokeSession, budget=None) -> list:
     """Trash every tracked todo id and the smoke project, then verify via
-    things.py that nothing tracked remains outside the Trash. Raises
-    (surfacing as a test error) listing any leftover uuids.
+    things.py that nothing tracked remains outside the Trash. Returns the
+    list of leftover uuids (empty on success); pytest_sessionfinish reports
+    them and fails the run.
 
     Deleting the project does NOT cascade a trashed flag onto its children
     (measured live, hq-f0w.14 review round 2): a to-do left under the
@@ -224,6 +232,8 @@ def _trash_and_verify(session: _SmokeSession) -> None:
     all_ids = list(dict.fromkeys(session.created_todo_ids + child_ids + [session.project_id]))
     leftovers = []
 
+    budget = budget or suite_cleanup.Budget()
+    todo_ids = []
     for item_id in all_ids:
         record = things.get(item_id, trashed=None)
         if record is not None and record.get("type") == "heading":
@@ -231,7 +241,10 @@ def _trash_and_verify(session: _SmokeSession) -> None:
             # the heading is cleaned up once its parent project is
             # trashed (see leftover check below).
             continue
-        _delete_via_applescript(item_id)
+        if item_id != session.project_id:
+            todo_ids.append(item_id)
+    # Batched (hq-8vx): to-dos first, then the project.
+    suite_cleanup.delete_all(todo_ids, [session.project_id], [], budget)
 
     # Give Things a moment to process the deletes before verifying.
     time.sleep(1)
@@ -252,83 +265,25 @@ def _trash_and_verify(session: _SmokeSession) -> None:
                 continue
         leftovers.append(item_id)
 
-    if leftovers:
-        raise AssertionError(
-            "Live smoke teardown failed to trash the following ids "
-            f"(still present and NOT in Trash): {leftovers}"
-        )
+    return leftovers
 
 
-def _delete_via_applescript(item_id: str) -> None:
-    """Delete a to-do/project by id via raw AppleScript `delete`.
-
-    Tries `to do id` first (matching the existing delete_todo() write
-    operation's own script), then falls back to `project id` if that
-    fails. Measured live (hq-f0w.14): `to do id "<project-uuid>"`
-    resolves fine for *reads* on a project, but `delete (to do id
-    "<project-uuid>")` reliably errors with "Can't get to do id ..." -
-    Things' AppleScript dictionary does NOT treat a project as a to-do
-    subtype for `delete`, only `project id` works there. `delete_todo()`
-    itself (tools_helpers/write_operations.py) has this same latent gap
-    for project ids - noted as discovered work, out of scope here.
-    Best-effort: failures are not raised here so the loop can continue
-    attempting the rest of the ids; leftover verification in
-    _trash_and_verify is the real safety net.
-    """
-    escaped = item_id.replace('"', '\\"')
-
-    def _run(target_expr: str) -> bool:
-        script = f'''
-        tell application "Things3"
-            try
-                set targetItem to {target_expr}
-                delete targetItem
-                return "deleted"
-            on error errMsg
-                return "error: " & errMsg
-            end try
-        end tell
-        '''
-        try:
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        except (subprocess.TimeoutExpired, OSError):
-            return False
-        return result.returncode == 0 and result.stdout.strip() == "deleted"
-
-    if _run(f'to do id "{escaped}"'):
+def pytest_sessionfinish(session, exitstatus):
+    """hq-8vx: leak-proof cleanup outside every per-test timeout."""
+    smoke = _STATE.pop("session", None)
+    if smoke is None:
         return
-    if _run(f'project id "{escaped}"'):
-        return
-
-    # Last-resort fallback: `delete` can itself fail ("Can't get to do
-    # id ...") for a to-do whose parent project has already been trashed
-    # in this same teardown pass, even though the to-do is still fully
-    # resolvable and enumerable via `to dos of project id "..."` at that
-    # point (measured live, hq-f0w.14 review round 2 - the orphan this
-    # uncovered, QJQBBaGVKdMv6dtr4K2PEi, was fixed this way). `move ...
-    # to list "Trash"` succeeds where `delete` does not. The sweep in
-    # _trash_and_verify already orders children before their parent
-    # project to avoid triggering this in the first place; this is
-    # defense-in-depth for any id this loop still could not place.
-    move_script = (
-        'tell application "Things3"\n'
-        '    try\n'
-        f'        set targetItem to to do id "{escaped}"\n'
-        '        move targetItem to list "Trash"\n'
-        '    end try\n'
-        'end tell'
-    )
+    budget = suite_cleanup.Budget()
+    failures = []
     try:
-        subprocess.run(
-            ["osascript", "-e", move_script],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        pass
+        left = _trash_and_verify(smoke, budget)
+        if left:
+            failures.append(f"live smoke teardown leftovers: {left}")
+    except Exception as e:
+        failures.append(f"live smoke teardown raised: {e!r}")
+    suite_cleanup.sweep_prefix(SMOKE_PROJECT_PREFIX, "live end", budget)
+    suite_cleanup.maybe_empty_trash()
+    for f in failures:
+        suite_cleanup.log(f"FAILURE: {f}")
+    if failures and session.exitstatus == 0:
+        session.exitstatus = int(pytest.ExitCode.TESTS_FAILED)
