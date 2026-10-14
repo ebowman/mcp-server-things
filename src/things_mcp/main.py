@@ -76,6 +76,7 @@ class ServerManager:
         """Initialize the server manager."""
         self.server: Optional[ThingsMCPServer] = None
         self.running = False
+        self._shutdown_signalled = False
         self._setup_signal_handlers()
     
     def _setup_signal_handlers(self):
@@ -93,10 +94,17 @@ class ServerManager:
         the signal if graceful shutdown has not finished; in that case stdio
         lifespan teardown is skipped (in-process state only, nothing durable).
 
+        A second signal during shutdown force-exits immediately (exit 0).
+
         Exit code: SIGINT/SIGTERM-initiated shutdown exits 0 (clean stop, no
         traceback), consistently for both signals and both paths.
         """
         def signal_handler(signum, frame):
+            if self._shutdown_signalled:
+                # Second signal while shutting down: raising again can abort
+                # inside threading._shutdown, so exit immediately instead.
+                self._force_exit()
+            self._shutdown_signalled = True
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             timer = threading.Timer(_SHUTDOWN_GRACE_SECS, self._force_exit)
             timer.daemon = True
