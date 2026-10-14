@@ -227,8 +227,11 @@ class MoveOperationsTools:
                 "completed_at": datetime.now().isoformat()
             }
             if failed_moves:
-                # Code-less failure (partial or total): stable code (hq-v9k).
-                bulk_result["error"] = "BULK_OPERATION_FAILED"
+                # Code-less failure: stable code (hq-v9k). Partial failures
+                # (some moves succeeded) get a distinct code.
+                bulk_result["error"] = (
+                    "BULK_PARTIAL_FAILURE" if successful_moves else "BULK_OPERATION_FAILED"
+                )
             return bulk_result
         
         except Exception as e:
