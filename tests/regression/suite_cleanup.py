@@ -142,49 +142,83 @@ def delete_all(todo_ids: Iterable[str], project_ids: Iterable[str],
     return out
 
 
+MIN_PREFIX_LEN = 8
+MAX_SWEEP_CANDIDATES = 500
+
+# Loud failures recorded by sweeps (e.g. cap exceeded); the conftests'
+# pytest_sessionfinish folds these into the session's failure status.
+FAILURES: List[str] = []
+
+
+def select_sweep_targets(prefix: str) -> Tuple[List[str], List[str], List[str]]:
+    """Return (todo_ids, project_ids, area_ids) selected for `prefix` via
+    things.py reads (read-only): active to-dos/projects/areas titled with the
+    prefix, plus ALL children of prefixed projects (incl. under headings) and
+    of prefixed areas (their to-dos AND their projects, and those projects'
+    to-dos even if the project title is not prefixed). Contents of a
+    non-prefixed area are never selected (unless individually prefixed)."""
+    import things
+
+    projects: Dict[str, None] = {}
+    for p in things.projects(status=None) or []:
+        if (p.get("title") or "").startswith(prefix):
+            projects[p["uuid"]] = None
+    areas = [
+        a["uuid"] for a in things.areas() or []
+        if (a.get("title") or "").startswith(prefix)
+    ]
+    todo_ids: Dict[str, None] = {}
+    for t in things.todos(status=None) or []:
+        if (t.get("title") or "").startswith(prefix):
+            todo_ids[t["uuid"]] = None
+    for area_id in areas:
+        for t in things.todos(area=area_id, status=None) or []:
+            todo_ids[t["uuid"]] = None
+        for p in things.projects(area=area_id, status=None) or []:
+            projects[p["uuid"]] = None
+    for project_id in list(projects):
+        for t in things.tasks(project=project_id, type=None, status=None) or []:
+            if t.get("type") == "heading":
+                for c in things.tasks(heading=t["uuid"], type=None, status=None) or []:
+                    todo_ids[c["uuid"]] = None
+            else:
+                todo_ids[t["uuid"]] = None
+    return list(todo_ids), list(projects), areas
+
+
 def sweep_prefix(prefix: str, label: str, budget: Budget) -> Dict[str, int]:
-    """Delete every ACTIVE (non-trashed, any open/completed/canceled status)
-    to-do/project/area whose title starts with `prefix`, plus the children of
-    prefixed projects and areas, regardless of age. Reports counts on stderr.
+    """Delete every ACTIVE (non-trashed, any status) item selected by
+    `select_sweep_targets`, regardless of age. Reports counts on stderr.
+
+    Safety: raises ValueError unless `prefix` is a str of >= MIN_PREFIX_LEN
+    non-blank chars (an empty prefix would select the whole database), and
+    deletes NOTHING (logs loudly, records a FAILURES entry) if the candidate
+    count exceeds MAX_SWEEP_CANDIDATES.
     """
+    if not isinstance(prefix, str) or len(prefix.strip()) < MIN_PREFIX_LEN:
+        raise ValueError(
+            f"refusing to sweep: prefix {prefix!r} must be a string of at least "
+            f"{MIN_PREFIX_LEN} non-blank characters")
     counts = {"todos": 0, "projects": 0, "areas": 0}
     try:
-        import things
-
-        projects = [
-            p for p in things.projects(status=None) or []
-            if (p.get("title") or "").startswith(prefix)
-        ]
-        areas = [
-            a for a in things.areas() or []
-            if (a.get("title") or "").startswith(prefix)
-        ]
-        todo_ids: Dict[str, None] = {}
-        for t in things.todos(status=None) or []:
-            if (t.get("title") or "").startswith(prefix):
-                todo_ids[t["uuid"]] = None
-        for p in projects:
-            for t in things.tasks(project=p["uuid"], type=None, status=None) or []:
-                if t.get("type") == "heading":
-                    for c in things.tasks(heading=t["uuid"], type=None, status=None) or []:
-                        todo_ids[c["uuid"]] = None
-                else:
-                    todo_ids[t["uuid"]] = None
-        for a in areas:
-            for t in things.todos(area=a["uuid"], status=None) or []:
-                todo_ids[t["uuid"]] = None
-            for p in things.projects(area=a["uuid"], status=None) or []:
-                if p["uuid"] not in {x["uuid"] for x in projects}:
-                    projects.append(p)
+        todo_ids, project_ids, area_ids = select_sweep_targets(prefix)
     except Exception as e:  # reads unavailable: never fail the suite from here
         log(f"{label} sweep skipped (things.py read failed): {e!r}")
         return counts
 
-    res = delete_all(list(todo_ids), [p["uuid"] for p in projects],
-                     [a["uuid"] for a in areas], budget)
+    total = len(todo_ids) + len(project_ids) + len(area_ids)
+    if total > MAX_SWEEP_CANDIDATES:
+        msg = (f"{label} sweep ABORTED, deleted NOTHING: prefix {prefix!r} matched "
+               f"{total} items ({len(todo_ids)} to-dos / {len(project_ids)} projects / "
+               f"{len(area_ids)} areas) > cap {MAX_SWEEP_CANDIDATES}")
+        log("!!! " + msg)
+        FAILURES.append(msg)
+        return counts
+
+    res = delete_all(todo_ids, project_ids, area_ids, budget)
     counts = {k: v[0] for k, v in res.items()}
     log(f"{label} sweep of prefix {prefix!r}: found {len(todo_ids)} to-dos / "
-        f"{len(projects)} projects / {len(areas)} areas; deleted "
+        f"{len(project_ids)} projects / {len(area_ids)} areas; deleted "
         f"{counts['todos']} / {counts['projects']} / {counts['areas']}")
     return counts
 

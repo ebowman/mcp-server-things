@@ -245,6 +245,16 @@ Both live suites (`tests/regression/`, `tests/live/`) share
   (`hq-gbl-reg ` / `hq-f0w-smoke live `), plus the children of prefixed
   projects/areas, regardless of age (catches earlier killed runs). Counts are
   printed to stderr (visible with `-s`). Trashed items are never touched.
+- **Sweep safety.** `sweep_prefix` raises unless the prefix is a string of at
+  least 8 non-blank characters (an empty prefix would match the whole
+  database), and if it finds more than 500 candidate items (to-dos +
+  projects + areas, including children) it deletes NOTHING, logs loudly to
+  stderr and fails the session. The start sweep runs in
+  `pytest_collection_finish` (after collection, before any test timer;
+  inert under `--collect-only`). Sweeps also collect to-dos inside
+  non-prefixed projects that live in a prefixed area; a non-prefixed area's
+  contents are never selected. Do NOT run two instances of the same suite
+  concurrently - each one's sweep deletes the other's live sandbox.
 - **Trash oracle.** `get_trash` seed-oracle pairs do NOT page through the
   Trash (runtime would scale with Trash size). `must` = `get_todo_by_id`
   reports `trashed: true` (not merely via a trashed parent); `must_not` =

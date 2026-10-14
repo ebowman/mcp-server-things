@@ -145,9 +145,6 @@ def smoke_session(request, live_things_tools):
     """
     import things
 
-    # hq-8vx: session-START sweep of leaked smoke projects from earlier runs.
-    suite_cleanup.sweep_prefix(SMOKE_PROJECT_PREFIX, "live start", suite_cleanup.Budget())
-
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     project_name = f"{SMOKE_PROJECT_PREFIX}{ts}"
     heading_title = "Smoke Heading"
@@ -268,13 +265,32 @@ def _trash_and_verify(session: _SmokeSession, budget=None) -> list:
     return leftovers
 
 
+def pytest_collection_finish(session):
+    """hq-8vx: session-START sweep of leaked smoke items from earlier runs,
+    after collection and before any test (outside every per-test timeout).
+    Inert under --collect-only, with no live item collected, or when gated
+    off (THINGS_MCP_LIVE_TESTS != 1 / Things not running)."""
+    if session.config.option.collectonly:
+        return
+    if not any("tests/live" in str(i.fspath).replace(os.sep, "/") for i in session.items):
+        return
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1" or not _things_running():
+        return
+    suite_cleanup.sweep_prefix(SMOKE_PROJECT_PREFIX, "live start", suite_cleanup.Budget())
+
+
 def pytest_sessionfinish(session, exitstatus):
     """hq-8vx: leak-proof cleanup outside every per-test timeout."""
     smoke = _STATE.pop("session", None)
+    failures = list(suite_cleanup.FAILURES)
+    suite_cleanup.FAILURES.clear()
     if smoke is None:
+        for f in failures:
+            suite_cleanup.log(f"FAILURE: {f}")
+        if failures and session.exitstatus == 0:
+            session.exitstatus = int(pytest.ExitCode.TESTS_FAILED)
         return
     budget = suite_cleanup.Budget()
-    failures = []
     try:
         left = _trash_and_verify(smoke, budget)
         if left:

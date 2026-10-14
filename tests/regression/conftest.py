@@ -656,11 +656,6 @@ def _collateral_guard(request):
     """
     skip_reason_env = os.environ.get("THINGS_MCP_REG_SKIP_COLLATERAL_GUARD") == "1"
 
-    # hq-8vx: session-START sweep of any prefixed leftovers from previous
-    # (crashed/killed) runs - BEFORE the snapshot so they aren't treated as
-    # pre-existing objects whose disappearance is "collateral".
-    suite_cleanup.sweep_prefix(SANDBOX_PREFIX, "regression start", suite_cleanup.Budget())
-
     try:
         before = _snapshot_db()
     except Exception:
@@ -715,6 +710,23 @@ def _collateral_guard(request):
     _STATE["guard"] = _check
 
 
+def pytest_collection_finish(session):
+    """hq-8vx: session-START sweep of prefixed leftovers from earlier
+    (crashed/killed) runs. Runs after collection, before any test, so it is
+    outside every per-test pytest-timeout timer and happens before the
+    collateral snapshot (leftovers are never treated as pre-existing).
+    Inert under --collect-only, when no regression item is collected, or
+    when the suite is gated off (no THINGS_MCP_LIVE_TESTS=1 / Things not
+    running)."""
+    if session.config.option.collectonly:
+        return
+    if not any("tests/regression" in str(i.fspath).replace(os.sep, "/") for i in session.items):
+        return
+    if os.environ.get("THINGS_MCP_LIVE_TESTS") != "1" or not _things_running():
+        return
+    suite_cleanup.sweep_prefix(SANDBOX_PREFIX, "regression start", suite_cleanup.Budget())
+
+
 def pytest_sessionfinish(session, exitstatus):
     """hq-8vx: leak-proof session cleanup, outside every per-test timeout.
 
@@ -725,9 +737,14 @@ def pytest_sessionfinish(session, exitstatus):
     """
     sandbox_session = _STATE.pop("sandbox", None)
     guard = _STATE.pop("guard", None)
+    failures: List[str] = list(suite_cleanup.FAILURES)
+    suite_cleanup.FAILURES.clear()
     if sandbox_session is None and guard is None:
+        for f in failures:
+            suite_cleanup.log(f"FAILURE: {f}")
+        if failures and session.exitstatus == 0:
+            session.exitstatus = int(pytest.ExitCode.TESTS_FAILED)
         return
-    failures: List[str] = []
     budget = suite_cleanup.Budget()
     if sandbox_session is not None:
         try:
