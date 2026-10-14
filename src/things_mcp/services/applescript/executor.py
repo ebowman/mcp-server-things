@@ -63,7 +63,7 @@ class AppleScriptExecutor:
             cls._locks_by_loop[loop] = lock
         return lock
 
-    def __init__(self, timeout: int = 45, retry_count: int = 3):
+    def __init__(self, timeout: float = 45, retry_count: int = 3):
         """Initialize the AppleScript executor.
 
         Args:

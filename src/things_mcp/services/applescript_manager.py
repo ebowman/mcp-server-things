@@ -49,7 +49,7 @@ class AppleScriptManager:
     # to be declared here too, but it was never acquired anywhere in this
     # class (dead code) - removed (hq-c7a).
 
-    def __init__(self, timeout: int = 45, retry_count: int = 3, config: Optional[ThingsMCPConfig] = None):
+    def __init__(self, timeout: float = 45, retry_count: int = 3, config: Optional[ThingsMCPConfig] = None):
         """Initialize the AppleScript manager.
 
         Args:
