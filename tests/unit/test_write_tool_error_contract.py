@@ -36,11 +36,20 @@ import re
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from fastmcp import Client
+from fastmcp import Client as FastMCPClient
 
 from things_mcp.server import ThingsMCPServer
 from things_mcp.tools import ThingsTools
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+
+class Client(FastMCPClient):
+    """Keep structured write errors inspectable instead of raising them."""
+
+    async def call_tool(self, *args, **kwargs):
+        kwargs.setdefault("raise_on_error", False)
+        return await super().call_tool(*args, **kwargs)
+
 
 # A code is "UPPER_SNAKE_CASE" if it's all uppercase letters/digits/underscores
 # and contains no lowercase letters or spaces - distinguishing it from a human
