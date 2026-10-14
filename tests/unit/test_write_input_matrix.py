@@ -93,6 +93,7 @@ BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get
 # target (MoveOperationsTools' own module-local things proxy - see
 # move_operations.py).
 MOVE_OPS_THINGS_GET_PATCH = "things_mcp.move_operations.things.get"
+READ_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.read_operations.things.get"
 
 SENTINEL_LIST_TITLE = "SENTINELlisttitleXYZ"
 RESOLVED_LIST_TITLE_PROJECT_ID = "RESOLVEDPROJECTID"
@@ -413,6 +414,15 @@ def _patched_things_lookups():
         patch(WRITE_OPS_THINGS_GET_PATCH, side_effect=_write_ops_things_get),
         patch(BULK_OPS_THINGS_GET_PATCH, side_effect=_bulk_ops_things_get),
         patch(MOVE_OPS_THINGS_GET_PATCH, side_effect=_move_ops_things_get),
+        patch(
+            READ_OPS_THINGS_GET_PATCH,
+            side_effect=lambda uuid: {
+                "uuid": uuid,
+                "type": "to-do",
+                "title": "Receipt todo",
+                "status": "incomplete",
+            },
+        ),
     ]
 
 

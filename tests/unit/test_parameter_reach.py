@@ -73,6 +73,7 @@ BULK_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.bulk_operations.things.get
 # move_record's pre-move things.py info/origin lookup (hq-wsa.6) needs its
 # own patch for the same reason as WRITE_OPS_THINGS_GET_PATCH above.
 MOVE_OPS_THINGS_GET_PATCH = "things_mcp.move_operations.things.get"
+READ_OPS_THINGS_GET_PATCH = "things_mcp.tools_helpers.read_operations.things.get"
 
 # A list_title sentinel that things.projects()/things.areas() are patched to
 # resolve unambiguously to project uuid RESOLVEDPROJECTID (see
@@ -276,6 +277,15 @@ def _patched_things_lookups():
                 "title": "Sentinel Move Todo",
                 "status": "incomplete",
                 "start": "Anytime",
+            },
+        ),
+        patch(
+            READ_OPS_THINGS_GET_PATCH,
+            side_effect=lambda uuid: {
+                "uuid": uuid,
+                "type": "to-do",
+                "title": "Receipt todo",
+                "status": "incomplete",
             },
         ),
     ]
@@ -975,4 +985,3 @@ def test_parameter_reaches_backend(tool: str, param: str):
         f"Captured scripts:\n{fake.all_scripts_text()}\n"
         f"Captured URL calls: {fake.url_scheme_calls}"
     )
-
