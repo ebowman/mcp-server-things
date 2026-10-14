@@ -43,7 +43,9 @@ async def test_update_todo_returns_target_id_and_post_write_readback() -> None:
 
     async with Client(server.mcp) as client:
         result = await client.call_tool(
-            "update_todo", {"id": TODO_ID, "title": "Updated title"}
+            "update_todo",
+            {"id": TODO_ID, "title": "Updated title"},
+            raise_on_error=False,
         )
 
     assert result.structured_content == {
@@ -106,7 +108,9 @@ async def test_update_todo_preserves_failure_without_readback() -> None:
 
     async with Client(server.mcp) as client:
         result = await client.call_tool(
-            "update_todo", {"id": TODO_ID, "title": "Updated title"}
+            "update_todo",
+            {"id": TODO_ID, "title": "Updated title"},
+            raise_on_error=False,
         )
 
     assert result.structured_content == failure
@@ -129,6 +133,7 @@ async def test_move_record_preserves_failure_without_readback() -> None:
         result = await client.call_tool(
             "move_record",
             {"todo_id": TODO_ID, "destination_list": "today"},
+            raise_on_error=False,
         )
 
     assert result.structured_content == failure
@@ -142,9 +147,14 @@ async def test_update_todo_readback_exception_keeps_write_success_explicit() -> 
 
     async with Client(server.mcp) as client:
         result = await client.call_tool(
-            "update_todo", {"id": TODO_ID, "title": "Updated title"}
+            "update_todo",
+            {"id": TODO_ID, "title": "Updated title"},
+            raise_on_error=False,
         )
 
+    # A successful write with a failed readback must not be flagged isError
+    # by WriteErrorSignalingMiddleware.
+    assert result.is_error is False
     assert result.structured_content == {
         "success": True,
         "message": "Todo updated successfully",
@@ -177,8 +187,10 @@ async def test_move_record_surfaces_structured_readback_failure() -> None:
         result = await client.call_tool(
             "move_record",
             {"todo_id": TODO_ID, "destination_list": "today"},
+            raise_on_error=False,
         )
 
+    assert result.is_error is False
     assert result.structured_content == {
         "success": True,
         "message": "Todo moved successfully",

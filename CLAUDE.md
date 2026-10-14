@@ -962,6 +962,8 @@ parent heading) and neither `list_id` nor `list_title` is also given,
 `update_todo` adds a `warnings` entry in this case rather than failing
 outright, since Things itself doesn't surface an error either.
 
+**Write receipts on `update_todo` and `move_record`**: a successful call also returns `todo_id` (the stable target id), `readback_succeeded`, and - when the follow-up `get_todo_by_id` read worked - `item`, an observed post-write snapshot. It is what Things reported after the write, not proof that every requested field or destination was applied; compare it against the request. If the readback itself fails, the result stays `success: true` with `readback_succeeded: false`, a `readback_error`, and a `warnings` entry telling callers not to retry the write automatically (it already succeeded; and it is not flagged `isError`). Structured write failures pass through unchanged with no readback.
+
 **Moving an existing to-do to a project or area** (without a heading):
 `update_todo(id=..., list_id=...)` (or `list_title=...`) moves the to-do
 directly into that project or area via AppleScript - resolved the same way
