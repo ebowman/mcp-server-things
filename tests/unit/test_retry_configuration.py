@@ -78,6 +78,7 @@ def test_server_applies_loaded_execution_config_without_overrides():
     [
         {"timeout": 0},
         {"retry_count": 11},
+        {"retry_count": -1},
     ],
 )
 def test_server_validates_execution_overrides(override):

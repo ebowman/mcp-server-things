@@ -14,7 +14,9 @@ from typing import Optional
 from .boot_trace import arm_boot_watchdog, boot_marker
 from .client_config import CLIENT_CHOICES as _CLIENT_CHOICES
 from .client_config import VIA_CHOICES as _VIA_CHOICES
-from .config import load_config_from_env
+from pydantic import ValidationError
+
+from .config import apply_execution_overrides, load_config_from_env
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
@@ -278,16 +280,16 @@ Environment:
     
     parser.add_argument(
         "--timeout",
-        type=int,
+        type=float,
         default=None,
-        help="AppleScript execution timeout in seconds (default: configuration, normally 30)"
+        help="AppleScript execution timeout in seconds, 1-300, fractions allowed (default: configuration, normally 30)"
     )
     
     parser.add_argument(
         "--retry-count",
         type=int,
         default=None,
-        help="Number of retries after the initial attempt; 0 = run once (default: configuration, normally 2)"
+        help="Number of retries after the initial attempt; 0-10, 0 = run once (default: configuration, normally 2)"
     )
     
     parser.add_argument(
@@ -518,6 +520,39 @@ def run_config(client: Optional[str], via: str, write: bool, force: bool) -> int
     return 2
 
 
+class CliConfigError(Exception):
+    """Invalid CLI/env configuration for a utility subcommand."""
+
+
+def resolve_execution_settings(
+    env_file: Optional[str],
+    timeout: Optional[float],
+    retry_count: Optional[int],
+) -> "tuple[float, int]":
+    """Build validated (timeout, retry_count) from env-file config + CLI overrides.
+
+    Uses the same loader and override validation as the server start path.
+
+    Raises:
+        CliConfigError: env file missing or an override is out of range.
+    """
+    try:
+        config = load_config_from_env(Path(env_file) if env_file else None)
+    except FileNotFoundError:
+        raise CliConfigError(f"env file not found: {env_file}")
+    try:
+        config = apply_execution_overrides(config, timeout, retry_count)
+    except ValidationError as exc:
+        flags = {"applescript_timeout": "--timeout (allowed range 1-300 seconds)",
+                 "applescript_retry_count": "--retry-count (allowed range 0-10)"}
+        parts = []
+        for err in exc.errors():
+            loc = str(err["loc"][0]) if err.get("loc") else ""
+            parts.append(flags.get(loc, loc or "configuration"))
+        raise CliConfigError("invalid value for " + "; ".join(parts))
+    return config.applescript_timeout, config.applescript_retry_count
+
+
 def main():
     """Main entry point."""
     boot_marker("process-start")
@@ -538,20 +573,14 @@ def main():
         return 0
 
     if args.health_check or args.test_applescript:
-        execution_config = load_config_from_env(
-            Path(args.env_file) if args.env_file else None
-        )
-        timeout = (
-            args.timeout
-            if args.timeout is not None
-            else execution_config.applescript_timeout
-        )
-        retry_count = (
-            args.retry_count
-            if args.retry_count is not None
-            else execution_config.applescript_retry_count
-        )
-    
+        try:
+            timeout, retry_count = resolve_execution_settings(
+                args.env_file, args.timeout, args.retry_count
+            )
+        except CliConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
     if args.health_check:
         return asyncio.run(perform_health_check(timeout, retry_count))
     

@@ -630,6 +630,27 @@ def load_config_from_env(env_file: Optional[Path] = None) -> ThingsMCPConfig:
     return ThingsMCPConfig.from_env_file(env_file)
 
 
+def apply_execution_overrides(
+    config: ThingsMCPConfig,
+    timeout: Optional[float] = None,
+    retry_count: Optional[int] = None,
+) -> ThingsMCPConfig:
+    """Return ``config`` with explicit CLI execution overrides applied.
+
+    Overrides are merged and re-validated through ``ThingsMCPConfig`` so they
+    obey the same bounds as environment configuration. ``None`` means "not
+    given". Raises ``pydantic.ValidationError`` on out-of-range values.
+    """
+    overrides: Dict[str, Any] = {}
+    if timeout is not None:
+        overrides["applescript_timeout"] = timeout
+    if retry_count is not None:
+        overrides["applescript_retry_count"] = retry_count
+    if not overrides:
+        return config
+    return ThingsMCPConfig.model_validate({**config.model_dump(), **overrides})
+
+
 # Configuration validation
 def validate_config(config: ThingsMCPConfig) -> bool:
     """

@@ -26,7 +26,7 @@ from .tools_helpers.read_operations import read_error_from_exception as _tools_r
 from .tools_helpers.read_operations import is_db_access_error
 from .tools_helpers.errors import write_error as _tools_write_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
-from .config import ThingsMCPConfig, load_config_from_env
+from .config import ThingsMCPConfig, apply_execution_overrides, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
 from .middleware import WriteErrorSignalingMiddleware
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
@@ -166,15 +166,7 @@ class ThingsMCPServer:
         else:
             self.config = load_config_from_env()
 
-        execution_overrides: Dict[str, Any] = {}
-        if timeout is not None:
-            execution_overrides["applescript_timeout"] = timeout
-        if retry_count is not None:
-            execution_overrides["applescript_retry_count"] = retry_count
-        if execution_overrides:
-            self.config = ThingsMCPConfig.model_validate(
-                {**self.config.model_dump(), **execution_overrides}
-            )
+        self.config = apply_execution_overrides(self.config, timeout, retry_count)
         boot_marker("config-loaded")
 
         # Configure logging based on config
