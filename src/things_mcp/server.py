@@ -950,6 +950,8 @@ class ThingsMCPServer:
                 return {"item": todo}
             except Exception as e:
                 logger.error(f"Error getting todo by ID: {e}")
+                if is_db_access_error(e):
+                    return self._read_error_from_exception(e)
                 raise
         
         @self.mcp.tool()

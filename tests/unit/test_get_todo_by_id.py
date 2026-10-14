@@ -24,6 +24,7 @@ import pytest
 from unittest.mock import patch, call
 
 from things_mcp.tools import ThingsTools
+from things_mcp.tools_helpers.read_operations import ReadOperations
 
 
 TODO = {
@@ -259,6 +260,15 @@ class TestGetTodoByIdEveningField:
     raw-SQL side channel (TMTask.startBucket), since things.py's own SELECT
     never exposes it (hq-wsa.9). `_read_start_bucket` itself is mocked here -
     its own sqlite access is exercised live in tests/regression."""
+
+    def test_scoped_start_bucket_uses_helper(self, monkeypatch):
+        monkeypatch.setenv("THINGS_MCP_SCOPED_HELPER_APP", "/tmp/ThingsReadHelper.app")
+        with patch("things_mcp.scoped_database.get_scoped_database") as database:
+            database.return_value.execute_query.return_value = [{"startBucket": 1}]
+            assert ReadOperations._read_start_bucket(TODO["uuid"]) == 1
+        database.return_value.execute_query.assert_called_once_with(
+            "SELECT startBucket FROM TMTask WHERE uuid = ?", (TODO["uuid"],)
+        )
 
     @pytest.mark.asyncio
     async def test_start_bucket_one_reports_evening_true(self, tools):
