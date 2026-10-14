@@ -160,7 +160,7 @@ static int serve(void) {
                                               options:NSURLBookmarkResolutionWithSecurityScope
                                         relativeToURL:nil bookmarkDataIsStale:&stale error:nil];
     if (bundle == nil || stale || !isThingsBundle(bundle) || ![bundle startAccessingSecurityScopedResource]) {
-        sendJSON(@{@"ready": @NO, @"error": @"bookmark_access_denied"});
+        sendJSON(@{@"ready": @NO, @"error": stale ? @"bookmark_stale" : @"bookmark_access_denied"});
         return 1;
     }
     NSURL *file = [bundle URLByAppendingPathComponent:@"main.sqlite"];

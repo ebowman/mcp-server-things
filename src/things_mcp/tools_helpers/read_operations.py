@@ -8,7 +8,7 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
-from ..things_import import LazyThingsProxy
+from ..things_import import LazyThingsProxy, ScopedHelperAccessError
 from ..services.applescript_manager import AppleScriptManager
 from .helpers import ToolsHelpers
 
@@ -92,11 +92,11 @@ def read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
 
 
 def is_db_access_error(exc: BaseException) -> bool:
-    """Return True if `exc` looks like a macOS TCC (Full Disk Access) denial.
+    """Return True for a Things database access denial on either read path.
 
-    Distinguishes a permission-denied failure reading the Things SQLite
-    database (things.py raises ``sqlite3.OperationalError`` in this case,
-    or occasionally a plain ``PermissionError``) from any other exception
+    Distinguishes a scoped helper grant failure, or a permission-denied
+    direct SQLite read (things.py raises ``sqlite3.OperationalError`` in this
+    case, or occasionally a plain ``PermissionError``), from other exceptions
     (e.g. a schema mismatch, a bad query, or an unrelated PermissionError on
     some other file) that should still surface as a generic internal error.
 
@@ -104,13 +104,16 @@ def is_db_access_error(exc: BaseException) -> bool:
         exc: The caught exception instance.
 
     Returns:
-        True if `exc` is a sqlite3.OperationalError whose message contains
+        True for a ScopedHelperAccessError, or if `exc` is a
+        sqlite3.OperationalError whose message contains
         'unable to open database file' or 'authorization denied'
         (case-insensitive), or a PermissionError whose `filename` contains
         'com.culturedcode.ThingsMac' or '.thingsdatabase' (i.e. it names a
         path inside the Things database container, not some unrelated
         file). False otherwise.
     """
+    if isinstance(exc, ScopedHelperAccessError):
+        return True
     if isinstance(exc, sqlite3.OperationalError):
         message = str(exc).lower()
         return "unable to open database file" in message or "authorization denied" in message
@@ -123,12 +126,9 @@ def is_db_access_error(exc: BaseException) -> bool:
 def read_error_from_exception(exc: BaseException, **extra: Any) -> Dict[str, Any]:
     """Build a structured read-tool error from a caught exception.
 
-    Classifies `exc` via :func:`is_db_access_error`: a macOS Full Disk
-    Access / TCC denial reading the Things database is reported as a
-    distinct, actionable ``database_access_denied`` error (with a hint
-    naming the exact interpreter binary that needs the Full Disk Access
-    grant); anything else falls back to the existing generic
-    ``internal_error`` shape.
+    Classifies `exc` via :func:`is_db_access_error`: direct TCC denials and
+    scoped helper grant failures use ``database_access_denied`` with a hint
+    for the relevant access path. Other failures use ``internal_error``.
 
     Args:
         exc: The caught exception instance.
@@ -138,6 +138,17 @@ def read_error_from_exception(exc: BaseException, **extra: Any) -> Dict[str, Any
     Returns:
         A structured read-tool error dict (see :func:`read_error`).
     """
+    if isinstance(exc, ScopedHelperAccessError):
+        return read_error(
+            "database_access_denied",
+            str(exc),
+            hint=(
+                "Build the scoped helper from source, select or re-select the Things "
+                "database bundle in its picker, and run `mcp-server-things doctor`."
+            ),
+            interpreter=os.path.realpath(sys.executable),
+            **extra,
+        )
     if is_db_access_error(exc):
         interpreter = os.path.realpath(sys.executable)
         return read_error(
@@ -1322,12 +1333,12 @@ class ReadOperations:
         the clean long-term fix; until then this stays narrowly contained
         here.
 
-        Opens the connection via the `file:...?mode=ro` URI form so the
-        connection is strictly read-only at the SQLite level (not just by
-        convention) and is closed promptly via a context manager. Any
-        failure - database file missing/moved, table/column absent (a future
-        Things schema change), the database locked, or things.database's API
-        shape differing from what's expected here - is swallowed and logged
+        In scoped mode, uses the picker-granted helper. Otherwise opens the
+        connection via the `file:...?mode=ro` URI form and closes it promptly
+        via a context manager. Any failure - database file missing/moved,
+        table/column absent after a future Things schema change, the database
+        locked, or things.database's API shape differing from what's expected
+        here - is swallowed and logged
         at debug level; this must never raise or delay the get_todo_by_id
         lookup it supports.
 
@@ -1336,6 +1347,14 @@ class ReadOperations:
             on any error or if the uuid has no matching row).
         """
         try:
+            if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+                from ..scoped_database import get_scoped_database
+
+                rows = get_scoped_database().execute_query(
+                    "SELECT startBucket FROM TMTask WHERE uuid = ?", (uuid,)
+                )
+                return rows[0]["startBucket"] if rows else None
+
             db_path = things.database.Database().filepath
             uri = f"file:{db_path}?mode=ro"
             with sqlite3.connect(uri, uri=True) as con:

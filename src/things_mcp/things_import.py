@@ -33,6 +33,14 @@ _things_module: Optional[ModuleType] = None
 _import_error: Optional[BaseException] = None
 
 
+class ScopedHelperError(RuntimeError):
+    """The sandboxed Things reader could not answer a query."""
+
+
+class ScopedHelperAccessError(ScopedHelperError):
+    """The configured helper or its database grant is unavailable."""
+
+
 class ThingsImportTimeoutError(RuntimeError):
     """Raised when importing the ``things`` package exceeds the configured timeout.
 
@@ -205,9 +213,9 @@ class LazyThingsProxy:
         @wraps(method)
         def scoped_method(*args, **kwargs):
             if "database" not in kwargs:
-                from .scoped_database import ScopedDatabase
+                from .scoped_database import get_scoped_database
 
-                kwargs["database"] = ScopedDatabase()
+                kwargs["database"] = get_scoped_database()
             return method(*args, **kwargs)
 
         return scoped_method

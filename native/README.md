@@ -21,4 +21,7 @@ removes the bookmark. A `serve` process first emits
 The helper opens only `main.sqlite` in read-only mode. SQLite's authorizer
 permits reads from the Things task, area, tag, checklist, and `Meta` tables.
 `TMSettings`, schema tables, attached databases, pragmas, and writes are denied.
+Any process running as the same macOS user can launch the helper and request
+these allowed reads after the bookmark is saved. `clear` revokes the saved
+bookmark; `bookmark_stale` means the user must run `select` again.
 Run `sh native/test-sql-gate.sh` for the synthetic SQL check.

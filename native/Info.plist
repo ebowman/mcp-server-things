@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleExecutable</key><string>ThingsReadHelper</string>
-  <key>CFBundleIdentifier</key><string>local.codex.ThingsReadHelper</string>
+  <key>CFBundleIdentifier</key><string>io.github.ebowman.mcpserverthings.readhelper</string>
   <key>CFBundleName</key><string>ThingsReadHelper</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>
