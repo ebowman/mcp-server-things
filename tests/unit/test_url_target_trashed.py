@@ -195,3 +195,51 @@ class TestBulkTrashed:
             r = await tools.bulk_update_todos(todo_ids=["gone"], title="X")
         assert r["success"] is True and r.get("not_found") in (None, [])
         mgr.execute_applescript.assert_called()
+
+
+TRASHED_PROJECT = {"uuid": "p1", "type": "project", "trashed": True}
+
+
+class TestTrashedDestinations:
+    @pytest.mark.asyncio
+    async def test_add_todo_trashed_list_id(self):
+        tools, mgr = _tools()
+        with _patch_things({"p1": TRASHED_PROJECT}):
+            r = await tools.add_todo(title="X", list_id="p1")
+        assert r["error"] == "NOT_FOUND" and r["trashed"] is True
+        _assert_nothing_written(mgr)
+
+    @pytest.mark.asyncio
+    async def test_update_todo_trashed_list_id(self):
+        tools, mgr = _tools()
+        with _patch_things({"t1": TODO, "p1": TRASHED_PROJECT}):
+            r = await tools.update_todo("t1", list_id="p1", title="X")
+        assert r["error"] == "NOT_FOUND" and r["trashed"] is True
+        _assert_nothing_written(mgr)
+
+    @pytest.mark.asyncio
+    async def test_update_todo_heading_trashed_list_id(self):
+        tools, mgr = _tools()
+        with _patch_things({"t1": TODO, "p1": TRASHED_PROJECT}):
+            r = await tools.update_todo("t1", heading="H", list_id="p1")
+        assert r["error"] == "NOT_FOUND" and r["trashed"] is True
+        _assert_nothing_written(mgr)
+
+
+class TestHelperAndChecklistExtras:
+    def test_parent_lookup_raising_proceeds(self):
+        class Flaky(FakeThings):
+            def get(self, item_id, *a, **k):
+                if item_id == "p1":
+                    raise RuntimeError("boom")
+                return super().get(item_id)
+        things = Flaky({"t1": {"type": "to-do", "project": "p1"}})
+        assert check_url_scheme_target("t1", "to-do", things) is None
+
+    @pytest.mark.asyncio
+    async def test_checklist_with_project_id(self):
+        tools, mgr = _tools()
+        with _patch_things({"p1": {"uuid": "p1", "type": "project"}}):
+            r = await tools.add_checklist_items(todo_id="p1", items=["a"])
+        assert r["error"] == "VALIDATION_ERROR"
+        mgr.execute_url_scheme.assert_not_called()

@@ -260,6 +260,15 @@ class TodoOperations:
 
         record_type = record.get('type')
         if record_type == 'project':
+            if record.get('trashed'):
+                # hq-4w4: never send a trashed container to Things (modal
+                # alert / silent un-trash risk). Areas cannot be trashed.
+                return _write_error(
+                    "NOT_FOUND",
+                    f"project '{list_id}' is in the Trash; restore it in "
+                    "Things or choose another target",
+                    trashed=True,
+                )
             return {"kind": "project", "id": list_id}
         if record_type == 'area':
             return {"kind": "area", "id": list_id}
