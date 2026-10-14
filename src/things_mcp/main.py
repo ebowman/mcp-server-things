@@ -457,7 +457,7 @@ def show_version():
     print("Requirements:")
     print("  - macOS with AppleScript support")
     print("  - Things 3 application")
-    print("  - Python 3.8+")
+    print("  - Python 3.10+")
     print("  - FastMCP 3.0+")
 
 
