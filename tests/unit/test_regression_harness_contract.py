@@ -49,5 +49,8 @@ async def test_pydantic_validation_error_maps_to_tool_error():
 
 @pytest.mark.asyncio
 async def test_raised_tool_exception_maps_to_tool_error():
-    out = await _call(_server(), "get_todo_by_id", todo_id="does-not-exist")
+    server = _server()
+    server.tools.get_todo_by_id = AsyncMock(side_effect=RuntimeError("boom from tool"))
+    out = await _call(server, "get_todo_by_id", todo_id="any-id")
+    assert "boom from tool" in out["tool_error"]
     assert set(out) == {"tool_error"} and out["tool_error"]

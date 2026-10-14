@@ -11,6 +11,8 @@ validation error) map to ``{"tool_error": <text>}``.
 
 from typing import Any, Dict
 
+from things_mcp.middleware import WRITE_TOOLS
+
 
 def check_error_signaling(result: Any, tool_name: str) -> None:
     """Assert PR #16's isError invariant on a client CallToolResult."""
@@ -18,13 +20,9 @@ def check_error_signaling(result: Any, tool_name: str) -> None:
     if not isinstance(sc, dict) or "success" not in sc:
         return
     if sc.get("success") is False:
-        code = sc.get("error")
-        # Only UPPER_SNAKE write-error codes are asserted. lower_snake read
-        # errors and code-less failures are deliberately not checked here
-        # (hq-v9k is about to change their signaling).
-        if isinstance(code, str) and code.isupper():
+        if tool_name in WRITE_TOOLS:
             assert result.is_error is True, (
-                f"{tool_name}: write failure {code!r} must set MCP isError=True"
+                f"{tool_name}: write failure {sc.get('error')!r} must set MCP isError=True"
             )
     elif sc.get("success") is True:
         assert result.is_error is False, (
@@ -40,5 +38,5 @@ async def call_tool_structured(client: Any, tool_name: str, kwargs: Dict[str, An
         return result.structured_content
     text = result.content[0].text if result.content else None
     if result.is_error or text is not None:
-        return {"tool_error": text}
+        return {"tool_error": text or "<no content>"}
     return {}

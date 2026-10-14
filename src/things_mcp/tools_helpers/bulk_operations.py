@@ -359,7 +359,7 @@ class BulkOperations:
         if not_found_ids:
             result_message += f" ({len(not_found_ids)} id(s) not found: {', '.join(not_found_ids)})"
 
-        return {
+        bulk_result = {
             "success": success_count > 0,
             "message": result_message,
             "updated_count": success_count,
@@ -369,6 +369,10 @@ class BulkOperations:
             "scheduling_info": scheduling_results if when_value else None,
             "tag_info": tag_validation if tag_validation else None
         }
+        if success_count == 0:
+            # Total failure: give it a stable machine-readable code (hq-v9k).
+            bulk_result["error"] = "BULK_OPERATION_FAILED"
+        return bulk_result
 
     async def bulk_update_todos(self, todo_ids: List[str], **kwargs) -> Dict[str, Any]:
         """Update multiple todos with the same changes in a single operation.

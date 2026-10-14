@@ -6,23 +6,50 @@ from typing import Any
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools import ToolResult
 
+# Every mutating tool. A ``success: false`` result from one of these is a
+# failure regardless of the shape/case of its ``error`` code (delete_todo uses
+# lower_snake codes; bulk tools may return no code of their own). Read and
+# utility tools are never flagged. tests/unit/test_write_error_signaling.py
+# forces every registered tool to be classified so this cannot drift.
+WRITE_TOOLS = frozenset(
+    {
+        "add_todo",
+        "update_todo",
+        "bulk_update_todos",
+        "delete_todo",
+        "add_project",
+        "update_project",
+        "add_area",
+        "update_area",
+        "add_tags",
+        "remove_tags",
+        "create_tag",
+        "move_record",
+        "bulk_move_records",
+        "add_checklist_items",
+        "prepend_checklist_items",
+        "replace_checklist_items",
+    }
+)
 
-def _is_structured_write_error(content: Any) -> bool:
-    """Return whether content matches the canonical write-error contract."""
-    if not isinstance(content, Mapping) or content.get("success") is not False:
-        return False
 
-    error_code = content.get("error")
-    return isinstance(error_code, str) and error_code.isupper()
+def _is_write_failure(tool_name: Any, content: Any) -> bool:
+    """Return whether a write tool's structured content reports failure."""
+    return (
+        tool_name in WRITE_TOOLS
+        and isinstance(content, Mapping)
+        and content.get("success") is False
+    )
 
 
 class WriteErrorSignalingMiddleware(Middleware):
-    """Expose canonical structured write failures as MCP tool errors."""
+    """Expose structured write-tool failures as MCP tool errors."""
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         result = await call_next(context)
-        if isinstance(result, ToolResult) and _is_structured_write_error(
-            result.structured_content
+        tool_name = getattr(context.message, "name", None)
+        if isinstance(result, ToolResult) and _is_write_failure(
+            tool_name, result.structured_content
         ):
             return result.model_copy(update={"is_error": True})
         return result

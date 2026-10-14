@@ -215,7 +215,7 @@ class MoveOperationsTools:
                         "message": result.get("message", "Move operation failed")
                     })
             
-            return {
+            bulk_result = {
                 "success": len(failed_moves) == 0,
                 "message": f"Bulk move completed: {len(successful_moves)} successful, {len(failed_moves)} failed",
                 "destination": destination,
@@ -226,6 +226,10 @@ class MoveOperationsTools:
                 "failed_moves": failed_moves,
                 "completed_at": datetime.now().isoformat()
             }
+            if failed_moves:
+                # Code-less failure (partial or total): stable code (hq-v9k).
+                bulk_result["error"] = "BULK_OPERATION_FAILED"
+            return bulk_result
         
         except Exception as e:
             logger.error(f"Error during bulk move operation: {e}")
