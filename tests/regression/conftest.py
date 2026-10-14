@@ -118,20 +118,12 @@ class _MCPCallHelper:
 
     async def call(self, tool_name: str, **kwargs: Any) -> Dict[str, Any]:
         from fastmcp import Client
-        from fastmcp.exceptions import ToolError
+
+        from regression.mcp_call import call_tool_structured
 
         client = Client(self._server.mcp)
         async with client:
-            try:
-                result = await client.call_tool(tool_name, kwargs)
-            except ToolError as e:
-                return {"tool_error": str(e)}
-        if result.structured_content is not None:
-            return result.structured_content
-        # No structured content at all (rare) - surface the text content so
-        # callers still have something to assert on rather than None.
-        text = result.content[0].text if result.content else None
-        return {"tool_error": text} if text is not None else {}
+            return await call_tool_structured(client, tool_name, kwargs)
 
     def call_sync(self, tool_name: str, **kwargs: Any) -> Dict[str, Any]:
         return asyncio.run(self.call(tool_name, **kwargs))
