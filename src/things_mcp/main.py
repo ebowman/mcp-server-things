@@ -123,7 +123,8 @@ class ServerManager:
             logger.warning(reason)
             logging.shutdown()
         finally:
-            disarm_boot_watchdog()
+            # No watchdog disarm here: os._exit skips finalization, and a
+            # cancel could block on an in-progress dump (hq-eyn review).
             os._exit(0)
 
     def start(
