@@ -5,7 +5,7 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] - 2026-10-14
 
 ### Added
 - **`offset` paging on `get_inbox`/`get_today`/`get_upcoming`/`get_anytime`/`get_someday` plus a `next_offset` cursor (hq-gix).** Same semantics as `get_trash`/`search_todos`/`get_logbook` (`offset >= 0`, windows over the full things.py-ordered set, `total` = full count). Offset-aware envelopes carry `next_offset` (= `offset + count`) whenever more items remain (budget truncation or window shorter than `total`), omitted at the end. Fixes items past the ~80KB budget being unreachable on large Anytime lists.
