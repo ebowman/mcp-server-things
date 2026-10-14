@@ -629,10 +629,13 @@ async def cleanup_test_todos():
         except Exception as e:
             logger.warning(f"Failed to cleanup project {project_id}: {e}")
 
-def pytest_sessionfinish(session, exitstatus):
-    """Optional shutdown diagnostics (THINGS_MCP_DEBUG_SHUTDOWN=1).
 
-    Dumps live threads and unclosed asyncio loops to stderr to help diagnose
+def pytest_sessionfinish(session, exitstatus):
+    """Cancel the faulthandler timer, then optional shutdown diagnostics.
+
+    Unconditionally cancels any pending faulthandler dump timer (a leftover
+    boot-watchdog dump racing interpreter finalization can wedge exit). Then,
+    if THINGS_MCP_DEBUG_SHUTDOWN=1, dumps live threads and unclosed asyncio loops to stderr to help diagnose
     interpreter-shutdown hangs. Off by default.
     """
     try:

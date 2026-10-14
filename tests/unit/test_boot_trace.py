@@ -11,7 +11,7 @@ from datetime import datetime
 
 import pytest
 
-from things_mcp.boot_trace import arm_boot_watchdog, boot_marker
+from things_mcp.boot_trace import arm_boot_watchdog, boot_marker, disarm_boot_watchdog
 
 
 class TestBootMarker:
@@ -179,3 +179,92 @@ class TestArmBootWatchdog:
         )
 
         arm_boot_watchdog()  # must not raise
+
+
+class TestDisarmBootWatchdog:
+    """Test disarm_boot_watchdog() behavior."""
+
+    @staticmethod
+    def _fake(monkeypatch, cancels, cancel_exc=None):
+        class FakeFaultHandler:
+            @staticmethod
+            def dump_traceback_later(timeout, repeat=False, file=None, exit=False):
+                pass
+
+            @staticmethod
+            def cancel_dump_traceback_later():
+                cancels.append(1)
+                if cancel_exc:
+                    raise cancel_exc
+
+        monkeypatch.setitem(__import__("sys").modules, "faulthandler", FakeFaultHandler())
+
+    def test_disarm_cancels_after_arm(self, monkeypatch):
+        monkeypatch.delenv("THINGS_MCP_BOOT_WATCHDOG_SECS", raising=False)
+        cancels = []
+        self._fake(monkeypatch, cancels)
+        arm_boot_watchdog()
+        disarm_boot_watchdog()
+        assert cancels == [1]
+        disarm_boot_watchdog()  # flag reset: second call is a no-op
+        assert cancels == [1]
+
+    def test_disarm_without_arm_is_noop(self, monkeypatch):
+        cancels = []
+        self._fake(monkeypatch, cancels)
+        monkeypatch.setattr("things_mcp.boot_trace._watchdog_armed", False)
+        disarm_boot_watchdog()
+        assert cancels == []
+
+    def test_disarm_swallows_exceptions(self, monkeypatch):
+        monkeypatch.delenv("THINGS_MCP_BOOT_WATCHDOG_SECS", raising=False)
+        cancels = []
+        self._fake(monkeypatch, cancels, cancel_exc=RuntimeError("boom"))
+        arm_boot_watchdog()
+        disarm_boot_watchdog()  # must not raise
+        assert cancels == [1]
+
+
+class TestDisarmWiring:
+    """disarm_boot_watchdog is called from main() and ThingsMCPServer.run()."""
+
+    def test_main_disarms_on_non_server_command(self, monkeypatch):
+        from things_mcp import main as main_mod
+
+        calls = []
+        monkeypatch.setattr(main_mod, "arm_boot_watchdog", lambda: calls.append("arm"))
+        monkeypatch.setattr(main_mod, "disarm_boot_watchdog", lambda: calls.append("disarm"))
+        monkeypatch.setattr(main_mod, "show_version", lambda: None)
+        monkeypatch.setattr("sys.argv", ["mcp-server-things", "--version"])
+        assert main_mod.main() == 0
+        assert calls == ["arm", "disarm"]
+
+    def test_main_disarms_when_dispatch_raises(self, monkeypatch):
+        from things_mcp import main as main_mod
+
+        calls = []
+        monkeypatch.setattr(main_mod, "arm_boot_watchdog", lambda: None)
+        monkeypatch.setattr(main_mod, "disarm_boot_watchdog", lambda: calls.append("disarm"))
+
+        def boom():
+            raise RuntimeError("x")
+
+        monkeypatch.setattr(main_mod, "_main_dispatch", boom)
+        with pytest.raises(RuntimeError):
+            main_mod.main()
+        assert calls == ["disarm"]
+
+    def test_server_run_disarms_when_mcp_run_raises(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from things_mcp import server as server_mod
+
+        disarmed = []
+        monkeypatch.setattr(server_mod, "disarm_boot_watchdog", lambda: disarmed.append(1))
+        srv = server_mod.ThingsMCPServer.__new__(server_mod.ThingsMCPServer)
+        srv.config = MagicMock(transport="stdio")
+        srv.mcp = MagicMock()
+        srv.mcp.run.side_effect = RuntimeError("mcp failed")
+        with pytest.raises(RuntimeError):
+            srv.run()
+        assert disarmed == [1]

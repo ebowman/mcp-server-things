@@ -18,7 +18,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .boot_trace import boot_marker
+from .boot_trace import boot_marker, disarm_boot_watchdog
 from .services.applescript_manager import AppleScriptManager
 from .tools import ThingsTools
 from .tools_helpers.read_operations import read_error as _tools_read_error
@@ -2892,6 +2892,9 @@ class ThingsMCPServer:
         except Exception as e:
             logger.error(f"Server error: {e}")
             raise
+        finally:
+            # Never let the boot watchdog dump race interpreter shutdown.
+            disarm_boot_watchdog()
     
     def stop(self) -> None:
         """Log completion after FastMCP's lifespan has stopped async resources."""

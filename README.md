@@ -503,9 +503,10 @@ things-mcp boot: 2026-07-20T09:00:00.120+00:00 +0.121s things-import-done
 A one-shot startup watchdog also runs in the background: if boot doesn't
 complete the MCP handshake within the deadline, it dumps every thread's stack
 to stderr (`Timeout (0:00:25)!` followed by a traceback for each thread). On a
-healthy, long-running server this fires exactly once, at the deadline, and is
-harmless - it's stderr-only and does not affect the MCP stdio protocol (which
-only uses stdout).
+healthy, long-running server this fires at most once, if the deadline is reached
+while running, and is harmless - it's stderr-only and does not affect the MCP
+stdio protocol (which only uses stdout). The watchdog is cancelled when the
+server stops or a non-server command (`doctor`, `--health-check`, ...) finishes.
 
 Relevant environment variables:
 

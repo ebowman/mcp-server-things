@@ -89,7 +89,10 @@ The server emits timestamped `things-mcp boot: <ts> +<elapsed>s <phase>` marker
 lines to stderr at each boot phase, and arms a one-shot watchdog
 (`THINGS_MCP_BOOT_WATCHDOG_SECS`, default 25s, `<= 0` disables) that dumps all
 thread stacks to stderr if boot stalls past the deadline - one benign dump on
-a healthy long-running server is expected. The third-party `things` package
+a healthy long-running server is expected only if it reaches the deadline while
+running. The watchdog is cancelled (`disarm_boot_watchdog()`) when the server
+stops or a non-server command (`doctor`, `--health-check`, etc.) finishes, so
+the dump can never race interpreter shutdown. The third-party `things` package
 import is lazy and timeout-bounded (`THINGS_MCP_THINGS_IMPORT_TIMEOUT_SECS`,
 default 10s, `<= 0` is unbounded) since it performs an unbounded filesystem
 glob at import time; a stall raises `ThingsImportTimeoutError` with a boot

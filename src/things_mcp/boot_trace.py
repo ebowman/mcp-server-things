@@ -45,6 +45,9 @@ def boot_marker(phase: str) -> None:
         pass
 
 
+_watchdog_armed = False
+
+
 def arm_boot_watchdog() -> None:
     """Arm a one-shot startup watchdog that dumps all thread stacks on stall.
 
@@ -63,15 +66,15 @@ def arm_boot_watchdog() -> None:
       ``main.py:main()``); calling it twice is harmless (idempotent: the
       second call simply re-arms the same single timer), but there is only
       ever one deadline in flight, not multiple staggered dumps.
-    * There is no cancellation of the timer anywhere in the codebase. The
-      hang this watchdog targets can occur inside FastMCP's handshake logic
-      after ``mcp.run()`` starts, so disarming the watchdog before that point
-      would blind us exactly where the hang tends to happen. The accepted
-      consequence is that on a *healthy* boot, the process will still emit
-      one thread-stack dump to stderr when the deadline elapses during
-      normal operation. This is considered safe: the MCP stdio protocol only
-      uses stdout, so stray stderr output does not corrupt the protocol
-      stream, and it happens at most once per process lifetime.
+    * The timer is deliberately NOT cancelled while the server boots or
+      serves: the hang this watchdog targets can occur inside FastMCP's
+      handshake logic after ``mcp.run()`` starts. The accepted consequence is
+      that if the deadline elapses while the server is running, one
+      thread-stack dump is written to stderr (safe: the MCP stdio protocol
+      only uses stdout). It IS cancelled via ``disarm_boot_watchdog()`` when
+      the server stops (``ThingsMCPServer.run`` finally) or a non-server CLI
+      command finishes (``main()`` finally), so a dump can never race
+      interpreter finalization and wedge shutdown.
 
     The deadline is read from the ``THINGS_MCP_BOOT_WATCHDOG_SECS``
     environment variable (seconds, may be fractional). Parsing is
@@ -88,6 +91,7 @@ def arm_boot_watchdog() -> None:
     Returns:
         None.
     """
+    global _watchdog_armed
     raw = os.environ.get(_WATCHDOG_ENV_VAR)
     if raw is None:
         timeout = _WATCHDOG_DEFAULT_SECS
@@ -112,4 +116,27 @@ def arm_boot_watchdog() -> None:
         # unsupported faulthandler state must never break boot.
         return
 
+    _watchdog_armed = True
     boot_marker(f"watchdog-armed ({timeout}s)")
+
+
+def disarm_boot_watchdog() -> None:
+    """Cancel the pending boot watchdog dump, if this module armed one.
+
+    Called when the server stops or a non-server CLI command finishes so the
+    faulthandler timer thread cannot fire during interpreter finalization.
+    A no-op if the watchdog was never armed. Never raises.
+
+    Returns:
+        None.
+    """
+    global _watchdog_armed
+    if not _watchdog_armed:
+        return
+    _watchdog_armed = False
+    try:
+        import faulthandler
+
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass

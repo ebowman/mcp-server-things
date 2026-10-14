@@ -13,7 +13,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from .boot_trace import arm_boot_watchdog, boot_marker
+from .boot_trace import arm_boot_watchdog, boot_marker, disarm_boot_watchdog
 from .client_config import CLIENT_CHOICES as _CLIENT_CHOICES
 from .client_config import VIA_CHOICES as _VIA_CHOICES
 from .config import apply_execution_overrides, load_config_from_env
@@ -123,6 +123,7 @@ class ServerManager:
             logger.warning(reason)
             logging.shutdown()
         finally:
+            disarm_boot_watchdog()
             os._exit(0)
 
     def start(
@@ -556,6 +557,16 @@ def main():
     """Main entry point."""
     boot_marker("process-start")
     arm_boot_watchdog()
+    try:
+        return _main_dispatch()
+    finally:
+        # Cancel the watchdog on every exit path (server stop, doctor,
+        # --version, health checks, errors) so it cannot race shutdown.
+        disarm_boot_watchdog()
+
+
+def _main_dispatch() -> int:
+    """Parse arguments and dispatch to the requested command."""
     parser = create_parser()
     args = parser.parse_args()
 
