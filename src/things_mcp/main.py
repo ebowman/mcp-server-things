@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,9 @@ from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
 
 logger = logging.getLogger(__name__)
+
+# Seconds to wait for graceful (lifespan) shutdown before forcing exit.
+_SHUTDOWN_GRACE_SECS = 3.0
 
 
 def _legacy_launch_notice() -> Optional[str]:
@@ -75,14 +79,42 @@ class ServerManager:
         self._setup_signal_handlers()
     
     def _setup_signal_handlers(self):
-        """Setup graceful shutdown signal handlers."""
+        """Make SIGINT/SIGTERM raise KeyboardInterrupt in the main thread.
+
+        KeyboardInterrupt unwinds ``anyio.run``: asyncio's Runner cancels all
+        remaining tasks on close, so FastMCP's lifespan teardown (operation
+        queue shutdown on its owning loop) runs before the process exits. The
+        handler never swallows the signal.
+
+        The stdio transport reads stdin in a worker thread that cannot be
+        cancelled while blocked, so that teardown can be held up indefinitely
+        (e.g. Ctrl+C with the client's pipe still open). A daemon timer
+        therefore hard-exits (``os._exit(0)``) ``_SHUTDOWN_GRACE_SECS`` after
+        the signal if graceful shutdown has not finished; in that case stdio
+        lifespan teardown is skipped (in-process state only, nothing durable).
+
+        Exit code: SIGINT/SIGTERM-initiated shutdown exits 0 (clean stop, no
+        traceback), consistently for both signals and both paths.
+        """
         def signal_handler(signum, frame):
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-            self.stop()
-        
+            timer = threading.Timer(_SHUTDOWN_GRACE_SECS, self._force_exit)
+            timer.daemon = True
+            timer.start()
+            raise KeyboardInterrupt
+
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
-    
+
+    @staticmethod
+    def _force_exit() -> None:
+        """Hard-exit after the shutdown grace period expired."""
+        try:
+            logger.warning("Graceful shutdown timed out; forcing exit")
+            logging.shutdown()
+        finally:
+            os._exit(0)
+
     def start(
         self,
         debug: bool = False,
