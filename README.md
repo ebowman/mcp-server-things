@@ -384,11 +384,11 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 `get_today`, `get_upcoming`, `get_anytime`, `get_someday`, and `get_trash` never return headings, and exclude projects by default - pass `include_projects=true` to also include projects that belong to that list (e.g. a project due today), matching the Things app's list views. `get_inbox` has no `include_projects` flag since the Inbox can never contain projects.
 
-- `get_inbox()` - Get Inbox todos
-- `get_today(include_projects?)` - Get Today's todos
-- `get_upcoming(days?, include_projects?)` - Get upcoming todos (with optional days filter)
-- `get_anytime(include_projects?)` - Get Anytime todos
-- `get_someday(include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
+- `get_inbox(mode?, limit?, offset?)` - Get Inbox todos
+- `get_today(mode?, limit?, offset?, include_projects?)` - Get Today's todos
+- `get_upcoming(days?, offset?, include_projects?)` - Get upcoming todos (with optional days filter)
+- `get_anytime(mode?, limit?, offset?, include_projects?)` - Get Anytime todos. Responses over the ~80KB budget are truncated (`truncated: true`); page with `offset` / the returned `next_offset` to reach every item (also on get_inbox/get_today/get_upcoming/get_someday)
+- `get_someday(offset?, include_project_tasks?, include_projects?)` - Get Someday todos. By default only returns items whose own start state is Someday; pass `include_project_tasks=true` to also include tasks that live inside Someday projects (marked `inheritedSomeday: true`). Today/Anytime/Upcoming always exclude tasks that belong to a Someday project, regardless of this flag.
 - `get_logbook(limit?, period?, offset?, include_canceled?)` - Get completed todos; includes canceled todos by default (`include_canceled=true`), matching the Things app's own Logbook view
 - `get_trash(include_projects?)` - Get trashed todos
 

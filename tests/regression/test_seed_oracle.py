@@ -9,7 +9,8 @@ relevant to every list).
 
 Results are always read with mode='minimal', limit=500 (get_trash is
 capped at 100 by its own schema - paged via offset instead), and paged via
-offset for the tools that support it (search_todos, get_logbook,
+offset (following next_offset) for the tools that support it
+(get_inbox/today/upcoming/anytime/someday, search_todos, get_logbook,
 get_trash) so a full page of the sandbox's own throwaway objects can never
 hide a seed uuid.
 
@@ -37,6 +38,9 @@ pytestmark = pytest.mark.live
 # ---------------------------------------------------------------------------
 
 
+_MAX_PAGES = 50
+
+
 def _collect_minimal_uuids(
     mcp,
     tool: str,
@@ -46,7 +50,12 @@ def _collect_minimal_uuids(
     page_size: int = 500,
 ) -> Set[str]:
     """Call `tool` with mode='minimal' (tools that accept mode) and collect
-    every uuid across all items, paging via offset when `paged` is True."""
+    every uuid across all items, paging via offset when `paged` is True.
+
+    hq-gix: paged tools follow the envelope's `next_offset` (falling back to
+    offset += count) until every one of `total` items is collected, so budget
+    truncation (truncated:true) can never hide a seed uuid. Bounded at
+    _MAX_PAGES pages; exceeding it fails clearly."""
     uuids: Set[str] = set()
     if not paged:
         result = mcp.call_sync(tool, **kwargs)
@@ -57,18 +66,26 @@ def _collect_minimal_uuids(
         return uuids
 
     offset = 0
-    while True:
+    for _ in range(_MAX_PAGES):
         result = mcp.call_sync(tool, offset=offset, **kwargs)
         items = result.get("items", []) if isinstance(result, dict) else []
         if not items:
-            break
+            return uuids
         for item in items:
             if "uuid" in item:
                 uuids.add(item["uuid"])
-        if len(items) < page_size:
-            break
-        offset += page_size
-    return uuids
+        next_offset = result.get("next_offset")
+        if next_offset is None:
+            if result.get("truncated"):
+                next_offset = offset + len(items)
+            elif len(items) < page_size and offset + len(items) >= result.get("total", 0):
+                return uuids
+            else:
+                next_offset = offset + len(items)
+        offset = next_offset
+    raise AssertionError(
+        f"{tool}: still paging after {_MAX_PAGES} pages (offset={offset}, "
+        f"collected {len(uuids)} uuids)")
 
 
 class ToolCall:
@@ -90,17 +107,18 @@ def _build_tool_calls(sandbox) -> List[ToolCall]:
 
     return [
         ToolCall("get_inbox", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_inbox", {"mode": "minimal", "limit": 500})),
+            mcp, "get_inbox", {"mode": "minimal", "limit": 500}, paged=True)),
         ToolCall("get_today", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_today", {"mode": "minimal", "limit": 500})),
+            mcp, "get_today", {"mode": "minimal", "limit": 500}, paged=True)),
         ToolCall("get_upcoming", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_upcoming", {"mode": "minimal", "limit": 500})),
+            mcp, "get_upcoming", {"mode": "minimal", "limit": 500}, paged=True)),
         ToolCall("get_upcoming_days7", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_upcoming", {"mode": "minimal", "limit": 500, "days": 7})),
+            mcp, "get_upcoming", {"mode": "minimal", "limit": 500, "days": 7},
+            paged=True)),
         ToolCall("get_anytime", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_anytime", {"mode": "minimal", "limit": 500})),
+            mcp, "get_anytime", {"mode": "minimal", "limit": 500}, paged=True)),
         ToolCall("get_someday", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_someday", {"mode": "minimal", "limit": 500})),
+            mcp, "get_someday", {"mode": "minimal", "limit": 500}, paged=True)),
         ToolCall("get_logbook", lambda mcp: _collect_minimal_uuids(
             # get_logbook does not accept a `mode` parameter at all (always
             # 'standard' internally) - passing one is a FastMCP schema

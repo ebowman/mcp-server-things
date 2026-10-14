@@ -449,7 +449,7 @@
     "required": []
   },
   "get_anytime": {
-    "description_sha256": "d8617004c429cfcfb930ca14c29ce40a8d9891354c15b1adafcc1b8af662ad42",
+    "description_sha256": "05d17e07299febae9f4a751ad6029cbc45be07de05165007f62c34de78597ed7",
     "has_output_schema": true,
     "name": "get_anytime",
     "properties": {
@@ -480,6 +480,11 @@
           }
         ],
         "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
       }
     },
     "required": []
@@ -550,7 +555,7 @@
     "required": []
   },
   "get_inbox": {
-    "description_sha256": "2e6f2569476188140604efa5d1e97b48954ab72878663caa5ef6daed342ab9bd",
+    "description_sha256": "5890434c1981d33ce8b881ade3388d957a6a30a2dfc2afd22d6b9af7f8ecc5ed",
     "has_output_schema": true,
     "name": "get_inbox",
     "properties": {
@@ -577,6 +582,11 @@
           }
         ],
         "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
       }
     },
     "required": []
@@ -714,7 +724,7 @@
     "required": []
   },
   "get_someday": {
-    "description_sha256": "1ea02ebae21d01a5a5206d2cf392a5ae8e605b277880eee67b7ae8412936c305",
+    "description_sha256": "5315c9e20cd59c41b739773fe93cf65d33dae2f4a71ab271ca9749e9f8320591",
     "has_output_schema": true,
     "name": "get_someday",
     "properties": {
@@ -749,6 +759,11 @@
           }
         ],
         "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
       }
     },
     "required": []
@@ -795,7 +810,7 @@
     "required": []
   },
   "get_today": {
-    "description_sha256": "64fe7024ffabc2755421ce39f5ba5213168a8ff724de7869923ef363243b2e16",
+    "description_sha256": "a7a03ecf4db75df493ce49bab2fee3ddb03dce1d71e411d7c172a70c221614c7",
     "has_output_schema": true,
     "name": "get_today",
     "properties": {
@@ -826,6 +841,11 @@
           }
         ],
         "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
       }
     },
     "required": []
@@ -922,7 +942,7 @@
     "required": []
   },
   "get_upcoming": {
-    "description_sha256": "a24c1ee8db8871c14e6b8de27f9b4c5409c94a7e414ebf6f39d2644a4250adb2",
+    "description_sha256": "1d92dd78a11b29b6921d5b858635feca32f692ad33cd16ec8737c1eae6574b1d",
     "has_output_schema": true,
     "name": "get_upcoming",
     "properties": {
@@ -966,6 +986,11 @@
           }
         ],
         "default": null
+      },
+      "offset": {
+        "default": 0,
+        "minimum": 0,
+        "type": "integer"
       }
     },
     "required": []

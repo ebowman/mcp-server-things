@@ -1317,9 +1317,10 @@ class ThingsMCPServer:
         @self.mcp.tool()
         async def get_inbox(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
-            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500)
+            limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            offset: int = Field(0, description="Number of items to skip before applying limit (default: 0). Windows over the full ordered set; use next_offset from the response to continue.", ge=0)
         ) -> Dict[str, Any]:
-            """Get todos from Inbox. Supports response optimization via mode parameter and limit.
+            """Get todos from Inbox. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation).
 
             Note: filter_someday_project_tasks is NOT applied here - it is a no-op for
             Inbox in any case, since Inbox items cannot belong to a project.
@@ -1337,7 +1338,7 @@ class ThingsMCPServer:
                 # here - mirrors the existing get_upcoming(days=...) pattern.
                 full_data = await self.tools.get_inbox(limit=None)
                 pre_limit_total = len(full_data)
-                raw_data = full_data[:limit] if limit else full_data
+                raw_data = self._window(full_data, offset, limit)
 
                 # Apply context-aware optimization, treating an omitted mode as 'auto'
                 # so structured_content.mode always reports the concrete resolved mode.
@@ -1345,7 +1346,7 @@ class ThingsMCPServer:
                 optimized_params, _ = self.context_manager.optimize_request('get_inbox', request_params)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                 optimized_response = self.context_manager.optimize_response(raw_data, 'get_inbox', response_mode, optimized_params)
-                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                return self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 return self._handle_read_exception(e)
@@ -1354,9 +1355,10 @@ class ThingsMCPServer:
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            offset: int = Field(0, description="Number of items to skip before applying limit (default: 0). Windows over the full ordered set; use next_offset from the response to continue.", ge=0),
             include_projects: bool = Field(False, description="Also include projects due today. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Today list view.")
         ) -> Dict[str, Any]:
-            """Get todos due today. Supports response optimization via mode parameter and limit."""
+            """Get todos due today. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation)."""
             try:
                 # Validate mode parameter (hq-exd: previously unguarded,
                 # letting a bogus mode reach ResponseMode(...) and raise an
@@ -1370,7 +1372,7 @@ class ThingsMCPServer:
                 # here - mirrors the existing get_upcoming(days=...) pattern.
                 full_data = await self.tools.get_today(limit=None, include_projects=include_projects)
                 pre_limit_total = len(full_data)
-                raw_data = full_data[:limit] if limit else full_data
+                raw_data = self._window(full_data, offset, limit)
 
                 # Apply context-aware optimization, treating an omitted mode as 'auto'
                 # so structured_content.mode always reports the concrete resolved mode.
@@ -1378,7 +1380,7 @@ class ThingsMCPServer:
                 optimized_params, _ = self.context_manager.optimize_request('get_today', request_params)
                 response_mode = ResponseMode(optimized_params.get('mode', 'standard'))  # Default to standard for Today
                 optimized_response = self.context_manager.optimize_response(raw_data, 'get_today', response_mode, optimized_params)
-                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                return self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 return self._handle_read_exception(e)
@@ -1387,10 +1389,12 @@ class ThingsMCPServer:
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            offset: int = Field(0, description="Number of items to skip before applying limit (default: 0). Windows over the full ordered set; use next_offset from the response to continue.", ge=0),
             days: Optional[int] = Field(None, description="If provided, returns todos due/activating within this many days (1-365). Without days, returns items from Things 3's Upcoming list.", ge=1, le=365),
             include_projects: bool = Field(False, description="Only applies when 'days' is not provided. Also include upcoming projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Upcoming list view.")
         ) -> Dict[str, Any]:
-            """Get upcoming todos. Supports response optimization via mode parameter and limit.
+            """Get upcoming todos. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation).
+
 
             If 'days' is provided, returns todos due or activating within that timeframe.
             Without 'days', returns items from Things 3's built-in Upcoming list.
@@ -1409,9 +1413,8 @@ class ThingsMCPServer:
                     todos = await self.tools.get_todos_upcoming_in_days(days)
                     pre_limit_total = len(todos)
 
-                    # Apply limit if specified
-                    if limit and len(todos) > limit:
-                        todos = todos[:limit]
+                    # Apply offset/limit window over the full ordered set
+                    todos = self._window(todos, offset, limit)
 
                     # Apply context-aware optimization, treating an omitted mode as
                     # 'auto' so structured_content.mode always reports the concrete
@@ -1420,7 +1423,7 @@ class ThingsMCPServer:
                     optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                     response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                     optimized_response = self.context_manager.optimize_response(todos, 'get_upcoming', response_mode, optimized_params)
-                    result = self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                    result = self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
                     result['days'] = days
                     return result
 
@@ -1429,7 +1432,7 @@ class ThingsMCPServer:
                 # pre-limit count (CLAUDE.md contract), then slice to `limit`.
                 full_data = await self.tools.get_upcoming(limit=None, include_projects=include_projects)
                 pre_limit_total = len(full_data)
-                raw_data = full_data[:limit] if limit else full_data
+                raw_data = self._window(full_data, offset, limit)
 
                 # Apply context-aware optimization, treating an omitted mode as 'auto'
                 # so structured_content.mode always reports the concrete resolved mode.
@@ -1437,7 +1440,7 @@ class ThingsMCPServer:
                 optimized_params, _ = self.context_manager.optimize_request('get_upcoming', request_params)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                 optimized_response = self.context_manager.optimize_response(raw_data, 'get_upcoming', response_mode, optimized_params)
-                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                return self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 return self._handle_read_exception(e)
@@ -1446,9 +1449,10 @@ class ThingsMCPServer:
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            offset: int = Field(0, description="Number of items to skip before applying limit (default: 0). Windows over the full ordered set; use next_offset from the response to continue.", ge=0),
             include_projects: bool = Field(False, description="Also include Anytime projects. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Anytime list view.")
         ) -> Dict[str, Any]:
-            """Get todos from Anytime list. Supports response optimization via mode parameter and limit."""
+            """Get todos from Anytime list. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation)."""
             try:
                 # Validate mode parameter (hq-exd: previously unguarded,
                 # letting a bogus mode reach ResponseMode(...) and raise an
@@ -1462,7 +1466,7 @@ class ThingsMCPServer:
                 # here - mirrors the existing get_upcoming(days=...) pattern.
                 full_data = await self.tools.get_anytime(limit=None, include_projects=include_projects)
                 pre_limit_total = len(full_data)
-                raw_data = full_data[:limit] if limit else full_data
+                raw_data = self._window(full_data, offset, limit)
 
                 # Apply context-aware optimization, treating an omitted mode as 'auto'
                 # so structured_content.mode always reports the concrete resolved mode.
@@ -1470,7 +1474,7 @@ class ThingsMCPServer:
                 optimized_params, _ = self.context_manager.optimize_request('get_anytime', request_params)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                 optimized_response = self.context_manager.optimize_response(raw_data, 'get_anytime', response_mode, optimized_params)
-                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                return self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 return self._handle_read_exception(e)
@@ -1479,10 +1483,11 @@ class ThingsMCPServer:
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
             limit: Optional[int] = Field(None, description="Maximum number of items to return (1-500)", ge=1, le=500),
+            offset: int = Field(0, description="Number of items to skip before applying limit (default: 0). Windows over the full ordered set; use next_offset from the response to continue.", ge=0),
             include_project_tasks: bool = Field(False, description="Also include tasks that live inside Someday projects (marked inheritedSomeday=true). Default false; can be large on databases with many Someday projects."),
             include_projects: bool = Field(False, description="Also include Someday projects themselves. Default false: headings are never returned; projects are excluded unless this is true, matching the Things app's Someday list view.")
         ) -> Dict[str, Any]:
-            """Get todos from Someday list. Supports response optimization via mode parameter and limit."""
+            """Get todos from Someday list. Supports response optimization via mode parameter, limit, and offset. Supports limit and offset paging (response includes next_offset when more items remain, including after budget truncation)."""
             try:
                 # Validate mode parameter (hq-exd: previously unguarded,
                 # letting a bogus mode reach ResponseMode(...) and raise an
@@ -1498,7 +1503,7 @@ class ThingsMCPServer:
                     limit=None, include_project_tasks=include_project_tasks,
                     include_projects=include_projects)
                 pre_limit_total = len(full_data)
-                raw_data = full_data[:limit] if limit else full_data
+                raw_data = self._window(full_data, offset, limit)
 
                 # Apply context-aware optimization, treating an omitted mode as 'auto'
                 # so structured_content.mode always reports the concrete resolved mode.
@@ -1506,7 +1511,7 @@ class ThingsMCPServer:
                 optimized_params, _ = self.context_manager.optimize_request('get_someday', request_params)
                 response_mode = ResponseMode(optimized_params.get('mode', 'auto'))
                 optimized_response = self.context_manager.optimize_response(raw_data, 'get_someday', response_mode, optimized_params)
-                return self._read_result(optimized_response, mode=mode, limit=limit, total=pre_limit_total)
+                return self._read_result(optimized_response, mode=mode, limit=limit, offset=offset, total=pre_limit_total)
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 return self._handle_read_exception(e)
@@ -2672,6 +2677,16 @@ class ThingsMCPServer:
             "warnings": warnings,
         }
 
+    @staticmethod
+    def _window(items: List[Dict[str, Any]], offset: int, limit: Optional[int]) -> List[Dict[str, Any]]:
+        """Return the ``[offset, offset+limit)`` window of the full ordered set (hq-gix).
+
+        ``limit`` falsy means "no limit". Order is the caller-produced (things.py) order,
+        so windows over an unchanged dataset are disjoint and cover the set exactly once.
+        """
+        start = offset or 0
+        return items[start:start + limit] if limit else items[start:]
+
     def _read_result(
         self,
         response: Union[Dict[str, Any], List[Dict[str, Any]]],
@@ -2840,6 +2855,23 @@ class ThingsMCPServer:
             result["truncated"] = True
             if meta.get("truncation_hint"):
                 result["truncation_hint"] = meta["truncation_hint"]
+
+        # hq-gix: uniform paging cursor for offset-aware tools (those passing
+        # ``offset``). ``next_offset`` = offset + count, present only when more items
+        # remain after this window (truncated by budget OR window ends before total);
+        # absent when the window reaches the end. Not emitted for summary mode, whose
+        # ``items`` is only a preview rather than a pageable window.
+        if offset is not None and effective_mode != "summary":
+            next_offset = offset + len(items)
+            if len(items) > 0 and (meta.get("truncated") or next_offset < effective_total):
+                result["next_offset"] = next_offset
+                if meta.get("truncated"):
+                    result["truncation_hint"] = (
+                        f"Response exceeded the size budget; {len(items)} of {effective_total} "
+                        f"items returned (starting at offset {offset}). Call again with "
+                        f"offset={next_offset} to continue, or use a smaller mode "
+                        "(minimal/summary) or a limit."
+                    )
 
         return result
 

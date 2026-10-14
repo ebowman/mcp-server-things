@@ -375,6 +375,12 @@ add("get_logbook", {"include_canceled": True}, ok())
 add("get_logbook", {"include_canceled": False}, ok())
 add("get_logbook", {"include_canceled": False, "limit": 10}, ok())
 
+# --- hq-gix: offset on the list tools ---------------------------------
+for _t in ("get_inbox", "get_today", "get_upcoming", "get_anytime", "get_someday"):
+    add(_t, {"offset": 0}, ok())
+    add(_t, {"offset": 5}, ok())
+    add(_t, {"offset": -1}, tool_error())
+
 # --- get_trash --------------------------------------------------------
 add("get_trash", {}, ok())
 add("get_trash", {"limit": 1}, ok())
