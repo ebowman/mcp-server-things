@@ -14,7 +14,7 @@
 - **🩺 Boot Diagnostics** - stderr boot-phase markers, a startup watchdog, and a bounded lazy import of `things` to make cold-start hangs diagnosable (see below)
 
 ### Architecture
-- **Framework**: FastMCP 3.x (Python 3.8+)
+- **Framework**: FastMCP 3.x (Python 3.10+)
 - **Integration**: AppleScript via subprocess calls
 - **Testing**: pytest with mocked AppleScript operations  
 - **Platform**: macOS 12.0+ with Things 3 installed
@@ -488,6 +488,8 @@ Write/mutating tools (`add_todo`, `update_todo`, `bulk_update_todos`, `delete_to
 ```json
 {"success": false, "error": "INVALID_WHEN", "field": "when", "message": "must be in YYYY-MM-DD format or a relative date (today, tomorrow, etc.), got 'bogus'"}
 ```
+
+Write-tool structured failures whose `error` code is UPPER_SNAKE_CASE are also signalled at the MCP protocol level as `isError: true` (the payload is unchanged, so `structured_content` still carries the canonical shape). lower_snake read-tool errors and utility-tool diagnostics are not flagged. Known gaps: `delete_todo`'s lower_snake `not_found`/`not_deletable` and `bulk_update_todos`/`bulk_move_records` failures that carry no `error` code are currently NOT flagged `isError`.
 
 - `success` - always `false` on a structured error.
 - `error` - a short, stable, machine-readable UPPER_SNAKE_CASE code (e.g. `VALIDATION_ERROR`, `NOT_FOUND`, `AMBIGUOUS_TARGET`, `TARGET_COMPLETED`, `NO_VALID_TAGS`, `INVALID_WHEN`, `INVALID_DEADLINE`, `INVALID_HEADING`, `NO_CHECKLIST_ITEMS`, `NO_TODO_IDS`, `CREATE_UNCONFIRMED`, `UNSUPPORTED_FOR_PROJECTS`, `AUTH_TOKEN_NOT_CONFIGURED`, `TAG_CREATION_RESTRICTED`, `APPLESCRIPT_ERROR`). Safe to switch on; does not change wording across releases.
