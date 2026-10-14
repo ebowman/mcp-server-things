@@ -5,6 +5,11 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Server disconnects now stop the operation queue on its owning event loop.** Queue cleanup runs in FastMCP's lifespan teardown, before the event loop closes, instead of attempting async cleanup later from synchronous `stop`, signal, or `atexit` handlers.
+
 ## [1.10.0] - 2026-09-10
 
 ### Added
@@ -93,9 +98,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - **`search_advanced`'s scope semantics are now documented (bead hq-frf) - no behavior change.** The tool's docstring and CLAUDE.md ("search_advanced scope semantics", under Tag Best Practices) now spell out three pre-existing, unchanged facts: (1) without an explicit `type` filter, only to-dos are searched - a bare `area=`/`start_date=`/`deadline=` filter can never return a project or heading, so pass `type='project'`/`'heading'` explicitly to search those kinds; (2) `area=` matches only items directly assigned to the area and does not cascade into to-dos living inside that area's projects - use `get_todos(project_uuid=...)` per project, or `get_areas(include_items=true)` to enumerate the area's projects first; (3) there is no `project=` filter parameter - use `get_todos(project_uuid=...)` to scope a search to one project.
-
-### Fixed
-- **Server disconnects now stop the operation queue on its owning event loop.** Queue cleanup runs in FastMCP's lifespan teardown, before the event loop closes, instead of attempting async cleanup later from synchronous `stop`, signal, or `atexit` handlers.
 
 ## [1.7.0] - 2026-08-19
 
