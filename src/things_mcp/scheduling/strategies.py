@@ -48,6 +48,21 @@ class SchedulingStrategies:
                     "date_set": when_date
                 }
 
+        # List keywords (hq-bz2): 'someday'/'anytime' are not dates, so the
+        # date-object and direct-date-string strategies below can only fail
+        # with a deterministic AppleScript syntax error - and each failure is
+        # retried (3 attempts + backoff, ~3s apiece, ~7s per add_todo). Go
+        # straight to the list move, which is what the final fallback does anyway.
+        if when_date.lower().strip() in ("someday", "anytime"):
+            fallback_result = await self._schedule_list_fallback(todo_id, when_date)
+            return {
+                "success": fallback_result["success"],
+                "method": "list_fallback",
+                "reliability": "85%",
+                "date_set": fallback_result.get("list_assigned", "Today"),
+                "note": "Moved to appropriate list due to date scheduling limitations"
+            }
+
         # Strategy 2: Try specific date using AppleScript date object construction
         date_components = locale_handler.normalize_date_input(when_date)
         if date_components:
