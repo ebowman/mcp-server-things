@@ -55,3 +55,16 @@ def test_valid_overrides_forwarded(flag, capsys):
     target.assert_awaited_once_with(2.5, 0)
     assert isinstance(target.await_args.args[0], float)
     other.assert_not_called()
+
+
+@pytest.mark.parametrize("flag", FLAGS)
+def test_invalid_env_file_value_exit_2(flag, tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("THINGS_MCP_APPLESCRIPT_RETRY_COUNT", raising=False)
+    env = tmp_path / "bad.env"
+    env.write_text("THINGS_MCP_APPLESCRIPT_RETRY_COUNT=99\n")
+    code, err, hc, ta = run([flag, "--env-file", str(env)], capsys)
+    assert code == 2
+    assert "invalid value for" in err and "RETRY_COUNT" in err
+    assert "Traceback" not in err
+    hc.assert_not_called()
+    ta.assert_not_called()

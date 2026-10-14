@@ -11,11 +11,11 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from pydantic import ValidationError
+
 from .boot_trace import arm_boot_watchdog, boot_marker
 from .client_config import CLIENT_CHOICES as _CLIENT_CHOICES
 from .client_config import VIA_CHOICES as _VIA_CHOICES
-from pydantic import ValidationError
-
 from .config import apply_execution_overrides, load_config_from_env
 from .server import ThingsMCPServer
 from .services.applescript_manager import AppleScriptManager
@@ -538,13 +538,12 @@ def resolve_execution_settings(
     """
     try:
         config = load_config_from_env(Path(env_file) if env_file else None)
+        config = apply_execution_overrides(config, timeout, retry_count)
     except FileNotFoundError:
         raise CliConfigError(f"env file not found: {env_file}")
-    try:
-        config = apply_execution_overrides(config, timeout, retry_count)
     except ValidationError as exc:
-        flags = {"applescript_timeout": "--timeout (allowed range 1-300 seconds)",
-                 "applescript_retry_count": "--retry-count (allowed range 0-10)"}
+        flags = {"applescript_timeout": "--timeout / THINGS_MCP_APPLESCRIPT_TIMEOUT (allowed range 1-300 seconds)",
+                 "applescript_retry_count": "--retry-count / THINGS_MCP_APPLESCRIPT_RETRY_COUNT (allowed range 0-10)"}
         parts = []
         for err in exc.errors():
             loc = str(err["loc"][0]) if err.get("loc") else ""
