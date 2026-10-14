@@ -1007,6 +1007,16 @@ class TodoOperations:
             response['checked_paths'] = result['checked_paths']
         return response
 
+    @staticmethod
+    def _check_url_target(item_id: str, expected_type: str, record: Any = None) -> Optional[Dict[str, Any]]:
+        """hq-4w4: reject empty/unknown/wrong-type/trashed targets BEFORE any
+        Things URL-scheme update (Things shows a modal alert otherwise).
+        ``record`` (optional) is an already-fetched things.get() result."""
+        from ..tools_helpers.url_target_check import check_url_scheme_target
+        if record is None:
+            return check_url_scheme_target(item_id, expected_type, things)
+        return check_url_scheme_target(item_id, expected_type, things, record=record)
+
     async def add_checklist_items(self, todo_id: str, items: List[str]) -> Dict[str, Any]:
         """Add checklist items to an existing todo using Things URL scheme.
 
@@ -1026,6 +1036,10 @@ class TodoOperations:
             count_error = _check_checklist_item_count(items, field="items")
             if count_error:
                 return count_error
+
+            target_error = self._check_url_target(todo_id, 'to-do')
+            if target_error:
+                return target_error
 
             # Build URL parameters for appending checklist items
             params = {
@@ -1069,6 +1083,10 @@ class TodoOperations:
             if count_error:
                 return count_error
 
+            target_error = self._check_url_target(todo_id, 'to-do')
+            if target_error:
+                return target_error
+
             # Build URL parameters for prepending checklist items
             params = {
                 'id': todo_id,
@@ -1105,6 +1123,10 @@ class TodoOperations:
             count_error = _check_checklist_item_count(items, field="items")
             if count_error:
                 return count_error
+
+            target_error = self._check_url_target(todo_id, 'to-do')
+            if target_error:
+                return target_error
 
             # Build URL parameters for replacing checklist items
             params = {
@@ -1467,6 +1489,18 @@ class TodoOperations:
             # 'update' action, which requires the auth token. Fail fast
             # BEFORE any AppleScript write so other fields are never
             # partially applied.
+            # hq-4w4: any URL-scheme field (heading/evening/@time) on a
+            # trashed (or trashed-parent) to-do would make Things pop a
+            # modal "does not exist" alert. Reject BEFORE any write.
+            # Pure-AppleScript updates are deliberately unchanged.
+            if (heading or when_is_evening or when_has_time) and \
+                    todo_record_for_precheck is not _RESOLVE_UNAVAILABLE:
+                target_error = self._check_url_target(
+                    todo_id, 'to-do', record=todo_record_for_precheck
+                )
+                if target_error:
+                    return target_error
+
             if heading or when_is_evening or when_has_time:
                 if not self.applescript.auth_token:
                     # Reload-on-miss (hq-wsa.4): a token file created after
@@ -2352,6 +2386,13 @@ class TodoOperations:
                     hint=AUTH_TOKEN_HINT,
                     checked_paths=getattr(self.applescript, "_auth_token_trace", []),
                 )
+
+            # hq-4w4: update-project on a trashed project makes Things pop a
+            # modal "does not exist" alert; reject before any write.
+            if when_has_time:
+                target_error = self._check_url_target(project_id, 'project')
+                if target_error:
+                    return target_error
 
             # Separate area_id (UUID) and area_title (name) for proper AppleScript syntax
             area_id = kwargs.get('area_id', '')

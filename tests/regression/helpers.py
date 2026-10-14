@@ -11,6 +11,18 @@ from typing import Any, Callable, Dict, List, Optional
 
 SANDBOX_PREFIX = "hq-gbl-reg "
 
+# hq-4w4: Things pops a MODAL alert ("Cannot update to-do with ID ... because
+# it does not exist") for any things:///update or update-project call whose
+# target it considers gone (never-existed OR trashed). The server therefore
+# pre-checks every URL-scheme update path (update_todo when=evening/@time/
+# heading, bulk_update_todos evening/@time, checklist tools, update_project
+# @time) and returns NOT_FOUND (trashed -> `trashed: true`) without sending
+# the URL. Regression tests that exercise not-found through those paths must
+# assert the structured NOT_FOUND error (assert_write_error(result,
+# "NOT_FOUND")) - never assume success=True - and must not trash a sandbox
+# item and then expect a URL-scheme update on it to reach Things. Pure
+# AppleScript updates (title/notes/tags/...) on trashed items are unchanged.
+
 
 def ts() -> str:
     """A unique, sortable UTC timestamp suffix for sandbox object names."""

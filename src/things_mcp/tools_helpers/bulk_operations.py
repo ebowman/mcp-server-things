@@ -12,6 +12,7 @@ from ..locale_aware_dates import locale_handler, when_has_time_component
 from ..things_import import LazyThingsProxy
 from .helpers import ToolsHelpers
 from .errors import write_error
+from .url_target_check import check_url_scheme_target
 
 # Lazily-importing proxy for things.py, same rationale as
 # scheduling/todo_operations.py's module-level `things` - avoids the
@@ -458,6 +459,9 @@ class BulkOperations:
             # try/on-error AppleScript block unchecked - refusing the
             # whole bulk update whenever things.py is briefly unavailable
             # would be a larger behavior change than this bead asks for.
+            uses_url_scheme = bool(when_value) and (
+                when_value.lower() == 'evening' or when_has_time_component(when_value)
+            )
             not_found_ids: List[str] = []
             resolvable_ids = todo_ids
             precheck_unavailable = False
@@ -473,6 +477,12 @@ class BulkOperations:
                     precheck_unavailable = True
                     break
                 if record is None or record.get('type') != 'to-do':
+                    not_found_ids.append(candidate_id)
+                elif uses_url_scheme and check_url_scheme_target(
+                    candidate_id, 'to-do', things, record=record
+                ):
+                    # hq-4w4: trashed (or trashed-parent) to-do - sending
+                    # the URL-scheme update would pop a modal Things alert.
                     not_found_ids.append(candidate_id)
 
             if precheck_unavailable:

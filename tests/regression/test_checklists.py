@@ -31,6 +31,11 @@ Error-code notes (confirmed by reading src, not guessed):
     "hint": ...} BEFORE ever building/opening the things:// URL - so with no
     token configured, none of the three ever reaches Things, and the
     checklist is provably unchanged.
+  - (hq-4w4 UPDATE: the checklist tools now pre-check todo_id before any URL
+    is sent - unknown id -> NOT_FOUND, project id -> VALIDATION_ERROR, trashed
+    -> NOT_FOUND with trashed=true - because Things pops a modal alert for
+    ids it cannot resolve. The paragraph below describes the PRE-hq-4w4
+    behavior and is kept for history.)
   - Unknown todo_id / a project id passed as todo_id: execute_url_scheme
     builds and `open -g`s a things:///update?id=...&... URL regardless of
     whether that id resolves to anything Things recognizes; `open -g` exits
@@ -273,7 +278,8 @@ class TestChecklistToolsBadTargetIds:
         result = mcp.call_sync(
             "add_checklist_items", todo_id=bogus_id, items=["orphan item"]
         )
-        assert result.get("success") is True, result
+        # hq-4w4: rejected by the pre-check; never reaches Things.
+        assert_write_error(result, "NOT_FOUND")
 
         time.sleep(2)
         assert _get_unresolvable(bogus_id) is None
@@ -283,7 +289,8 @@ class TestChecklistToolsBadTargetIds:
         result = mcp.call_sync(
             "prepend_checklist_items", todo_id=bogus_id, items=["orphan item"]
         )
-        assert result.get("success") is True, result
+        # hq-4w4: rejected by the pre-check; never reaches Things.
+        assert_write_error(result, "NOT_FOUND")
 
         time.sleep(2)
         assert _get_unresolvable(bogus_id) is None
@@ -293,7 +300,8 @@ class TestChecklistToolsBadTargetIds:
         result = mcp.call_sync(
             "replace_checklist_items", todo_id=bogus_id, items=["orphan item"]
         )
-        assert result.get("success") is True, result
+        # hq-4w4: rejected by the pre-check; never reaches Things.
+        assert_write_error(result, "NOT_FOUND")
 
         time.sleep(2)
         assert _get_unresolvable(bogus_id) is None
@@ -309,7 +317,8 @@ class TestChecklistToolsBadTargetIds:
         result = mcp.call_sync(
             "add_checklist_items", todo_id=sandbox.project_id, items=["orphan item"]
         )
-        assert result.get("success") is True, result
+        # hq-4w4: wrong type rejected by the pre-check; never reaches Things.
+        assert_write_error(result, "VALIDATION_ERROR")
 
         time.sleep(2)
         record = things.get(sandbox.project_id, trashed=None)
