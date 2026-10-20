@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- `get_todo_by_id` now returns a structured `database_access_denied` read error (instead of raising a ToolError) when the Things database is unreadable on the direct Full Disk Access path too, matching the other read tools.
+## [1.12.0] - 2026-10-20
 
 ### Added
 
-- Optional sandboxed macOS helper grants read-only access to a picker-selected Things database bundle, so database reads can work without Full Disk Access for the connector host. See README's scoped database setup.
+- **Picker-scoped database reads without Full Disk Access (PR #20, thanks @scamden).** An optional sandboxed macOS helper app gets read-only access to a Things database bundle you pick once in a file picker, so database reads work without granting Full Disk Access to the connector host. Opt in with `THINGS_MCP_SCOPED_HELPER_APP`. Queries pass through a read-only SQL authorizer: only the Things task, area, tag and checklist tables are readable, `ATTACH`/`PRAGMA`/extensions are denied, and `TMSettings` (which holds the auth token) is never readable. The mode needs a source checkout because the helper is not in the Python wheel. Any process running as the same macOS user can drive the helper for those allowed reads; see README's scoped database setup.
+
+### Changed
+
+- **`get_todo_by_id` returns a structured `database_access_denied` error** instead of raising a ToolError when the Things database is unreadable on the direct Full Disk Access path, matching the other read tools.
+
+### Fixed
+
+- **Scoped helper robustness.** A helper timeout drops the connection so the next request starts clean with no stale response, and it reports `internal_error` rather than a misleading "re-select the bundle" hint. A query whose connection was closed by another thread retries once. Failures in the startup handshake are reported as `database_access_denied`.
 
 ## [1.11.0] - 2026-10-14
 
