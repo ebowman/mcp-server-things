@@ -421,6 +421,11 @@ You can set environment variables directly in your Claude Desktop configuration:
 
 ## Troubleshooting
 
+### Install fails on an x86_64 Python on macOS
+
+`cryptography` 49+ publishes only arm64 macOS wheels, so an x86_64 Python (Intel Mac, or a Rosetta/Anaconda x86 Python on Apple Silicon) would fall back to a failing Rust source build. The server pins `cryptography<49` automatically on x86_64 macOS, so installs use the last wheel-backed release. On Apple Silicon an arm64 Python is still recommended:
+`uvx --python cpython-3.12-macos-aarch64 --managed-python mcp-server-things`.
+
 ### Scoped database access on macOS
 
 The optional scoped reader lets the connector read Things without granting

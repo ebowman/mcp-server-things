@@ -32,6 +32,9 @@ dependencies = [
     "things.py>=1.0.0",
     "dateparser>=1.1.0",
     "python-dateutil>=2.8.0",
+    # cryptography 49+ ships only arm64 macOS wheels; 48.x is the last with
+    # x86_64 wheels (avoids a failing Rust source build on x86_64 Pythons).
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [project.optional-dependencies]

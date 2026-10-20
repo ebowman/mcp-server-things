@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Install on x86_64 macOS Python (hq-usx).** `cryptography` 49+ ships only arm64 macOS wheels, so installing on an Intel Mac or an x86_64 (Rosetta/Anaconda) Python fell back to a failing Rust source build. A platform-marked `cryptography<49` dependency now applies only on x86_64 macOS; arm64 and Linux are unaffected.
+
 ## [1.12.0] - 2026-10-20
 
 ### Added
