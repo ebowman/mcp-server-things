@@ -18,6 +18,7 @@
 - **Integration**: AppleScript via subprocess calls
 - **Testing**: pytest with mocked AppleScript operations  
 - **Platform**: macOS 12.0+ with Things 3 installed
+- **Database reads**: direct things.py access by default; setting `THINGS_MCP_SCOPED_HELPER_APP` routes reads through a picker-granted, sandboxed native helper built from source. See README's "Scoped database access on macOS" for setup and its same-user access boundary.
 
 ## Development Guidelines
 
@@ -478,11 +479,11 @@ When a read tool hits a validation problem (bad `mode`, bad `status`, out-of-ran
 - `success` - always `false` on a structured error.
 - `error` - a short, stable, machine-readable snake_case code (e.g. `invalid_mode`, `invalid_status`, `invalid_query`, `invalid_limit`, `unknown_tag`, `not_found`, `invalid_type`, `invalid_parameter`, `internal_error`, `database_access_denied`). Safe to switch on; does not change wording across releases.
 - `message` - a human-readable explanation, safe to display but not safe to pattern-match on (wording may change).
-- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`; `database_access_denied` also carries `hint` - naming the exact interpreter binary macOS Full Disk Access must be granted to - and `interpreter`).
+- Additional fields may be present depending on the error (e.g. `unknown_tag` also carries `tag` and `suggestions`; `invalid_start_date_format`/`invalid_deadline_format` carry `example`; `database_access_denied` also carries `hint` and `interpreter`).
 
-**`database_access_denied`** - a macOS privacy (Full Disk Access / TCC) denial while reading the Things database; carries `hint` and `interpreter` (the exact binary to grant). Any other exception is unchanged (`internal_error` or `ToolError`).
+**`database_access_denied`** - a macOS privacy (Full Disk Access / TCC) denial on the direct read path, or an unavailable/revoked scoped helper grant; carries `hint` and `interpreter`. The hint names the Full Disk Access target only for direct reads; scoped reads tell the user to select or re-select the database in the helper. Other exceptions retain the existing `internal_error` or `ToolError` behavior.
 
-This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items` - reports errors identically, and the two layers cannot drift apart. `get_todo_by_id` is the one exception: it raises (surfaced by FastMCP as a `ToolError`, no `structured_content`) rather than returning a structured error, because it has no natural "envelope" shape to fall back to.
+This shape is produced by a single shared implementation, `tools_helpers.read_operations.read_error(code, message, **extra)`, used at both layers: `ThingsMCPServer._read_error` (server.py, the MCP tool boundary) delegates directly to it, and the tools layer (`ReadOperations`, e.g. `_build_unknown_tag_error`, `_get_project_headings_sync`, `_get_tag_usage_sync`, `search_advanced`'s invalid-type check) calls it directly - so every read tool's structured-error return path - `get_todos`, `get_projects`, `get_areas`, `get_project_headings`, `get_tag_usage`, `search_todos`, `search_advanced`, `get_due_in_days`, `get_activating_in_days`, `get_tagged_items`, and database access errors from `get_todo_by_id` - reports errors identically. For an unknown ID or unrelated exception, `get_todo_by_id` still raises a FastMCP `ToolError` because it has no natural items envelope to fall back to.
 
 #### Structured error contract (write tools)
 

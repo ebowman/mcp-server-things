@@ -3,8 +3,8 @@
 This module implements a set of read-only diagnostic checks that verify the
 local environment is correctly set up to run the Things 3 MCP server:
 Things 3 installation, the app being running, macOS Automation (TCC)
-permission, SQLite database readability (a separate TCC permission - Full
-Disk Access), presence of ``uv``/``uvx`` on ``PATH``, whether the running
+permission, SQLite database readability (via a scoped helper or Full Disk
+Access), presence of ``uv``/``uvx`` on ``PATH``, whether the running
 Python interpreter's architecture matches the host CPU (Rosetta detection),
 the optional Things URL-scheme auth token, and basic environment/version
 information.
@@ -238,6 +238,12 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
 
     def _target():
         try:
+            if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+                from .things_import import LazyThingsProxy
+
+                result_holder["count"] = len(LazyThingsProxy().todos(status="incomplete"))
+                return
+
             from .things_import import get_things
 
             things_mod = get_things()
@@ -318,6 +324,13 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
     if "error" in result_holder:
         error = result_holder["error"]
         message = str(error)
+        if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+            return CheckResult(
+                name,
+                STATUS_FAIL,
+                detail=message,
+                hint="Build the scoped helper, grant the Things database in its picker, then re-run doctor.",
+            )
         if _DB_UNREADABLE_MARKER in message.lower():
             return CheckResult(
                 name,
@@ -894,6 +907,13 @@ def check_claude_desktop_interpreter() -> CheckResult:
     """
     name = "Claude Desktop interpreter"
 
+    if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+        return CheckResult(
+            name,
+            STATUS_INFO,
+            detail="Scoped database helper configured for this process; set the same helper path in the MCP client configuration.",
+        )
+
     data = _resolve_claude_desktop_targets()
 
     if data["error"] is not None:
@@ -1086,6 +1106,8 @@ def _full_disk_access_targets() -> List[str]:
     interpreter could be resolved (config missing, no matching entry, or a
     read error).
     """
+    if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+        return []
     data = _resolve_claude_desktop_targets()
     paths: List[str] = []
     for _status, _detail, _hint, resolved in data.get("results", []):

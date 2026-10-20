@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastmcp import Client
 
 from things_mcp.server import ThingsMCPServer
+from things_mcp.things_import import ScopedHelperAccessError, ScopedHelperError
 from things_mcp.tools_helpers.read_operations import (
     is_db_access_error,
     read_error_from_exception,
@@ -62,6 +63,10 @@ class TestIsDbAccessError:
         exc = ValueError("bogus")
         assert is_db_access_error(exc) is False
 
+    def test_missing_scoped_grant_is_classified_but_query_rejection_is_not(self):
+        assert is_db_access_error(ScopedHelperAccessError("bookmark revoked")) is True
+        assert is_db_access_error(ScopedHelperError("query denied")) is False
+
 
 class TestReadErrorFromException:
     """read_error_from_exception's dispatch between the two error shapes."""
@@ -80,6 +85,12 @@ class TestReadErrorFromException:
         assert result["success"] is False
         assert result["error"] == "internal_error"
         assert result["message"] == "something else broke"
+
+    def test_scoped_helper_error_uses_picker_hint(self):
+        result = read_error_from_exception(ScopedHelperAccessError("bookmark revoked"))
+        assert result["error"] == "database_access_denied"
+        assert "select or re-select" in result["hint"]
+        assert "Full Disk Access" not in result["hint"]
 
 
 def _make_server_with_mock_tools(**overrides):
@@ -150,3 +161,31 @@ class TestDbAccessDeniedEndToEnd:
         async with client:
             with pytest.raises(ToolError):
                 await client.call_tool("get_today", {})
+
+    @pytest.mark.asyncio
+    async def test_get_today_scoped_grant_error_is_structured(self):
+        server = ThingsMCPServer()
+        client = Client(server.mcp)
+        with patch(
+            "things_mcp.tools_helpers.read_operations.things.today",
+            side_effect=ScopedHelperAccessError("bookmark revoked"),
+        ):
+            async with client:
+                result = await client.call_tool("get_today", {})
+
+        assert result.structured_content["error"] == "database_access_denied"
+        assert "select or re-select" in result.structured_content["hint"]
+
+    @pytest.mark.asyncio
+    async def test_get_todo_by_id_scoped_grant_error_is_structured(self):
+        server = ThingsMCPServer()
+        client = Client(server.mcp)
+        with patch(
+            "things_mcp.tools_helpers.read_operations.things.get",
+            side_effect=ScopedHelperAccessError("bookmark revoked"),
+        ):
+            async with client:
+                result = await client.call_tool("get_todo_by_id", {"todo_id": "abc"})
+
+        assert result.structured_content["error"] == "database_access_denied"
+        assert "select or re-select" in result.structured_content["hint"]

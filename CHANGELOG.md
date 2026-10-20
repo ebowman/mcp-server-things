@@ -5,6 +5,12 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Optional sandboxed macOS helper grants read-only access to a picker-selected Things database bundle, so database reads can work without Full Disk Access for the connector host. See README's scoped database setup.
+
 ## [1.11.0] - 2026-10-14
 
 ### Added

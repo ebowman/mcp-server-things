@@ -19,6 +19,7 @@ import importlib
 import os
 import sys
 import threading
+from functools import wraps
 from typing import Optional
 from types import ModuleType
 
@@ -30,6 +31,14 @@ _TIMEOUT_DEFAULT_SECS = 10.0
 _lock = threading.Lock()
 _things_module: Optional[ModuleType] = None
 _import_error: Optional[BaseException] = None
+
+
+class ScopedHelperError(RuntimeError):
+    """The sandboxed Things reader could not answer a query."""
+
+
+class ScopedHelperAccessError(ScopedHelperError):
+    """The configured helper or its database grant is unavailable."""
 
 
 class ThingsImportTimeoutError(RuntimeError):
@@ -192,4 +201,21 @@ class LazyThingsProxy:
     """
 
     def __getattr__(self, name: str):
-        return getattr(get_things(), name)
+        method = getattr(get_things(), name)
+        if not os.environ.get("THINGS_MCP_SCOPED_HELPER_APP") or name not in {
+            "anytime", "areas", "canceled", "checklist_items", "completed",
+            "deadlines", "get", "inbox", "last", "logbook", "projects",
+            "search", "someday", "tags", "tasks", "today", "todos",
+            "token", "trash", "upcoming",
+        }:
+            return method
+
+        @wraps(method)
+        def scoped_method(*args, **kwargs):
+            if "database" not in kwargs:
+                from .scoped_database import get_scoped_database
+
+                kwargs["database"] = get_scoped_database()
+            return method(*args, **kwargs)
+
+        return scoped_method
