@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from .things_import import HELPER_APP_ENV
+
 # Status values, in the order they should be considered for severity.
 STATUS_PASS = "PASS"
 STATUS_WARN = "WARN"
@@ -238,7 +240,7 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
 
     def _target():
         try:
-            if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+            if os.environ.get(HELPER_APP_ENV):
                 from .things_import import LazyThingsProxy
 
                 result_holder["count"] = len(LazyThingsProxy().todos(status="incomplete"))
@@ -324,7 +326,7 @@ def check_database_readable(timeout: float = _DB_READ_TIMEOUT_SECS) -> CheckResu
     if "error" in result_holder:
         error = result_holder["error"]
         message = str(error)
-        if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+        if os.environ.get(HELPER_APP_ENV):
             return CheckResult(
                 name,
                 STATUS_FAIL,
@@ -907,7 +909,7 @@ def check_claude_desktop_interpreter() -> CheckResult:
     """
     name = "Claude Desktop interpreter"
 
-    if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+    if os.environ.get(HELPER_APP_ENV):
         return CheckResult(
             name,
             STATUS_INFO,
@@ -1106,7 +1108,7 @@ def _full_disk_access_targets() -> List[str]:
     interpreter could be resolved (config missing, no matching entry, or a
     read error).
     """
-    if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+    if os.environ.get(HELPER_APP_ENV):
         return []
     data = _resolve_claude_desktop_targets()
     paths: List[str] = []

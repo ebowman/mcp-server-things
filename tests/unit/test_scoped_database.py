@@ -122,3 +122,115 @@ def test_scoped_database_wrapper_is_cached(monkeypatch):
         constructor.assert_called_once_with()
     finally:
         scoped_database.get_scoped_database.cache_clear()
+
+
+def _bare_client():
+    client = object.__new__(_HelperClient)
+    client._lock = threading.Lock()
+    client._input = 1
+    client._output = 2
+    return client
+
+
+def test_timeout_is_not_access_error_and_drops_client(monkeypatch):
+    client = _bare_client()
+    dropped = []
+    monkeypatch.setattr(scoped_database, "_drop_client", dropped.append)
+
+    def timeout(_message):
+        raise scoped_database.ScopedHelperTimeoutError("Timed out")
+
+    monkeypatch.setattr(client, "_write_message", timeout)
+    with pytest.raises(scoped_database.ScopedHelperTimeoutError) as info:
+        client.query("SELECT 1", ())
+    assert not isinstance(info.value, ScopedHelperAccessError)
+    assert dropped == [client]
+
+
+def test_closed_connection_retries_once_and_succeeds(monkeypatch):
+    calls = []
+
+    def query(_sql, _params):
+        calls.append(1)
+        if len(calls) == 1:
+            raise scoped_database._ScopedHelperClosedError("closed")
+        return ["a"], [[1]]
+
+    monkeypatch.setattr(
+        scoped_database, "_get_client", lambda: SimpleNamespace(query=query)
+    )
+    database = object.__new__(ScopedDatabase)
+    assert database.execute_query("SELECT 1") == [{"a": 1}]
+    assert len(calls) == 2
+
+
+def test_closed_connection_twice_propagates(monkeypatch):
+    calls = []
+
+    def query(_sql, _params):
+        calls.append(1)
+        raise scoped_database._ScopedHelperClosedError("closed")
+
+    monkeypatch.setattr(
+        scoped_database, "_get_client", lambda: SimpleNamespace(query=query)
+    )
+    database = object.__new__(ScopedDatabase)
+    with pytest.raises(scoped_database._ScopedHelperClosedError):
+        database.execute_query("SELECT 1")
+    assert len(calls) == 2
+
+
+def test_timeout_is_not_retried(monkeypatch):
+    calls = []
+
+    def query(_sql, _params):
+        calls.append(1)
+        raise scoped_database.ScopedHelperTimeoutError("Timed out")
+
+    monkeypatch.setattr(
+        scoped_database, "_get_client", lambda: SimpleNamespace(query=query)
+    )
+    database = object.__new__(ScopedDatabase)
+    with pytest.raises(scoped_database.ScopedHelperTimeoutError):
+        database.execute_query("SELECT 1")
+    assert len(calls) == 1
+
+
+def test_bad_startup_json_is_access_error(monkeypatch, tmp_path):
+    app = tmp_path / "Helper.app"
+    app.mkdir()
+    monkeypatch.setattr(scoped_database.subprocess, "Popen", lambda *a, **k: Mock())
+    monkeypatch.setattr(
+        _HelperClient,
+        "_read_message",
+        lambda self: (_ for _ in ()).throw(
+            ScopedHelperError("Things helper returned invalid JSON")
+        ),
+    )
+    monkeypatch.setattr(_HelperClient, "abort", lambda self: None)
+    with pytest.raises(ScopedHelperAccessError):
+        _HelperClient(str(app))
+
+
+def test_importing_doctor_does_not_import_things_package():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, things_mcp.doctor; "
+        "sys.exit(1 if 'things' in sys.modules or "
+        "'things_mcp.scoped_database' in sys.modules else 0)"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_scoped_helper_timeout_maps_to_internal_error_not_access_denied():
+    from things_mcp.tools_helpers.read_operations import (
+        is_db_access_error,
+        read_error_from_exception,
+    )
+
+    exc = scoped_database.ScopedHelperTimeoutError("Timed out waiting for the Things helper")
+    assert is_db_access_error(exc) is False
+    assert read_error_from_exception(exc)["error"] == "internal_error"

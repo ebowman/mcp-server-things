@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `get_todo_by_id` now returns a structured `database_access_denied` read error (instead of raising a ToolError) when the Things database is unreadable on the direct Full Disk Access path too, matching the other read tools.
+
 ### Added
 
 - Optional sandboxed macOS helper grants read-only access to a picker-selected Things database bundle, so database reads can work without Full Disk Access for the connector host. See README's scoped database setup.

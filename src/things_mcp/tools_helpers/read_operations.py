@@ -1347,7 +1347,9 @@ class ReadOperations:
             on any error or if the uuid has no matching row).
         """
         try:
-            if os.environ.get("THINGS_MCP_SCOPED_HELPER_APP"):
+            from ..things_import import HELPER_APP_ENV
+
+            if os.environ.get(HELPER_APP_ENV):
                 from ..scoped_database import get_scoped_database
 
                 rows = get_scoped_database().execute_query(

@@ -25,6 +25,7 @@ from types import ModuleType
 
 from .boot_trace import boot_marker
 
+HELPER_APP_ENV = "THINGS_MCP_SCOPED_HELPER_APP"
 _TIMEOUT_ENV_VAR = "THINGS_MCP_THINGS_IMPORT_TIMEOUT_SECS"
 _TIMEOUT_DEFAULT_SECS = 10.0
 

@@ -14,13 +14,20 @@ from types import SimpleNamespace
 
 from things.database import Database, dict_factory
 
-from .things_import import ScopedHelperAccessError, ScopedHelperError
+from .things_import import HELPER_APP_ENV, ScopedHelperAccessError, ScopedHelperError
 
-HELPER_APP_ENV = "THINGS_MCP_SCOPED_HELPER_APP"
 _TIMEOUT = 15.0
 _MAX_RESPONSE = 64 * 1024 * 1024
 _client = None
 _client_lock = threading.Lock()
+
+
+class ScopedHelperTimeoutError(ScopedHelperError):
+    """A helper read/write timed out; not an access problem and never auto-retried."""
+
+
+class _ScopedHelperClosedError(ScopedHelperAccessError):
+    """The client was dropped (e.g. by another thread) before this query ran."""
 
 
 class _HelperClient:
@@ -61,7 +68,14 @@ class _HelperClient:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            ready = self._read_message()
+            try:
+                ready = self._read_message()
+            except ScopedHelperAccessError:
+                raise
+            except ScopedHelperError as exc:
+                raise ScopedHelperAccessError(
+                    f"Things helper startup failed: {exc}"
+                ) from exc
             if ready.get("ready") is not True or ready.get("readonly") is not True:
                 if ready.get("error") == "no_saved_bookmark":
                     raise ScopedHelperAccessError(
@@ -87,7 +101,7 @@ class _HelperClient:
         while b"\n" not in self._buffer:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise ScopedHelperAccessError("Timed out waiting for the Things helper")
+                raise ScopedHelperTimeoutError("Timed out waiting for the Things helper")
             if select.select([self._output], [], [], remaining)[0]:
                 chunk = os.read(self._output, 65536)
                 if chunk:
@@ -111,14 +125,14 @@ class _HelperClient:
         while data:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not select.select([], [self._input], [], remaining)[1]:
-                raise ScopedHelperAccessError("Timed out sending a Things query")
+                raise ScopedHelperTimeoutError("Timed out sending a Things query")
             data = data[os.write(self._input, data) :]
 
     def query(self, sql, parameters):
         with self._lock:
             try:
                 if self._input is None:
-                    raise ScopedHelperAccessError("Things helper connection was closed")
+                    raise _ScopedHelperClosedError("Things helper connection was closed")
                 self._write_message({"sql": sql, "parameters": list(parameters)})
                 result = self._read_message()
             except (ScopedHelperError, OSError) as exc:
@@ -221,7 +235,11 @@ class ScopedDatabase(Database):
             raise ScopedHelperError("Things database format is too old for things.py")
 
     def execute_query(self, sql_query, parameters=(), row_factory=None):
-        columns, rows = _get_client().query(sql_query, parameters)
+        try:
+            columns, rows = _get_client().query(sql_query, parameters)
+        except _ScopedHelperClosedError:
+            # Another thread dropped the client; retry exactly once on a fresh one.
+            columns, rows = _get_client().query(sql_query, parameters)
         cursor = SimpleNamespace(description=[(name,) for name in columns])
         factory = row_factory or dict_factory
         return [factory(cursor, tuple(_decode(value) for value in row)) for row in rows]
