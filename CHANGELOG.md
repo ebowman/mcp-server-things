@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nullable search text no longer erases valid matches (GH #21).** Missing
+  or null titles/notes are treated as empty text during matching in
+  `search_todos` and internal advanced text search. Previously, calling
+  `.lower()` on null notes failed before conversion, and the outer error
+  handler discarded the matches as an empty result. Conversion-only
+  normalization would be too late. Serialized null/missing notes remain
+  omitted; non-string malformed text still fails explicitly.
+- **Authoritative read failures no longer masquerade as empty lists or zero
+  counts.** This includes requested nested contents, tag counts and required
+  Someday membership lookups. Genuine empty reads remain successful, and
+  optional metadata enrichment remains best effort. Database access denial
+  retains its structured error and direct-access or scoped-picker guidance;
+  unexpected failures reach the existing error boundary (usually FastMCP
+  `ToolError`, with existing structured-error exceptions preserved).
+
+### Tests and documentation
+
+- Isolated the retry-count class-default assertion from ambient environment
+  settings, including normal dotenv loading. Production configuration and
+  CLI/environment override behavior remain unchanged.
+- Added mocked-source regression coverage through the real read, tool,
+  server and in-process MCP layers for nullable search text, response modes,
+  pagination and read failures. Public `search_advanced` remains filter-only:
+  its schema has no `query` parameter. The internal text-query path is
+  tested separately; the reported public advanced-query route and reporter
+  environment have not been reproduced. Live smoke/API regression suites
+  remain separate, opt-in release prerequisites.
+
 ## [1.12.1] - 2026-10-20
 
 ### Fixed

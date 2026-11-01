@@ -172,8 +172,10 @@ def test_negative_retry_count_raises_value_error():
         AppleScriptExecutor(timeout=5, retry_count=-1)
 
 
-def test_config_default_retry_count_is_two_and_zero_allowed():
+def test_config_default_retry_count_is_two_and_zero_allowed(monkeypatch):
     from things_mcp.config import ThingsMCPConfig
 
+    # Assert the class default, not an override loaded by dotenv startup.
+    monkeypatch.delenv("THINGS_MCP_APPLESCRIPT_RETRY_COUNT", raising=False)
     assert ThingsMCPConfig().applescript_retry_count == 2
     assert ThingsMCPConfig(applescript_retry_count=0).applescript_retry_count == 0

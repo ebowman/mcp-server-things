@@ -28,6 +28,112 @@ when this is active).
 This document is the short version of the testing gap analysis behind the
 hq-f0w epic (hq-f0w.14). It states the rules; it does not re-derive them.
 
+### Configuration-sensitive default tests
+
+`test_retry_configuration.py::test_config_default_retry_count_is_two_and_zero_allowed`
+constructs settings that honor environment overrides. An inherited
+`THINGS_MCP_APPLESCRIPT_RETRY_COUNT=3`, or one loaded normally from `.env`,
+previously made its default-of-2 assertion fail (hq-8t3). Test bootstrap
+imports `server.py`, which loads dotenv; CLI configuration loading can load
+it again with `override=True`. This is legitimate configuration loading,
+not merely a test teardown leak, so clearing the variable at command startup
+is insufficient.
+
+The default-value test now uses scoped `monkeypatch.delenv` immediately before
+constructing settings. It still asserts the actual class default of 2 and
+explicit zero support, and restores the ambient value afterward. Production
+dotenv loading, configured overrides and shared fixtures are unchanged.
+Run the ordinary, unfiltered unit command with the nonexistent-database guard
+enabled and live tests opted out:
+
+```bash
+.venv/bin/python -m pytest tests/unit -q
+```
+
+Do not edit local settings, force the expected default via an environment
+override, disable dotenv or skip the assertion to make this gate green.
+
+Validation for hq-4yu.4 reproduced the original assertion failure (3 versus
+2) before isolation. Afterward, the CLI/override and retry tests passed
+together, including configuration loading before the default assertion:
+
+```bash
+.venv/bin/python -m pytest tests/unit/test_cli_execution_overrides.py tests/unit/test_retry_configuration.py -q
+```
+
+Results: **28 passed** for that command, **588 passed** for the focused
+contract command below, and **2895 passed, 1 skipped, 2 warnings** for the
+unfiltered unit suite. All three runs set
+`THINGS_MCP_UNIT_TESTS_ALLOW_REAL_DB=0` and `THINGS_MCP_LIVE_TESTS=0`.
+The existing wheel-build test skipped because the canonical interpreter has
+no `pip`; no dependencies were installed to remove that skip. The warnings
+were unawaited `AsyncMock` calls in AppleScript timeout tests.
+Quality checks remain baseline-limited (hq-6zw): `flake8 src tests` reports
+6445 diagnostics, unchanged from HEAD after accounting for shifted locations;
+`mypy src` reports 143 errors in 20 files, with source/config unchanged from
+HEAD. Neither check introduced new diagnostics.
+
+## Nullable search and read-failure contracts (GH #21)
+
+The reproduced defect had two levels: raw search rows called `.lower()` on
+nullable notes **before conversion**, then an outer catch discarded all
+accumulated matches and returned success-shaped emptiness. Normalizing only
+`convert_todo`/`convert_project` cannot fix the earlier matching failure and
+could unintentionally change output omission semantics. Matching now treats
+missing/null text as empty without mutating source rows; malformed non-string
+text is not silently coerced or ignored.
+
+The focused mocked contract suite is:
+
+```bash
+.venv/bin/python -m pytest tests/unit/test_structured_output.py tests/unit/test_search_recent_status_defaults.py tests/unit/test_primary_read_failures.py tests/unit/test_required_read_failures.py tests/unit/test_tool_schema_snapshot.py tests/unit/test_db_access_denied.py tests/unit/test_read_error_helper.py -q
+```
+
+- `test_search_recent_status_defaults.py` covers internal text matching,
+  including typed to-do/project/heading searches, null rows on either side
+  of matches, malformed text, status and post-match pagination.
+- `test_structured_output.py`'s real-search tests patch source I/O, not
+  `ThingsTools` results: `ReadOperations` → `ThingsTools` →
+  `ThingsMCPServer` → in-process `fastmcp.Client` stays real. They assert
+  IDs, true totals, window counts and notes omission under auto, summary,
+  minimal, standard and raw modes. Summary is a preview (no `next_offset`);
+  pageable modes expose that cursor only when more results remain.
+  Missing/null notes stay absent; empty and ordinary notes survive in modes
+  that include notes. Auto resolves to a concrete mode.
+- Internal advanced search accepts a text `query`; **public MCP
+  `search_advanced` does not**. Typed no-query controls, public filter-only
+  calls, an explicit query-absence assertion and the unchanged schema
+  snapshot pin that distinction. Do not add a public parameter to make a
+  reported invocation fit.
+- `test_primary_read_failures.py` covers source/conversion failures versus
+  real emptiness, including SQLite non-access errors, direct access denial,
+  scoped-helper query/grant errors and import timeouts.
+  `test_required_read_failures.py` covers requested children, tag counts,
+  Someday membership, later subquery failures and successful empty controls.
+  Required failures fail the request; optional heading/parent/evening
+  metadata remains best effort. Do not duplicate these matrices for a
+  numeric coverage target.
+
+Error assertions must respect the existing boundary: generic search/list
+failures raise FastMCP `ToolError`, not successful empty payloads.
+`database_access_denied` and domain validation errors remain structured read
+results (`success: false`, without setting MCP `isError`); the direct path
+gives Full Disk Access guidance and scoped grant failures give picker
+guidance. Existing `get_due_in_days`/`get_activating_in_days` generic errors
+remain structured `internal_error`. Do not assert that *all* read failures
+have `isError=false`, or reinterpret unrelated tagged-item failures as
+`unknown_tag`.
+
+This is synthetic, mocked-source evidence, not a replay of the reporter's
+database/client/transport. The reported public advanced-query route remains
+unresolved. Run the full unit suite after the focused suite and the existing
+`make lint` checks (`flake8 src tests`, `mypy src`) with the canonical
+interpreter; compare any diagnostics to the unchanged baseline (existing
+lint/type debt is tracked as hq-6zw). Neither the focused command nor the
+unit command runs the live suites below. Both live smoke and live API
+regression gates remain opt-in release prerequisites, not part of this
+mocked regression task.
+
 ## The five rules
 
 1. **Write-path tests must assert on the emitted AppleScript/URL, not just

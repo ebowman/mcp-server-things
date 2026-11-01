@@ -7,13 +7,16 @@ search regressions use real ThingsTools with mocked source I/O.
 
 import pytest
 import sqlite3
+from copy import deepcopy
+from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from fixtures.things_realistic import make_todo
+from fixtures.things_realistic import make_heading, make_project, make_todo
 from things_mcp.server import ThingsMCPServer
+from things_mcp.things_import import ScopedHelperAccessError, ScopedHelperError
 from things_mcp.tools import ThingsTools
 
 
@@ -72,53 +75,162 @@ def search_server():
 
 @pytest.mark.parametrize("tool", ["search_todos", "search_advanced"])
 class TestRealSearchStructuredOutput:
-    async def test_nullable_notes_pagination(self, search_server, tool):
+    @pytest.mark.parametrize(
+        "mode", ["auto", "summary", "minimal", "standard", "raw"]
+    )
+    async def test_nullable_notes_pagination(self, search_server, tool, mode):
         server, source = search_server
-        source.todos.return_value = [
-            make_todo("a", "Needle", notes=None),
-            make_todo("b", "NEEDLE", notes=None),
-            make_todo("c", "Needle", notes=""),
+        rows = [
+            make_todo("before", "Notes-only match", notes="A NEEdle!\nNext."),
+            make_todo("null", "Needle", notes=None),
+            make_todo("missing", "NEEDLE"),
+            make_todo("empty", "Needle", notes=""),
+            make_todo("after", "Needle", notes="Ordinary notes."),
         ]
+        del rows[2]["notes"]
+        before = deepcopy(rows)
+        source.todos.return_value = rows
         # Public advanced search is FILTER-ONLY; do not pass internal query.
         args = {"query": "needle"} if tool == "search_todos" else {}
         async with Client(server.mcp) as client:
-            result = await client.call_tool(
-                tool, {**args, "mode": "raw", "limit": 1, "offset": 1}
-            )
-        sc = result.structured_content
-        assert not result.is_error
-        assert REQUIRED_LIST_KEYS <= sc.keys()
-        assert sc["count"] == 1
-        assert sc["total"] == 3
-        assert sc["limit"] == 1
-        assert sc["offset"] == 1
-        assert sc["items"][0]["uuid"] == "b"
-        assert "notes" not in sc["items"][0]
-        assert source.todos.return_value[1]["notes"] is None
+            # Full response (summary previews only three), interior page,
+            # final page and an exhausted window all retain the true total.
+            for limit, offset in [(50, 0), (2, 1), (2, 3), (2, 5)]:
+                result = await client.call_tool(
+                    tool, {**args, "mode": mode, "limit": limit,
+                           "offset": offset}
+                )
+                sc = result.structured_content
+                expected = rows[offset:offset + limit]
+                if mode == "summary":
+                    expected = expected[:3]
+                assert not result.is_error
+                assert REQUIRED_LIST_KEYS <= sc.keys()
+                assert sc["total"] == 5
+                assert sc["count"] == len(expected)
+                assert sc["limit"] == limit
+                assert sc["offset"] == offset
+                assert sc["requested_mode"] == mode
+                if mode == "auto":
+                    # Empty auto responses resolve to standard.
+                    assert sc["mode"] == (
+                        "detailed" if expected else "standard"
+                    )
+                else:
+                    assert sc["mode"] == mode
+                assert [item["uuid"] for item in sc["items"]] == [
+                    row["uuid"] for row in expected
+                ]
+                for item, row in zip(sc["items"], expected):
+                    omit_notes = (
+                        mode in ("summary", "minimal")
+                        or row.get("notes") is None
+                    )
+                    if omit_notes:
+                        assert "notes" not in item
+                    else:
+                        assert item["notes"] == row["notes"]
+                more = bool(expected) and offset + len(expected) < 5
+                if mode != "summary" and more:
+                    assert sc["next_offset"] == offset + len(expected)
+                else:
+                    assert "next_offset" not in sc
+        assert rows == before
+        source.todos.assert_called_with(
+            status="incomplete" if tool == "search_todos" else None
+        )
+        source.tasks.assert_not_called()
 
-    async def test_source_failure_is_tool_error(self, search_server, tool):
+    @pytest.mark.parametrize("error_type,message", [
+        (RuntimeError, "synthetic source failure"),
+        (sqlite3.OperationalError, "database is locked"),
+        (ScopedHelperError, "synthetic helper query failure"),
+    ])
+    async def test_source_failure_is_tool_error(
+        self, search_server, tool, error_type, message
+    ):
         server, source = search_server
-        source.todos.side_effect = RuntimeError("synthetic source failure")
+        source.todos.side_effect = error_type(message)
         args = {"query": "needle"} if tool == "search_todos" else {}
         async with Client(server.mcp) as client:
-            with pytest.raises(ToolError):
+            with pytest.raises(ToolError, match=message):
                 await client.call_tool(tool, args)
         source.todos.assert_called_once()
 
-    async def test_db_denial_retains_envelope(self, search_server, tool):
+    @pytest.mark.parametrize("error_type,message,hint", [
+        (sqlite3.OperationalError, "unable to open database file",
+         "Full Disk Access"),
+        (ScopedHelperAccessError, "bookmark revoked", "select or re-select"),
+    ])
+    async def test_db_denial_retains_envelope(
+        self, search_server, tool, error_type, message, hint
+    ):
         server, source = search_server
-        source.todos.side_effect = sqlite3.OperationalError(
-            "unable to open database file"
-        )
+        source.todos.side_effect = error_type(message)
         args = {"query": "needle"} if tool == "search_todos" else {}
         async with Client(server.mcp) as client:
             result = await client.call_tool(tool, args)
         sc = result.structured_content
+        assert not result.is_error
         assert sc["success"] is False
         assert sc["error"] == "database_access_denied"
+        assert hint in sc["hint"]
         assert "items" not in sc
         assert "total" not in sc
         source.todos.assert_called_once()
+
+    async def test_real_empty_source(self, search_server, tool):
+        server, source = search_server
+        source.todos.return_value = []
+        args = {"query": "needle"} if tool == "search_todos" else {}
+        async with Client(server.mcp) as client:
+            result = await client.call_tool(tool, args)
+        sc = result.structured_content
+        assert not result.is_error
+        assert sc["items"] == []
+        assert sc["count"] == sc["total"] == 0
+        assert "error" not in sc
+        assert "next_offset" not in sc
+        source.todos.assert_called_once()
+
+
+@pytest.mark.parametrize("kind,factory", [
+    ("to-do", make_todo),
+    ("project", make_project),
+    ("heading", partial(make_heading, project="parent",
+                        project_title="Parent")),
+])
+async def test_advanced_filter_only_keeps_nonmatching_rows(
+    search_server, kind, factory
+):
+    """Internal no-query control and public typed filters use the same rows."""
+    server, source = search_server
+    source.tasks.return_value = [
+        factory("null", "Unrelated", notes=None),
+        factory("missing", "Also unrelated"),
+        factory("ordinary", "Other", notes="Ordinary notes."),
+    ]
+    del source.tasks.return_value[1]["notes"]
+    direct = await server.tools.search_advanced(type=kind)
+    async with Client(server.mcp) as client:
+        result = await client.call_tool(
+            "search_advanced", {"type": kind, "mode": "raw"}
+        )
+    sc = result.structured_content
+    assert not result.is_error
+    assert sc["items"] == direct
+    assert [item["uuid"] for item in sc["items"]] == [
+        "null", "missing", "ordinary",
+    ]
+    assert sc["count"] == sc["total"] == direct.total_count == 3
+    assert all(item["type"] == kind for item in sc["items"])
+    assert "notes" not in sc["items"][0]
+    assert "notes" not in sc["items"][1]
+    assert sc["items"][2]["notes"] == "Ordinary notes."
+    assert "next_offset" not in sc
+    assert source.tasks.call_count == 2
+    source.tasks.assert_called_with(type=kind, status=None)
+    source.todos.assert_not_called()
 
 
 async def test_malformed_search_row_is_tool_error(search_server):
@@ -147,6 +259,7 @@ async def test_real_advanced_search_validation_envelope(
     async with Client(server.mcp) as client:
         result = await client.call_tool("search_advanced", {"tag": "WORK"})
     sc = result.structured_content
+    assert not result.is_error
     assert sc["success"] is False
     assert sc["error"] == code
     assert "items" not in sc
