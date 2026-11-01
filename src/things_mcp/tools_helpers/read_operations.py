@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 import sys
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy, ScopedHelperAccessError
@@ -20,6 +20,24 @@ from .helpers import ToolsHelpers
 things = LazyThingsProxy()
 
 logger = logging.getLogger(__name__)
+
+
+def _matches_search_text(row: Mapping[str, object], query_lower: str) -> bool:
+    """Match raw title/notes without changing source or converted output.
+
+    Only missing/None fields mean empty text. Validate both fields before
+    matching so a valid title cannot conceal malformed notes (or vice versa).
+    The caller lowercases the query once; retain lower()/substring semantics.
+    """
+    texts: List[str] = []
+    for field in ("title", "notes"):
+        value = row.get(field)
+        if value is None:
+            value = ""
+        if not isinstance(value, str):
+            raise TypeError(f"Search row {field} must be a string or None")
+        texts.append(value.lower())
+    return any(query_lower in text for text in texts)
 
 
 class ListWithTotal(list):
@@ -839,10 +857,7 @@ class ReadOperations:
 
             matches = []
             for todo in all_todos:
-                title = todo.get('title', '').lower()
-                notes = todo.get('notes', '').lower()
-
-                if query_lower in title or query_lower in notes:
+                if _matches_search_text(todo, query_lower):
                     matches.append(todo)
 
             total_count = len(matches)
@@ -857,10 +872,8 @@ class ReadOperations:
             return ListWithTotal(results, total_count=total_count)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
             logger.error(f"Error in _search_sync: {e}")
-            return ListWithTotal([], total_count=0)
+            raise
 
     async def get_inbox(self, limit: Optional[int] = None) -> List[Dict]:
         """Get todos from Inbox."""
@@ -1783,11 +1796,8 @@ class ReadOperations:
             matches = []
             for todo in todos:
                 # Apply text search filter
-                if query:
-                    title = todo.get('title', '').lower()
-                    notes = todo.get('notes', '').lower()
-                    if query not in title and query not in notes:
-                        continue
+                if query and not _matches_search_text(todo, query):
+                    continue
 
                 matches.append(todo)
 
@@ -1819,10 +1829,8 @@ class ReadOperations:
             return [read_error('invalid_parameter', str(e))]
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
             logger.error(f"Error in _search_advanced_sync: {e}")
-            return ListWithTotal([], total_count=0)
+            raise
 
     async def get_recent(
         self, period: str,

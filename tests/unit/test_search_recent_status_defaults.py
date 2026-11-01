@@ -14,10 +14,13 @@ Covers:
 """
 
 import pytest
+from copy import deepcopy
+from functools import partial
 from unittest.mock import Mock, AsyncMock, MagicMock, patch
 
 from fastmcp import Client
 
+from fixtures.things_realistic import make_heading, make_project, make_todo
 from things_mcp.tools import ThingsTools
 from things_mcp.server import ThingsMCPServer
 
@@ -39,6 +42,157 @@ def mock_applescript_manager():
 @pytest.fixture
 def tools(mock_things, mock_applescript_manager):
     return ThingsTools(mock_applescript_manager)
+
+
+@pytest.fixture(params=["todos", "advanced", "to-do", "project", "heading"])
+def raw_search(request, tools, mock_things):
+    """Real workers; advanced query is internal, not a public MCP parameter."""
+    kind = request.param
+    factory = make_todo
+    if kind == "project":
+        factory = partial(make_project, area="area-1", area_title="Work")
+    elif kind == "heading":
+        factory = partial(make_heading, project="proj-1", project_title="Work")
+    typed = kind not in ("todos", "advanced")
+    source = mock_things.tasks if typed else mock_things.todos
+
+    async def search(rows, query="needle", **kwargs):
+        source.return_value = rows
+        if kind == "todos":
+            result = await tools.search_todos(query=query, **kwargs)
+            expected = {"status": kwargs.get("status", "incomplete")}
+        else:
+            filters = {"type": kind} if typed else {}
+            result = await tools.search_advanced(
+                query=query, **filters, **kwargs
+            )
+            expected = {"status": kwargs.get("status"), **filters}
+        source.assert_called_once_with(**expected)
+        other = mock_things.todos if typed else mock_things.tasks
+        other.assert_not_called()
+        return result
+
+    return search, factory
+
+
+class TestRawRowTextSearch:
+    """Normalize nullable text only while matching, not in source/output."""
+
+    @pytest.mark.parametrize("null_first", [True, False])
+    async def test_null_row_does_not_discard_matches(
+        self, raw_search, null_first
+    ):
+        search, factory = raw_search
+        null_row = factory("null", "Unrelated", notes=None)
+        match = factory("match", "A Needle!", notes="Original\nnotes.")
+        rows = [null_row, match] if null_first else [match, null_row]
+        before = deepcopy(rows)
+
+        result = await search(rows)
+
+        assert [row["uuid"] for row in result] == ["match"]
+        assert result.total_count == 1
+        assert result[0]["notes"] == "Original\nnotes."
+        assert rows == before
+
+    @pytest.mark.parametrize(
+        "fields,query,matched",
+        [
+            ({"title": "NEEDLE", "notes": None}, "needle", True),
+            ({"title": "NEEDLE"}, "needle", True),
+            ({"title": None, "notes": "A Needle!\nNext"}, "nEEdLe!\nn", True),
+            ({"notes": "A Needle!\nNext"}, "nEEdLe!\nn", True),
+            ({"title": "", "notes": "Needle"}, "needle", True),
+            ({"title": None, "notes": None}, "needle", False),
+            ({}, "needle", False),
+            ({"title": "", "notes": ""}, "needle", False),
+            ({"title": "other", "notes": "nothing"}, "needle", False),
+            # lower(), not casefold(): don't silently broaden string matching.
+            ({"title": "Straße", "notes": None}, "STRASSE", False),
+        ],
+    )
+    async def test_nullable_fields(self, raw_search, fields, query, matched):
+        search, factory = raw_search
+        row = factory("row", "placeholder")
+        del row["title"]
+        del row["notes"]
+        row.update(fields)
+        before = deepcopy(row)
+
+        result = await search([row], query=query)
+
+        assert result.total_count == int(matched)
+        assert len(result) == int(matched)
+        assert row == before
+        if matched:
+            assert result[0]["uuid"] == "row"
+            assert result[0]["type"] == row["type"]
+            for field in ("title", "notes"):
+                if fields.get(field) is None:
+                    assert field not in result[0]
+                else:
+                    assert result[0][field] == fields[field]
+            if row["type"] == "project":
+                assert result[0]["area"] == "area-1"
+                assert result[0]["areaTitle"] == "Work"
+            elif row["type"] == "heading":
+                assert result[0]["project"] == "proj-1"
+
+    async def test_empty_source(self, raw_search):
+        search, _ = raw_search
+        result = await search([])
+        assert result == []
+        assert result.total_count == 0
+
+    async def test_source_failure_propagates(self, raw_search, mock_things):
+        search, _ = raw_search
+        error = RuntimeError("synthetic source failure")
+        mock_things.todos.side_effect = error
+        mock_things.tasks.side_effect = error
+        with pytest.raises(RuntimeError) as raised:
+            await search([])
+        assert raised.value is error
+
+    @pytest.mark.parametrize("field", ["title", "notes"])
+    @pytest.mark.parametrize("bad", [0, False, 1, {}, [], b"needle", object()])
+    async def test_malformed_text_raises_even_after_match(
+        self, raw_search, field, bad
+    ):
+        search, factory = raw_search
+        good = factory("good", "needle")
+        broken = factory("broken", "needle", notes="needle")
+        broken[field] = bad
+
+        # A matching sibling field must not short-circuit validation; neither
+        # a matching earlier row nor pagination may conceal corrupt data.
+        with pytest.raises((TypeError, AttributeError)):
+            await search([good, broken], limit=1)
+        assert broken[field] is bad
+
+    @pytest.mark.parametrize(
+        "offset,expected", [(0, ["a"]), (1, ["b"]), (3, [])]
+    )
+    @pytest.mark.parametrize("status", [None, "completed", "canceled"])
+    async def test_pagination_after_matching(
+        self, raw_search, offset, expected, status
+    ):
+        search, factory = raw_search
+        rows = [
+            factory("skip", "Unrelated", notes=None),
+            factory("a", "Needle", notes=None, status=status or "incomplete"),
+            factory("skip2", "", notes=None),
+            factory("b", "NEEDLE", status=status or "incomplete"),
+            factory("c", "Needle", status=status or "incomplete"),
+        ]
+
+        result = await search(rows, limit=1, offset=offset, status=status)
+
+        assert [row["uuid"] for row in result] == expected
+        assert result.total_count == 3
+        for row in result:
+            assert row["status"] == (status or "incomplete")
+            if row["uuid"] == "a":
+                assert "notes" not in row
 
 
 class TestSearchTodosStatusDefault:

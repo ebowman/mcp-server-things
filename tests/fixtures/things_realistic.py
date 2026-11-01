@@ -45,6 +45,10 @@ make_tag) to build realistic rows for ad-hoc test data, or the canned
 REALISTIC_MIXED_LIST / REALISTIC_* constants below for drop-in replacement
 of tame mocks at the six things.* list call sites
 (anytime/someday/today/upcoming/inbox/todos).
+
+To-do/project/heading factories accept notes=None to model nullable database
+text; the existing default remains "". Remove keys explicitly in tests that
+need missing-field rows rather than changing every fixture's default shape.
 """
 
 from typing import Any, Dict, List, Optional
@@ -60,7 +64,7 @@ def make_todo(
     *,
     status: str = "incomplete",
     start: str = "Anytime",
-    notes: str = "",
+    notes: Optional[str] = "",
     tags: Optional[List[str]] = None,
     heading: Optional[str] = None,
     heading_title: Optional[str] = None,
@@ -127,7 +131,7 @@ def make_project(
     *,
     status: str = "incomplete",
     start: str = "Anytime",
-    notes: str = "",
+    notes: Optional[str] = "",
     area: Optional[str] = None,
     area_title: Optional[str] = None,
     tags: Optional[List[str]] = None,
@@ -185,7 +189,7 @@ def make_heading(
     project_title: str,
     status: str = "incomplete",
     start: str = "Anytime",
-    notes: str = "",
+    notes: Optional[str] = "",
     start_date: Optional[str] = None,
     deadline: Optional[str] = None,
     stop_date: Optional[str] = None,

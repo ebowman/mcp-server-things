@@ -1,16 +1,20 @@
 """Tests for FastMCP structured_content on read tools.
 
 These tests exercise the real ThingsMCPServer + FastMCP tool registration via an
-in-memory fastmcp.Client (no stdio, no real Things 3). The ThingsTools layer is
-replaced with a mock so nothing touches AppleScript/things.py.
+in-memory fastmcp.Client (no stdio, no real Things 3). Most mock ThingsTools;
+search regressions use real ThingsTools with mocked source I/O.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+import sqlite3
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
+from fixtures.things_realistic import make_todo
 from things_mcp.server import ThingsMCPServer
+from things_mcp.tools import ThingsTools
 
 
 SAMPLE_TODO = {
@@ -55,6 +59,115 @@ def _make_server_with_mock_tools(**overrides):
 
 
 REQUIRED_LIST_KEYS = {"items", "count", "total", "mode", "requested_mode", "limit", "offset"}
+
+
+@pytest.fixture
+def search_server():
+    """Mock the entire I/O proxy, not the search result or worker."""
+    with patch("things_mcp.tools_helpers.read_operations.things") as source:
+        server = ThingsMCPServer()
+        server.tools = ThingsTools(MagicMock())
+        yield server, source
+
+
+@pytest.mark.parametrize("tool", ["search_todos", "search_advanced"])
+class TestRealSearchStructuredOutput:
+    async def test_nullable_notes_pagination(self, search_server, tool):
+        server, source = search_server
+        source.todos.return_value = [
+            make_todo("a", "Needle", notes=None),
+            make_todo("b", "NEEDLE", notes=None),
+            make_todo("c", "Needle", notes=""),
+        ]
+        # Public advanced search is FILTER-ONLY; do not pass internal query.
+        args = {"query": "needle"} if tool == "search_todos" else {}
+        async with Client(server.mcp) as client:
+            result = await client.call_tool(
+                tool, {**args, "mode": "raw", "limit": 1, "offset": 1}
+            )
+        sc = result.structured_content
+        assert not result.is_error
+        assert REQUIRED_LIST_KEYS <= sc.keys()
+        assert sc["count"] == 1
+        assert sc["total"] == 3
+        assert sc["limit"] == 1
+        assert sc["offset"] == 1
+        assert sc["items"][0]["uuid"] == "b"
+        assert "notes" not in sc["items"][0]
+        assert source.todos.return_value[1]["notes"] is None
+
+    async def test_source_failure_is_tool_error(self, search_server, tool):
+        server, source = search_server
+        source.todos.side_effect = RuntimeError("synthetic source failure")
+        args = {"query": "needle"} if tool == "search_todos" else {}
+        async with Client(server.mcp) as client:
+            with pytest.raises(ToolError):
+                await client.call_tool(tool, args)
+        source.todos.assert_called_once()
+
+    async def test_db_denial_retains_envelope(self, search_server, tool):
+        server, source = search_server
+        source.todos.side_effect = sqlite3.OperationalError(
+            "unable to open database file"
+        )
+        args = {"query": "needle"} if tool == "search_todos" else {}
+        async with Client(server.mcp) as client:
+            result = await client.call_tool(tool, args)
+        sc = result.structured_content
+        assert sc["success"] is False
+        assert sc["error"] == "database_access_denied"
+        assert "items" not in sc
+        assert "total" not in sc
+        source.todos.assert_called_once()
+
+
+async def test_malformed_search_row_is_tool_error(search_server):
+    server, source = search_server
+    row = make_todo("bad", "needle")
+    row["notes"] = 0
+    source.todos.return_value = [row]
+    async with Client(server.mcp) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool("search_todos", {"query": "needle"})
+
+
+@pytest.mark.parametrize(
+    "message,code",
+    [
+        ("Unrecognized tag type: 'WORK'", "unknown_tag"),
+        ("Invalid start_date argument", "invalid_parameter"),
+    ],
+)
+async def test_real_advanced_search_validation_envelope(
+    search_server, message, code
+):
+    server, source = search_server
+    source.todos.side_effect = ValueError(message)
+    source.tags.return_value = [{"uuid": "tag-1", "title": "Work"}]
+    async with Client(server.mcp) as client:
+        result = await client.call_tool("search_advanced", {"tag": "WORK"})
+    sc = result.structured_content
+    assert sc["success"] is False
+    assert sc["error"] == code
+    assert "items" not in sc
+    assert "total" not in sc
+    if code == "unknown_tag":
+        assert sc["tag"] == "WORK"
+        assert sc["suggestions"] == ["Work"]
+    else:
+        assert sc["message"] == message
+        source.tags.assert_not_called()
+    source.todos.assert_called_once()
+
+
+async def test_public_advanced_search_has_no_query_parameter(search_server):
+    server, source = search_server
+    async with Client(server.mcp) as client:
+        tools = await client.list_tools()
+    advanced = next(tool for tool in tools if tool.name == "search_advanced")
+    assert "query" not in advanced.inputSchema["properties"]
+    source.todos.assert_not_called()
+    source.tasks.assert_not_called()
 
 
 class TestStructuredContentShape:
