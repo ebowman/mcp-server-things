@@ -159,16 +159,15 @@ async def test_get_trash_offset_beyond_total(things_tools):
 
 @pytest.mark.asyncio
 async def test_get_trash_error_handling(things_tools):
-    """Test get_trash error handling."""
-    with patch('things_mcp.tools_helpers.read_operations.things.trash', side_effect=Exception("Database error")):
-        result = await things_tools.get_trash()
-
-        # Implementation returns empty result on error (error is logged)
-        assert result['total_count'] == 0
-        assert result['limit'] == 50
-        assert result['offset'] == 0
-        assert result['has_more'] is False
-        assert len(result['items']) == 0
+    """A failed Trash read is not a successful empty pagination envelope."""
+    error = RuntimeError("Database error")
+    with patch(
+        'things_mcp.tools_helpers.read_operations.things.trash',
+        side_effect=error,
+    ):
+        with pytest.raises(RuntimeError) as raised:
+            await things_tools.get_trash()
+        assert raised.value is error
 
 
 @pytest.mark.asyncio

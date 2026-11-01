@@ -552,10 +552,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_todos_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_todos_sync: {e}")
+            raise
 
     async def get_projects(self, include_items: bool = False) -> List[Dict]:
         """Get all projects using things.py."""
@@ -584,10 +582,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_projects_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_projects_sync: {e}")
+            raise
 
     async def get_areas(self, include_items: bool = False) -> List[Dict]:
         """Get all areas using things.py."""
@@ -619,10 +615,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_areas_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_areas_sync: {e}")
+            raise
 
     async def get_tags(self, include_items: bool = False) -> List[Dict]:
         """Get all tags using things.py."""
@@ -666,10 +660,8 @@ class ReadOperations:
             return result
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_tags_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_tags_sync: {e}")
+            raise
 
     async def get_tag_usage(self, only_unused: bool = False, mode: str = 'standard') -> Dict[str, Any]:
         """Report per-tag usage counts (open/total/area) in a single pass over todos,
@@ -897,10 +889,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_inbox_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_inbox_sync: {e}")
+            raise
 
     async def get_today(self, limit: Optional[int] = None,
                          include_projects: bool = False) -> List[Dict]:
@@ -933,10 +923,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_today_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_today_sync: {e}")
+            raise
 
     async def get_upcoming(self, limit: Optional[int] = None,
                             include_projects: bool = False) -> List[Dict]:
@@ -969,10 +957,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_upcoming_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_upcoming_sync: {e}")
+            raise
 
     async def get_anytime(self, limit: Optional[int] = None,
                            include_projects: bool = False) -> List[Dict]:
@@ -1005,10 +991,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_anytime_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_anytime_sync: {e}")
+            raise
 
     async def get_someday(self, limit: Optional[int] = None,
                            include_project_tasks: bool = False,
@@ -1079,10 +1063,8 @@ class ReadOperations:
             return _fill_project_from_heading(result)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_someday_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_someday_sync: {e}")
+            raise
 
     async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
                            include_canceled: bool = True) -> List[Dict]:
@@ -1156,10 +1138,8 @@ class ReadOperations:
             return ListWithTotal(windowed, total_count=total_count)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_logbook_sync: {e}")
-            return ListWithTotal([], total_count=0)
+            logger.exception(f"Error in _get_logbook_sync: {e}")
+            raise
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
                          include_projects: bool = False) -> Dict[str, Any]:
@@ -1199,16 +1179,8 @@ class ReadOperations:
             }
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_trash_sync: {e}")
-            return {
-                'items': [],
-                'total_count': 0,
-                'limit': limit,
-                'offset': offset,
-                'has_more': False
-            }
+            logger.exception(f"Error in _get_trash_sync: {e}")
+            raise
 
     async def get_tagged_items(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
         """Get todos with a specific tag.
@@ -1234,19 +1206,23 @@ class ReadOperations:
             title matches from ``things.tags()``.
         """
         try:
-            tagged_todos = things.todos(tag=tag)
+            try:
+                tagged_todos = things.todos(tag=tag)
+            except ValueError as e:
+                # Only the source lookup's known rejection means unknown tag;
+                # conversion and unrelated query errors must propagate.
+                if 'Unrecognized tag type' in str(e):
+                    logger.info(
+                        f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}"
+                    )
+                    return _build_unknown_tag_error(tag)
+                raise
             converted = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
             return _fill_project_from_heading(converted)
 
-        except ValueError as e:
-            logger.info(f"Unknown tag '{tag}' in _get_tagged_items_sync: {e}")
-            return _build_unknown_tag_error(tag)
-
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_tagged_items_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_tagged_items_sync: {e}")
+            raise
 
     async def get_project_headings(self, project_id: str) -> Dict[str, Any]:
         """Get the heading structure of a project, in Things' display order.
@@ -1569,10 +1545,8 @@ class ReadOperations:
             converted = [ToolsHelpers.convert_todo(t) for t in due_todos]
             return _fill_project_from_heading(converted)
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_due_in_days_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_due_in_days_sync: {e}")
+            raise
 
     async def get_todos_due_in_days(self, days: int, include_overdue: bool = True) -> List[Dict[str, Any]]:
         """Alias for get_due_in_days."""
@@ -1608,10 +1582,8 @@ class ReadOperations:
             converted = [ToolsHelpers.convert_todo(t) for t in activating_todos]
             return _fill_project_from_heading(converted)
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_activating_in_days_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_activating_in_days_sync: {e}")
+            raise
 
     async def get_todos_activating_in_days(self, days: int) -> List[Dict[str, Any]]:
         """Alias for get_activating_in_days."""
@@ -1667,10 +1639,8 @@ class ReadOperations:
             return _fill_project_from_heading(results)
 
         except Exception as e:
-            if is_db_access_error(e):
-                raise
-            logger.error(f"Error in _get_todos_upcoming_in_days_sync: {e}")
-            return []
+            logger.exception(f"Error in _get_todos_upcoming_in_days_sync: {e}")
+            raise
 
     async def search_advanced(self, **filters) -> List[Dict[str, Any]]:
         """Advanced search with multiple filters.
@@ -1890,9 +1860,7 @@ class ReadOperations:
                 return _fill_project_from_heading(results)
 
             except Exception as e:
-                if is_db_access_error(e):
-                    raise
-                logger.error(f"Error in _get_recent_sync: {e}")
-                return []
+                logger.exception(f"Error in _get_recent_sync: {e}")
+                raise
 
         return await loop.run_in_executor(None, _get_recent_sync)
