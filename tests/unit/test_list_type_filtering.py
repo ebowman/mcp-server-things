@@ -35,7 +35,16 @@ def mock_applescript_manager():
 
 @pytest.fixture
 def tools(mock_applescript_manager):
-    return ThingsTools(mock_applescript_manager)
+    # Type-filter tests have no Someday projects. Mock the required membership
+    # lookup and optional heading metadata rather than relying on DB failures.
+    with patch(
+        'things_mcp.tools_helpers.read_operations.things.projects',
+        return_value=[],
+    ), patch(
+        'things_mcp.tools_helpers.read_operations.things.tasks',
+        return_value=[],
+    ):
+        yield ThingsTools(mock_applescript_manager)
 
 
 def _uuids(items):

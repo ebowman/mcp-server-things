@@ -140,7 +140,8 @@ def _things_todos(**kwargs: Any) -> List[Dict[str, Any]]:
     tag = kwargs.get("tag")
     heading = kwargs.get("heading")
     if tag is not None:
-        if tag == TAG_1["title"] or tag in ("errands",):
+        # Every listed tag must support the required get_tags count lookup.
+        if tag in {t["title"] for t in REALISTIC_TAGS} or tag == "errands":
             return [t for t in REALISTIC_TODOS_ONLY if tag in (t.get("tags") or [])] or [TODO_1]
         raise ValueError(f"Unrecognized tag type: {tag}")
     if heading is not None:

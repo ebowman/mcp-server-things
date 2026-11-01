@@ -42,8 +42,12 @@ def scheduler(mock_applescript_manager):
 
 @pytest.fixture
 def tools(mock_applescript_manager):
-    """Create a ThingsTools instance."""
-    return ThingsTools(mock_applescript_manager)
+    """Create tools with no Someday projects for these date-window tests."""
+    with patch(
+        'things_mcp.tools_helpers.read_operations.things.projects',
+        return_value=[],
+    ):
+        yield ThingsTools(mock_applescript_manager)
 
 
 @pytest.fixture

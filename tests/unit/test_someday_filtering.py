@@ -44,6 +44,19 @@ def tools(mock_applescript_manager):
     return ThingsTools(mock_applescript_manager)
 
 
+@pytest.fixture
+def realistic_heading_sources():
+    """Supply membership and optional metadata for the mixed-list fixtures."""
+    with patch(
+        'things_mcp.tools_helpers.read_operations.things.get',
+        return_value=REALISTIC_HEADING,
+    ), patch(
+        'things_mcp.tools_helpers.read_operations.things.tasks',
+        return_value=[REALISTIC_HEADING],
+    ):
+        yield
+
+
 SOMEDAY_PROJECT = {'uuid': 'proj-someday', 'title': 'Someday Project', 'start': 'Someday'}
 ANYTIME_PROJECT = {'uuid': 'proj-anytime', 'title': 'Active Project', 'start': 'Anytime'}
 
@@ -133,16 +146,15 @@ class TestFilterSomedayProjectTasks:
         mock_projects.return_value = [SOMEDAY_PROJECT]
         assert filter_someday_project_tasks([]) == []
 
-    # -- Defensive / missing data cases --------------------------------
+    # -- Required lookup failures versus successful absence --------------
 
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
-    def test_project_lookup_exception_keeps_all_todos(self, mock_projects):
+    def test_project_lookup_exception_propagates(self, mock_projects):
         mock_projects.side_effect = Exception("db error")
         todos = [TASK_DIRECT_SOMEDAY, TASK_STANDALONE]
 
-        result = filter_someday_project_tasks(todos)
-
-        assert len(result) == 2
+        with pytest.raises(Exception, match="db error"):
+            filter_someday_project_tasks(todos)
 
     @patch('things_mcp.tools_helpers.read_operations.things.get')
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
@@ -161,16 +173,16 @@ class TestFilterSomedayProjectTasks:
 
     @patch('things_mcp.tools_helpers.read_operations.things.get')
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
-    def test_heading_lookup_exception_keeps_todo(self, mock_projects, mock_get):
+    def test_heading_lookup_exception_propagates(
+        self, mock_projects, mock_get,
+    ):
         mock_projects.return_value = [SOMEDAY_PROJECT]
         mock_get.side_effect = Exception("lookup failed")
 
         todos = [TASK_HEADING_SOMEDAY]
 
-        result = filter_someday_project_tasks(todos)
-
-        assert len(result) == 1
-        assert result[0]['uuid'] == 'task-heading'
+        with pytest.raises(Exception, match="lookup failed"):
+            filter_someday_project_tasks(todos)
 
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     def test_project_missing_uuid_ignored(self, mock_projects):
@@ -210,9 +222,10 @@ class TestGetSomedayProjectIds:
         mock_projects.assert_called_once_with(start='Someday')
 
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
-    def test_exception_returns_empty_set(self, mock_projects):
+    def test_exception_propagates(self, mock_projects):
         mock_projects.side_effect = Exception("boom")
-        assert _get_someday_project_ids() == set()
+        with pytest.raises(Exception, match="boom"):
+            _get_someday_project_ids()
 
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     def test_none_return_value(self, mock_projects):
@@ -321,7 +334,9 @@ class TestReadToolsApplySomedayFilter:
     @pytest.mark.asyncio
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.today')
-    async def test_get_today_realistic_mock_no_project_or_heading_leak(self, mock_today, mock_projects, tools):
+    async def test_get_today_realistic_mock_no_project_or_heading_leak(
+        self, mock_today, mock_projects, tools, realistic_heading_sources,
+    ):
         mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
         mock_today.return_value = REALISTIC_MIXED_LIST
 
@@ -334,7 +349,9 @@ class TestReadToolsApplySomedayFilter:
     @pytest.mark.asyncio
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.anytime')
-    async def test_get_anytime_realistic_mock_no_project_or_heading_leak(self, mock_anytime, mock_projects, tools):
+    async def test_get_anytime_realistic_mock_no_project_or_heading_leak(
+        self, mock_anytime, mock_projects, tools, realistic_heading_sources,
+    ):
         mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
         mock_anytime.return_value = REALISTIC_MIXED_LIST
 
@@ -347,7 +364,9 @@ class TestReadToolsApplySomedayFilter:
     @pytest.mark.asyncio
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.upcoming')
-    async def test_get_upcoming_realistic_mock_no_project_or_heading_leak(self, mock_upcoming, mock_projects, tools):
+    async def test_get_upcoming_realistic_mock_no_project_or_heading_leak(
+        self, mock_upcoming, mock_projects, tools, realistic_heading_sources,
+    ):
         mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
         mock_upcoming.return_value = REALISTIC_MIXED_LIST
 
@@ -360,7 +379,9 @@ class TestReadToolsApplySomedayFilter:
     @pytest.mark.asyncio
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.inbox')
-    async def test_get_inbox_realistic_mock_no_project_or_heading_leak(self, mock_inbox, mock_projects, tools):
+    async def test_get_inbox_realistic_mock_no_project_or_heading_leak(
+        self, mock_inbox, mock_projects, tools, realistic_heading_sources,
+    ):
         mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
         mock_inbox.return_value = REALISTIC_MIXED_LIST
 
@@ -373,7 +394,9 @@ class TestReadToolsApplySomedayFilter:
     @pytest.mark.asyncio
     @patch('things_mcp.tools_helpers.read_operations.things.projects')
     @patch('things_mcp.tools_helpers.read_operations.things.someday')
-    async def test_get_someday_realistic_mock_no_project_or_heading_leak(self, mock_someday, mock_projects, tools):
+    async def test_get_someday_realistic_mock_no_project_or_heading_leak(
+        self, mock_someday, mock_projects, tools, realistic_heading_sources,
+    ):
         mock_projects.return_value = [REALISTIC_SOMEDAY_PROJECT, REALISTIC_ANYTIME_PROJECT]
         mock_someday.return_value = REALISTIC_MIXED_LIST
 

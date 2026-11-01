@@ -73,7 +73,12 @@ class TestBoundaryConditions:
     @pytest.mark.asyncio
     async def test_max_days_parameter(self, tools_with_mock):
         """Test date range functions with maximum days (365)."""
-        with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
+        with patch(
+            'things_mcp.tools_helpers.read_operations.things.todos',
+        ) as mock_todos, patch(
+            'things_mcp.tools_helpers.read_operations.things.projects',
+            return_value=[],
+        ):
             mock_todos.return_value = [
                 {
                     "uuid": "todo-1",
@@ -877,7 +882,12 @@ class TestEmptyResults:
     @pytest.mark.asyncio
     async def test_get_today_empty(self, tools_with_mock):
         """Test getting today when empty."""
-        with patch('things_mcp.tools_helpers.read_operations.things.today') as mock_today:
+        with patch(
+            'things_mcp.tools_helpers.read_operations.things.today',
+        ) as mock_today, patch(
+            'things_mcp.tools_helpers.read_operations.things.projects',
+            return_value=[],
+        ):
             mock_today.return_value = []
 
             result = await tools_with_mock.get_today()

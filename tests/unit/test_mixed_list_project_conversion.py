@@ -30,7 +30,12 @@ def mock_applescript_manager():
 
 @pytest.fixture
 def tools(mock_applescript_manager):
-    return ThingsTools(mock_applescript_manager)
+    # Mixed-list tests have no Someday projects; membership is a required read.
+    with patch(
+        'things_mcp.tools_helpers.read_operations.things.projects',
+        return_value=[],
+    ):
+        yield ThingsTools(mock_applescript_manager)
 
 
 def _by_uuid(items, uuid):

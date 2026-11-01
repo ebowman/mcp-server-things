@@ -71,19 +71,14 @@ def _get_someday_project_ids() -> set:
     itself as scheduled for today/anytime. This loads the set of Someday
     project UUIDs once so callers can filter tasks accordingly.
 
-    Defensive: any failure talking to things.py results in an empty set,
-    which means no filtering is applied (todos are kept).
+    Lookup failures propagate: an unknown membership set must not disable
+    filtering. A successful empty/None lookup still means no filtering.
 
     Returns:
-        Set of project UUIDs with start == 'Someday'. Empty set on error
-        or if there are no Someday projects.
+        Set of project UUIDs with start == 'Someday', empty if none exist.
     """
-    try:
-        someday_projects = things.projects(start='Someday') or []
-        return {p['uuid'] for p in someday_projects if p.get('uuid')}
-    except Exception as e:
-        logger.debug(f"Error loading Someday project ids: {e}")
-        return set()
+    someday_projects = things.projects(start='Someday') or []
+    return {p['uuid'] for p in someday_projects if p.get('uuid')}
 
 
 def read_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
@@ -233,19 +228,15 @@ def _resolve_heading_project(heading_uuid: str, cache: Dict[str, Optional[str]])
 
     Returns:
         The parent project UUID, or None if the heading is missing/deleted
-        or otherwise cannot be resolved.
+        or has no project. Actual lookup failures propagate and are not cached.
     """
     if heading_uuid in cache:
         return cache[heading_uuid]
 
     project_uuid = None
-    try:
-        heading = things.get(heading_uuid)
-        if heading:
-            project_uuid = heading.get('project')
-    except Exception as e:
-        logger.debug(f"Error resolving heading {heading_uuid}: {e}")
-        project_uuid = None
+    heading = things.get(heading_uuid)
+    if heading:
+        project_uuid = heading.get('project')
 
     cache[heading_uuid] = project_uuid
     return project_uuid
@@ -372,9 +363,10 @@ def filter_someday_project_tasks(todos: List[Dict[str, Any]]) -> List[Dict[str, 
     Handles both tasks directly assigned to a Someday project and tasks
     parented under a heading that belongs to a Someday project.
 
-    Todos without a project (standalone) are always kept. Any error while
-    resolving Someday project/heading membership is treated defensively as
-    "not Someday" (the todo is kept).
+    Standalone todos and successfully looked-up missing headings are kept.
+    Errors resolving project/heading membership propagate to the caller;
+    unknown membership must not be reported as "not Someday". A successful
+    lookup with no Someday projects returns the input unchanged.
 
     Args:
         todos: List of raw things.py todo dicts.
@@ -455,7 +447,13 @@ def convert_item(raw_item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class ReadOperations:
-    """Read operations using things.py for fast direct database access."""
+    """Read operations using things.py for fast direct database access.
+
+    Requested nested contents, reported tag counts (in either include_items
+    mode), and Someday membership are required reads: failures propagate to
+    the existing whole-request error boundary, never partial success.
+    Documented optional metadata enrichment remains best effort.
+    """
 
     def __init__(self, applescript_manager: AppleScriptManager):
         """Initialize read operations.
@@ -541,11 +539,11 @@ class ReadOperations:
                 converted = ToolsHelpers.convert_todo(todo)
 
                 if include_items and todo.get('uuid'):
-                    try:
-                        items = things.checklist_items(todo['uuid'])
-                        converted['checklist'] = [{'title': i['title'], 'status': i['status']} for i in items]
-                    except Exception as e:
-                        logger.error(f"Error getting checklist items: {e}")
+                    items = things.checklist_items(todo['uuid'])
+                    converted['checklist'] = [
+                        {'title': i['title'], 'status': i['status']}
+                        for i in items
+                    ]
 
                 result.append(converted)
 
@@ -570,12 +568,13 @@ class ReadOperations:
                 converted = ToolsHelpers.convert_project(project)
 
                 if include_items and project.get('uuid'):
-                    try:
-                        project_todos = things.todos(project=project['uuid'])
-                        converted_todos = [ToolsHelpers.convert_todo(t) for t in project_todos]
-                        converted['todos'] = _fill_project_from_heading(converted_todos)
-                    except Exception as e:
-                        logger.error(f"Error getting project todos: {e}")
+                    project_todos = things.todos(project=project['uuid'])
+                    converted_todos = [
+                        ToolsHelpers.convert_todo(t) for t in project_todos
+                    ]
+                    converted['todos'] = _fill_project_from_heading(
+                        converted_todos
+                    )
 
                 result.append(converted)
 
@@ -600,15 +599,18 @@ class ReadOperations:
                 converted = ToolsHelpers.convert_area(area)
 
                 if include_items and area.get('uuid'):
-                    try:
-                        area_projects = things.projects(area=area['uuid'])
-                        converted['projects'] = [ToolsHelpers.convert_project(p) for p in area_projects]
+                    area_projects = things.projects(area=area['uuid'])
+                    converted['projects'] = [
+                        ToolsHelpers.convert_project(p) for p in area_projects
+                    ]
 
-                        area_todos = things.todos(area=area['uuid'])
-                        converted_todos = [ToolsHelpers.convert_todo(t) for t in area_todos]
-                        converted['todos'] = _fill_project_from_heading(converted_todos)
-                    except Exception as e:
-                        logger.error(f"Error getting area items: {e}")
+                    area_todos = things.todos(area=area['uuid'])
+                    converted_todos = [
+                        ToolsHelpers.convert_todo(t) for t in area_todos
+                    ]
+                    converted['todos'] = _fill_project_from_heading(
+                        converted_todos
+                    )
 
                 result.append(converted)
 
@@ -637,23 +639,18 @@ class ReadOperations:
 
                 if include_items:
                     tag_title = tag.get('title', tag.get('name', ''))
-                    try:
-                        tagged_todos = things.todos(tag=tag_title)
-                        converted_todos = [ToolsHelpers.convert_todo(t) for t in tagged_todos]
-                        tag_dict['todos'] = _fill_project_from_heading(converted_todos)
-                        tag_dict['count'] = len(tagged_todos)
-                    except Exception as e:
-                        logger.error(f"Error getting tagged items: {e}")
-                        tag_dict['todos'] = []
-                        tag_dict['count'] = 0
+                    tagged_todos = things.todos(tag=tag_title)
+                    converted_todos = [
+                        ToolsHelpers.convert_todo(t) for t in tagged_todos
+                    ]
+                    tag_dict['todos'] = _fill_project_from_heading(
+                        converted_todos
+                    )
+                    tag_dict['count'] = len(tagged_todos)
                 else:
                     tag_title = tag.get('title', tag.get('name', ''))
-                    try:
-                        tagged_todos = things.todos(tag=tag_title)
-                        tag_dict['count'] = len(tagged_todos)
-                    except Exception as e:
-                        logger.error(f"Error counting tagged items: {e}")
-                        tag_dict['count'] = 0
+                    tagged_todos = things.todos(tag=tag_title)
+                    tag_dict['count'] = len(tagged_todos)
 
                 result.append(tag_dict)
 
@@ -1008,6 +1005,8 @@ class ReadOperations:
                 items are returned, since inherited items on databases with
                 many Someday projects can be very large and crowd out the
                 native items when responses are paginated/truncated.
+                When requested, inherited-task and membership lookup failures
+                fail the whole request rather than omit inherited tasks.
             include_projects: If True, also include Someday projects
                 themselves. Defaults to False - headings are never returned;
                 projects are excluded unless this flag is set, matching the
@@ -1037,11 +1036,7 @@ class ReadOperations:
                 if someday_project_ids:
                     existing_uuids = {t.get('uuid') for t in someday_todos}
                     heading_cache: Dict[str, Optional[str]] = {}
-                    try:
-                        other_todos = things.todos(status='incomplete') or []
-                    except Exception as e:
-                        logger.debug(f"Error loading todos for inherited Someday check: {e}")
-                        other_todos = []
+                    other_todos = things.todos(status='incomplete') or []
 
                     for todo in other_todos:
                         uuid = todo.get('uuid')
