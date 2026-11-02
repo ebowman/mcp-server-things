@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `bulk_update_todos` with `tag_creation_policy=fail_on_unknown` and an unknown tag now returns the structured `VALIDATION_ERROR` (field `tags`) instead of a generic `APPLESCRIPT_ERROR`; the tag-policy `ValidationError` was raised with the wrong constructor arguments. (hq-1rm)
+- `bulk_move` (MCP `bulk_move_records`) no longer aborts the whole batch with `BULK_MOVE_ERROR` when one move is cancelled or interrupted (`asyncio.CancelledError` and other non-`Exception` `BaseException`s); that item is now reported in `failed_moves` with `error: "EXCEPTION"`. (hq-oh8)
+
 ### Removed
 
 - Removed the unused `things_mcp.services.ErrorHandler` module. The server never instantiated it, and its model constructor calls could not succeed. (hq-6zw.6)
@@ -15,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `bulk_update_todos` with `tag_creation_policy=fail_on_unknown` and an unknown tag now returns the structured `VALIDATION_ERROR` (field `tags`) instead of a generic `APPLESCRIPT_ERROR`; the tag-policy `ValidationError` was raised with the wrong constructor arguments. (hq-1rm)
 - **Nullable search text no longer erases valid matches (GH #21).** Missing
   or null titles/notes are treated as empty text during matching in
   `search_todos` and internal advanced text search. Previously, calling

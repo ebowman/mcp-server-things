@@ -196,7 +196,7 @@ class MoveOperationsTools:
             for i, result in enumerate(results):
                 todo_id = todo_ids[i]
 
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     failed_moves.append({
                         "id": todo_id,
                         "error": "EXCEPTION",
