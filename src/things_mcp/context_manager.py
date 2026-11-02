@@ -71,7 +71,7 @@ class ResponseSizeEstimator:
     BASE_TAG_SIZE = 160      # Tags with metadata
 
     # Field size multipliers (calibrated from real usage)
-    FIELD_SIZES = {
+    FIELD_SIZES: Dict[str, float] = {
         'notes': 2.2,         # Rich text + JSON escaping overhead
         'checklist_items': 35,  # Per item + array overhead
         'tag_names': 25,       # Tag names + array structure
@@ -80,7 +80,7 @@ class ResponseSizeEstimator:
         'dates': 35,          # ISO timestamps
     }
 
-    def calculate_accurate_size(self, item: Dict[str, Any], mode: ResponseMode) -> int:
+    def calculate_accurate_size(self, item: Dict[str, Any], mode: ResponseMode) -> float:
         """Calculate more accurate size based on actual field content."""
         if mode == ResponseMode.SUMMARY:
             return 55  # Just core fields
@@ -88,7 +88,7 @@ class ResponseSizeEstimator:
             return 180  # Essential fields only
 
         # Calculate based on actual content
-        size = self.BASE_TODO_SIZE if 'name' in item else self.BASE_TAG_SIZE
+        size: float = self.BASE_TODO_SIZE if 'name' in item else self.BASE_TAG_SIZE
 
         # Add dynamic field sizes
         if 'notes' in item and item['notes']:
@@ -112,14 +112,14 @@ class ResponseSizeEstimator:
 
         return size
 
-    def estimate_todo_size(self, todo: Dict[str, Any], mode: ResponseMode) -> int:
+    def estimate_todo_size(self, todo: Dict[str, Any], mode: ResponseMode) -> float:
         """Estimate size of a todo object based on response mode."""
         if mode == ResponseMode.SUMMARY:
             return 50  # Just name, id, status
         elif mode == ResponseMode.MINIMAL:
             return 200  # Essential fields
         elif mode == ResponseMode.STANDARD:
-            size = self.BASE_TODO_SIZE
+            size: float = self.BASE_TODO_SIZE
             if 'notes' in todo and todo['notes']:
                 size += len(todo['notes']) * self.FIELD_SIZES['notes']
             if 'tag_names' in todo:
@@ -135,13 +135,13 @@ class ResponseSizeEstimator:
                 size += len(todo['tag_names']) * self.FIELD_SIZES['tag_names']
             return size
 
-    def estimate_response_size(self, data: List[Dict[str, Any]], mode: ResponseMode) -> int:
+    def estimate_response_size(self, data: List[Dict[str, Any]], mode: ResponseMode) -> float:
         """Estimate total response size for a list of objects using accurate calculations."""
         if not data:
             return 150  # Empty response overhead
 
         # Use accurate size calculation for better estimates
-        total_size = 0
+        total_size: float = 0
         sample_size = min(10, len(data))  # Larger sample for accuracy
 
         for item in data[:sample_size]:
@@ -285,11 +285,11 @@ class ProgressiveDisclosureEngine:
             allowed_fields = ContextAwareResponseManager.PROJECT_FIELD_SETS[ResponseMode.SUMMARY]
         else:
             allowed_fields = ContextAwareResponseManager.TODO_FIELD_SETS[ResponseMode.SUMMARY]
-        return {k: v for k, v in item.items() if k in allowed_fields}
+        return {k: v for k, v in item.items() if k in (allowed_fields or set())}
 
     def _summarize_todos(self, todos: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create todo-specific summary."""
-        status_counts = {}
+        status_counts: Dict[str, int] = {}
         overdue_count = 0
         today_count = 0
 
@@ -364,7 +364,7 @@ class ProgressiveDisclosureEngine:
     def _summarize_logbook(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create logbook-specific summary."""
         # Group by completion date
-        dates = {}
+        dates: Dict[str, Any] = {}
         for entry in entries:
             completion_date = entry.get('completion_date', 'unknown')
             if completion_date:
@@ -381,8 +381,8 @@ class ProgressiveDisclosureEngine:
 
     def _summarize_search_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create search-specific summary."""
-        status_counts = {}
-        recent_items = []
+        status_counts: Dict[str, int] = {}
+        recent_items: List[Any] = []
 
         for result in results:
             status = result.get('status', 'open')
@@ -504,7 +504,7 @@ class ContextAwareResponseManager:
 
     def _handle_oversized_response(self, data: List[Dict[str, Any]], method_name: str,
                                    mode: ResponseMode, params: Dict[str, Any],
-                                   estimated_size: int) -> Dict[str, Any]:
+                                   estimated_size: float) -> Dict[str, Any]:
         """Handle responses that exceed context budget.
 
         hq-cal.2: this is the *implicit* budget-truncation path - it fires even when
@@ -826,21 +826,21 @@ class ContextAwareResponseManager:
                     "enabled": True,
                     "description": "Filters fields based on response mode to reduce size",
                     "field_sets": {
-                        "summary": sorted(self.TODO_FIELD_SETS[ResponseMode.SUMMARY]),
-                        "minimal": sorted(self.TODO_FIELD_SETS[ResponseMode.MINIMAL]),
-                        "standard": sorted(self.TODO_FIELD_SETS[ResponseMode.STANDARD]),
+                        "summary": sorted(self.TODO_FIELD_SETS[ResponseMode.SUMMARY] or set()),
+                        "minimal": sorted(self.TODO_FIELD_SETS[ResponseMode.MINIMAL] or set()),
+                        "standard": sorted(self.TODO_FIELD_SETS[ResponseMode.STANDARD] or set()),
                         "detailed": "All available fields"
                     },
                     "project_field_sets": {
-                        "summary": sorted(self.PROJECT_FIELD_SETS[ResponseMode.SUMMARY]),
-                        "minimal": sorted(self.PROJECT_FIELD_SETS[ResponseMode.MINIMAL]),
-                        "standard": sorted(self.PROJECT_FIELD_SETS[ResponseMode.STANDARD]),
+                        "summary": sorted(self.PROJECT_FIELD_SETS[ResponseMode.SUMMARY] or set()),
+                        "minimal": sorted(self.PROJECT_FIELD_SETS[ResponseMode.MINIMAL] or set()),
+                        "standard": sorted(self.PROJECT_FIELD_SETS[ResponseMode.STANDARD] or set()),
                         "detailed": "All available fields"
                     },
                     "area_field_sets": {
-                        "summary": sorted(self.AREA_FIELD_SETS[ResponseMode.SUMMARY]),
-                        "minimal": sorted(self.AREA_FIELD_SETS[ResponseMode.MINIMAL]),
-                        "standard": sorted(self.AREA_FIELD_SETS[ResponseMode.STANDARD]),
+                        "summary": sorted(self.AREA_FIELD_SETS[ResponseMode.SUMMARY] or set()),
+                        "minimal": sorted(self.AREA_FIELD_SETS[ResponseMode.MINIMAL] or set()),
+                        "standard": sorted(self.AREA_FIELD_SETS[ResponseMode.STANDARD] or set()),
                         "detailed": "All available fields"
                     }
                 },
@@ -870,7 +870,7 @@ class ContextAwareResponseManager:
 
     def get_workflow_recommendations(self, data_size_hint: Optional[int] = None) -> Dict[str, Any]:
         """Get workflow-specific recommendations based on data characteristics."""
-        recommendations = {
+        recommendations: Dict[str, Any] = {
             "discovery_patterns": {
                 "unknown_dataset": {
                     "step_1": "Use mode='auto' for initial exploration",
