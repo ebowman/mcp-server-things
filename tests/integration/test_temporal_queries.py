@@ -71,7 +71,7 @@ class TestTodayQueries:
         for todo_id in todo_ids:
             assert todo_id in today_ids, f"Todo {todo_id} not found in today's list"
 
-        print(f"✓ Created 3 todos, found in get_today() results")
+        print("✓ Created 3 todos, found in get_today() results")
 
     @pytest.mark.asyncio
     async def test_get_today_excludes_tomorrow(self, cleanup_test_todos):
@@ -106,7 +106,7 @@ class TestTodayQueries:
         # Verify tomorrow's todo is excluded
         assert tomorrow_result['todo_id'] not in today_ids, "Tomorrow's todo incorrectly included in today"
 
-        print(f"✓ Today's todo included, tomorrow's todo excluded")
+        print("✓ Today's todo included, tomorrow's todo excluded")
 
 
 class TestUpcomingQueries:
@@ -157,7 +157,7 @@ class TestUpcomingQueries:
                 # Beyond 7 days should be excluded (or we just don't assert - depends on implementation)
                 pass
 
-        print(f"✓ get_upcoming(7) returned correct todos")
+        print("✓ get_upcoming(7) returned correct todos")
 
     @pytest.mark.asyncio
     async def test_get_upcoming_in_30_days(self, cleanup_test_todos):
@@ -223,7 +223,7 @@ class TestUpcomingQueries:
         # Future todo should be included
         assert future_result['todo_id'] in upcoming_ids, "Future todo not found in upcoming"
 
-        print(f"✓ Past todos excluded, future todos included")
+        print("✓ Past todos excluded, future todos included")
 
 
 class TestDeadlineQueries:
@@ -255,7 +255,7 @@ class TestDeadlineQueries:
         result_ids = [todo['uuid'] for todo in search_results]
         assert result['todo_id'] in result_ids, "Todo with deadline not found in search"
 
-        print(f"✓ Search by deadline found todo")
+        print("✓ Search by deadline found todo")
 
     @pytest.mark.asyncio
     async def test_get_due_in_7_days(self, cleanup_test_todos):
@@ -332,7 +332,7 @@ class TestDeadlineQueries:
         start_ids = [todo['uuid'] for todo in start_results]
         assert result['todo_id'] in start_ids, "Todo not found when searching by start_date"
 
-        print(f"✓ Deadline and start_date queries are separate")
+        print("✓ Deadline and start_date queries are separate")
 
 
 class TestLogbookQueries:
@@ -362,7 +362,7 @@ class TestLogbookQueries:
         logbook_ids = [todo['uuid'] for todo in logbook]
         assert result['todo_id'] in logbook_ids, "Completed todo not found in logbook"
 
-        print(f"✓ Completed todo found in logbook")
+        print("✓ Completed todo found in logbook")
 
     @pytest.mark.asyncio
     async def test_logbook_excludes_incomplete(self, cleanup_test_todos):
@@ -396,7 +396,7 @@ class TestLogbookQueries:
         # Completed should be in logbook
         assert complete_result['todo_id'] in logbook_ids, "Completed todo not in logbook"
 
-        print(f"✓ Logbook excludes incomplete todos")
+        print("✓ Logbook excludes incomplete todos")
 
 
 if __name__ == "__main__":

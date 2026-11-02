@@ -152,16 +152,16 @@ def _build_tool_calls(sandbox) -> List[ToolCall]:
             mcp, "get_tagged_items", {"tag": tag})),
         ToolCall("get_todos_project_incomplete", lambda mcp: _collect_minimal_uuids(
             mcp, "get_todos", {"mode": "minimal", "limit": 500,
-                                "project_uuid": project_id, "status": "incomplete"})),
+                               "project_uuid": project_id, "status": "incomplete"})),
         ToolCall("get_todos_project_completed", lambda mcp: _collect_minimal_uuids(
             mcp, "get_todos", {"mode": "minimal", "limit": 500,
-                                "project_uuid": project_id, "status": "completed"})),
+                               "project_uuid": project_id, "status": "completed"})),
         ToolCall("get_todos_project_canceled", lambda mcp: _collect_minimal_uuids(
             mcp, "get_todos", {"mode": "minimal", "limit": 500,
-                                "project_uuid": project_id, "status": "canceled"})),
+                               "project_uuid": project_id, "status": "canceled"})),
         ToolCall("get_todos_project_all", lambda mcp: _collect_minimal_uuids(
             mcp, "get_todos", {"mode": "minimal", "limit": 500,
-                                "project_uuid": project_id, "status": None})),
+                               "project_uuid": project_id, "status": None})),
     ]
 
 

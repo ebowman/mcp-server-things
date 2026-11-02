@@ -34,7 +34,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from fixtures.date_test_data import (
+from fixtures.date_test_data import (  # noqa: E402  needs sys.path insert above
     ISO_DATES_VALID,
     ISO_DATES_INVALID,
     NATURAL_LANGUAGE_DATES,

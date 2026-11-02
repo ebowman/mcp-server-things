@@ -559,7 +559,7 @@ class TestPerformance:
             # Standard mode (default)
             standard = await tools.search_todos(query="meeting", limit=50)
 
-            print(f"\n✓ Response mode testing would measure context usage")
+            print("\n✓ Response mode testing would measure context usage")
             print(f"   Standard mode: {len(standard)} results")
         except Exception as e:
             print(f"\n⚠ Response mode testing not available: {e}")
@@ -589,7 +589,7 @@ class TestEdgeCases:
         try:
             # Negative limit
             results = await tools.search_todos(query="test", limit=-10)
-            print(f"\n⚠ Negative limit accepted")
+            print("\n⚠ Negative limit accepted")
         except Exception as e:
             print(f"\n✓ Negative limit properly rejected: {e}")
 
@@ -609,7 +609,7 @@ class TestEdgeCases:
 
         assert isinstance(results, list)
         assert len(results) == 0
-        print(f"\n✓ Non-existent tag returned empty list")
+        print("\n✓ Non-existent tag returned empty list")
 
     @pytest.mark.asyncio
     async def test_malformed_dates(self, tools):
@@ -619,7 +619,7 @@ class TestEdgeCases:
                 deadline="not-a-date",
                 limit=10
             )
-            print(f"\n⚠ Malformed date accepted")
+            print("\n⚠ Malformed date accepted")
         except Exception as e:
             print(f"\n✓ Malformed date properly rejected: {e}")
 

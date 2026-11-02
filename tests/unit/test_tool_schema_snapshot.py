@@ -42,6 +42,7 @@ UPDATE_ENV_VAR = "THINGS_MCP_UPDATE_SCHEMA_SNAPSHOT"
 
 EXPECTED_TOOL_COUNT = 41
 
+
 def _make_server_with_mock_tools():
     """Build a ThingsMCPServer with a mocked ThingsTools layer (no AppleScript).
 

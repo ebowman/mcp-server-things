@@ -146,7 +146,7 @@ class TestDateSchedulingBasics:
 
         # Verify scheduling
         is_correct = await verify_todo_start_date(things_tools, todo_id, get_today_iso())
-        assert is_correct, f"Todo not scheduled for today"
+        assert is_correct, "Todo not scheduled for today"
 
     @pytest.mark.asyncio
     async def test_schedule_todo_tomorrow(self, things_tools, cleanup_test_todos):
@@ -538,4 +538,4 @@ class TestEdgeCases:
 
         # Note: Completed todos are moved to logbook and may not be retrievable
         # via get_todo_by_id. We verified the start_date before completion.
-        print(f"✓ Todo scheduled and completed successfully")
+        print("✓ Todo scheduled and completed successfully")

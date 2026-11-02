@@ -36,7 +36,7 @@ from things_mcp.scheduling.todo_operations import TodoOperations
 
 
 def make_applescript_manager(execute_applescript_return=None, execute_applescript_side_effect=None,
-                              execute_url_scheme_return=None):
+                             execute_url_scheme_return=None):
     manager = Mock()
     if execute_applescript_side_effect is not None:
         manager.execute_applescript = AsyncMock(side_effect=execute_applescript_side_effect)

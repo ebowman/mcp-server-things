@@ -153,7 +153,6 @@ class TestAddTodoChecklistOrderAndContent:
 # ---------------------------------------------------------------------------
 
 
-
 @pytest.fixture()
 def require_auth_token(live_server):
     """Skip (not fail) on machines without a configured Things auth token -

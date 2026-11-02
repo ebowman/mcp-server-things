@@ -61,7 +61,7 @@ _MAX_PAGES = 4
 
 
 def _page_until_found(mcp, tool: str, base_kwargs: Dict[str, Any], target_uuid: str,
-                       page_size: int = 500, max_pages: int = _MAX_PAGES):
+                      page_size: int = 500, max_pages: int = _MAX_PAGES):
     """Page `tool` via offset (base_kwargs must not include offset/limit)
     until `target_uuid` is found, a short page is returned (end of data),
     or `max_pages` is exhausted. Returns (found: bool, total: Optional[int],

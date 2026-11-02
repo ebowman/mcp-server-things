@@ -525,7 +525,7 @@ class TestRetryLogic:
             process1.returncode = 1
 
             process2 = AsyncMock()
-            process2.communicate.return_value = (b"3.21.15", b"") # Use actual Things version
+            process2.communicate.return_value = (b"3.21.15", b"")  # Use actual Things version
             process2.returncode = 0
 
             mock_create.side_effect = [process1, process2]

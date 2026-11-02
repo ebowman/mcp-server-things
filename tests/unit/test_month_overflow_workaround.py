@@ -186,7 +186,7 @@ class TestMonthOverflowWorkaroundPattern:
                     violations.append(f"{file_path}:{line_num} - Variable '{var_name}' sets month without setting day to 1 first")
 
         assert len(violations) == 0, \
-            f"Found month settings without workaround:\n" + "\n".join(violations)
+            "Found month settings without workaround:\n" + "\n".join(violations)
 
     def test_workaround_count_regression(self):
         """Test that the number of workaround instances hasn't decreased."""

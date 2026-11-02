@@ -18,7 +18,7 @@ import zipfile
 import pytest
 
 tomllib = pytest.importorskip("tomllib")  # stdlib on 3.11+; skip cleanly on older Pythons
-from pathlib import Path
+from pathlib import Path  # noqa: E402  must follow pytest.importorskip(tomllib)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent

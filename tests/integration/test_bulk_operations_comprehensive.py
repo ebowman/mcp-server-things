@@ -100,7 +100,7 @@ async def test_todos(things_tools) -> List[str]:
     for todo_id in todo_ids:
         try:
             await things_tools.delete_todo(todo_id)
-        except:
+        except Exception:
             pass
 
 
@@ -127,7 +127,7 @@ async def test_project(things_tools, applescript_manager) -> str:
         try:
             # FIX: update_project expects 'project_id' parameter, not 'id'
             await things_tools.update_project(project_id=project_id, canceled="true")
-        except:
+        except Exception:
             pass
         try:
             escaped = project_id.replace('"', '\\"')
@@ -136,7 +136,7 @@ async def test_project(things_tools, applescript_manager) -> str:
                 delete project id "{escaped}"
             end tell
             ''')
-        except:
+        except Exception:
             pass
 
 
@@ -421,7 +421,7 @@ class TestBulkUpdateBatchSizes:
             for todo_id in todo_ids:
                 try:
                     await things_tools.delete_todo(todo_id)
-                except:
+                except Exception:
                     pass
 
 

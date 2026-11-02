@@ -78,7 +78,7 @@ class TestMonthOverflowScheduling:
         assert updated_todo['startDate'] in ['2025-02-28', '2025-02-29'], \
             f"Expected Feb 28/29, got {updated_todo['startDate']}"
 
-        print(f"✓ Jan 31 → Feb 28/29 (month overflow handled)")
+        print("✓ Jan 31 → Feb 28/29 (month overflow handled)")
 
     @pytest.mark.asyncio
     async def test_mar_31_minus_one_month(self, cleanup_test_todos):
@@ -106,7 +106,7 @@ class TestMonthOverflowScheduling:
         assert todo['startDate'] in ['2025-02-28', '2025-02-29'], \
             f"Expected Feb 28/29, got {todo['startDate']}"
 
-        print(f"✓ Mar 31 → Feb 28/29 (backward month overflow)")
+        print("✓ Mar 31 → Feb 28/29 (backward month overflow)")
 
     @pytest.mark.asyncio
     async def test_may_31_plus_one_month(self, cleanup_test_todos):
@@ -134,7 +134,7 @@ class TestMonthOverflowScheduling:
         assert todo['startDate'] == '2025-06-30', \
             f"Expected 2025-06-30, got {todo['startDate']}"
 
-        print(f"✓ May 31 → Jun 30 (30-day month overflow)")
+        print("✓ May 31 → Jun 30 (30-day month overflow)")
 
     @pytest.mark.asyncio
     async def test_aug_31_plus_one_month(self, cleanup_test_todos):
@@ -162,7 +162,7 @@ class TestMonthOverflowScheduling:
         assert todo['startDate'] == '2025-09-30', \
             f"Expected 2025-09-30, got {todo['startDate']}"
 
-        print(f"✓ Aug 31 → Sep 30 (month overflow)")
+        print("✓ Aug 31 → Sep 30 (month overflow)")
 
     @pytest.mark.asyncio
     async def test_oct_31_plus_one_month(self, cleanup_test_todos):
@@ -190,7 +190,7 @@ class TestMonthOverflowScheduling:
         assert todo['startDate'] == '2025-11-30', \
             f"Expected 2025-11-30, got {todo['startDate']}"
 
-        print(f"✓ Oct 31 → Nov 30 (month overflow)")
+        print("✓ Oct 31 → Nov 30 (month overflow)")
 
 
 class TestMonthOverflowDeadlines:
@@ -222,7 +222,7 @@ class TestMonthOverflowDeadlines:
         assert todo['dueDate'] in ['2025-02-28', '2025-02-29'], \
             f"Expected Feb 28/29 deadline, got {todo['dueDate']}"
 
-        print(f"✓ Deadline Jan 31 → Feb 28/29")
+        print("✓ Deadline Jan 31 → Feb 28/29")
 
     @pytest.mark.asyncio
     async def test_deadline_leap_year_feb_29(self, cleanup_test_todos):
@@ -244,7 +244,7 @@ class TestMonthOverflowDeadlines:
         assert todo['dueDate'] == '2024-02-29', \
             f"Expected 2024-02-29, got {todo['dueDate']}"
 
-        print(f"✓ Leap year Feb 29 deadline accepted")
+        print("✓ Leap year Feb 29 deadline accepted")
 
     @pytest.mark.asyncio
     async def test_deadline_non_leap_feb_28(self, cleanup_test_todos):
@@ -281,7 +281,7 @@ class TestMonthOverflowDeadlines:
             # Expected: invalid date should be rejected
             print(f"✓ Feb 29 in non-leap year properly rejected: {e}")
 
-        print(f"✓ Non-leap year Feb 28 deadline works")
+        print("✓ Non-leap year Feb 28 deadline works")
 
 
 class TestYearBoundaries:
@@ -313,7 +313,7 @@ class TestYearBoundaries:
         assert todo['startDate'] == '2026-01-31', \
             f"Expected 2026-01-31, got {todo['startDate']}"
 
-        print(f"✓ Dec 31 2025 → Jan 31 2026 (year boundary)")
+        print("✓ Dec 31 2025 → Jan 31 2026 (year boundary)")
 
     @pytest.mark.asyncio
     async def test_jan_31_minus_one_month(self, cleanup_test_todos):
@@ -341,7 +341,7 @@ class TestYearBoundaries:
         assert todo['startDate'] == '2025-12-31', \
             f"Expected 2025-12-31, got {todo['startDate']}"
 
-        print(f"✓ Jan 31 2026 → Dec 31 2025 (backward year boundary)")
+        print("✓ Jan 31 2026 → Dec 31 2025 (backward year boundary)")
 
 
 class TestComplexDateScenarios:
@@ -377,7 +377,7 @@ class TestComplexDateScenarios:
         assert updated['startDate'] == '2025-02-28', \
             f"Expected 2025-02-28, got {updated['startDate']}"
 
-        print(f"✓ Leap year Feb 29 → non-leap Feb 28")
+        print("✓ Leap year Feb 29 → non-leap Feb 28")
 
     @pytest.mark.asyncio
     async def test_multiple_month_edges(self, cleanup_test_todos):
@@ -409,7 +409,7 @@ class TestComplexDateScenarios:
         todo = await tools.get_todo_by_id(todo_id=result['todo_id'])
         assert todo['startDate'] == '2025-04-30', "Mar 31 → Apr 30 failed"
 
-        print(f"✓ Multiple month edge transitions work correctly")
+        print("✓ Multiple month edge transitions work correctly")
 
 
 if __name__ == "__main__":

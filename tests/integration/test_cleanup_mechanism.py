@@ -85,15 +85,15 @@ class TestCleanupMechanism:
             print(f"  ✓ Created todo {i+1}/5: {todo_id}")
 
         # Verify all todos exist
-        print(f"\n📋 Verifying todos exist before cleanup...")
+        print("\n📋 Verifying todos exist before cleanup...")
         for i, todo_id in enumerate(created_todos):
             todo = await things_tools.get_todo_by_id(todo_id=todo_id)
             assert todo is not None, f"Todo {i} not found"
             assert todo['uuid'] == todo_id, f"UUID mismatch: expected {todo_id}, got {todo.get('uuid')}"
             print(f"  ✓ Todo {i+1}/5 exists: {todo['title']}")
 
-        print(f"\n✅ All 5 todos created successfully")
-        print(f"🔄 Cleanup fixture will now delete them...")
+        print("\n✅ All 5 todos created successfully")
+        print("🔄 Cleanup fixture will now delete them...")
 
         # Cleanup happens automatically after this test
         # User should manually verify with: python tests/integration/verify_cleanup.py
@@ -116,10 +116,10 @@ class TestCleanupMechanism:
 
         # Delete it manually
         await things_tools.delete_todo(todo_id)
-        print(f"  ✓ Manually deleted todo")
+        print("  ✓ Manually deleted todo")
 
         # Cleanup fixture should handle this gracefully (no error)
-        print(f"🔄 Cleanup fixture will try to delete again (should be graceful)...")
+        print("🔄 Cleanup fixture will try to delete again (should be graceful)...")
 
     @pytest.mark.asyncio
     async def test_cleanup_with_project(self, things_tools, cleanup_test_todos):
@@ -139,4 +139,4 @@ class TestCleanupMechanism:
         print(f"  ✓ Created project: {project_id}")
 
         # Cleanup fixture will cancel this project
-        print(f"🔄 Cleanup fixture will cancel this project...")
+        print("🔄 Cleanup fixture will cancel this project...")

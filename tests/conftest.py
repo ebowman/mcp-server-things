@@ -7,6 +7,7 @@ Things 3 installation.
 """
 
 import asyncio
+import logging
 import json
 import os
 
@@ -19,6 +20,8 @@ from things_mcp.models import Todo, Project, Area, Tag, TodoResult
 from things_mcp.config import ThingsMCPConfig
 from things_mcp.server import ThingsMCPServer
 from things_mcp.services.applescript_manager import AppleScriptManager
+
+logger = logging.getLogger(__name__)
 
 
 # hq-8wr: in-process CLI/main() tests call boot_trace.arm_boot_watchdog(), which
@@ -455,7 +458,7 @@ def assert_todo_structure():
         """Assert that a dictionary has the expected todo structure."""
         required_fields = ["id", "title", "status"]
         optional_fields = ["notes", "tags", "creation_date", "modification_date",
-                          "due_date", "project_uuid", "area_name"]
+                           "due_date", "project_uuid", "area_name"]
 
         # Check required fields
         for field in required_fields:
@@ -484,7 +487,7 @@ def assert_project_structure():
         """Assert that a dictionary has the expected project structure."""
         required_fields = ["id", "title", "status"]
         optional_fields = ["notes", "tags", "creation_date", "modification_date",
-                          "due_date", "area_name", "todos"]
+                           "due_date", "area_name", "todos"]
 
         # Check required fields
         for field in required_fields:

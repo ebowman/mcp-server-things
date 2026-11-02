@@ -1,5 +1,6 @@
 """Behavioral tests for AppleScript CLI execution configuration."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 from things_mcp.config import ThingsMCPConfig
 from things_mcp.main import ServerManager, create_parser, main
 from things_mcp.server import ThingsMCPServer
+from things_mcp.services.applescript.executor import AppleScriptExecutor
 
 
 def test_server_manager_forwards_cli_execution_settings():
@@ -91,13 +93,6 @@ def test_server_validates_execution_overrides(override):
 
 
 # --- Issue #17: retry_count means retries after the initial attempt ---
-
-import asyncio
-from unittest.mock import AsyncMock, patch
-
-import pytest
-
-from things_mcp.services.applescript.executor import AppleScriptExecutor
 
 
 def _failing_process():

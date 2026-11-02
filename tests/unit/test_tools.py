@@ -356,6 +356,7 @@ class TestCancelTodo:
             assert result["success"] is True
             mock_update.assert_called_once()
 
+
 class TestAddTags:
     """Test adding tags to todos with proper splitting of comma-separated values."""
 

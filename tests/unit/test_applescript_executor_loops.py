@@ -185,7 +185,6 @@ class TestAppleScriptExecutorCrossLoop:
             order: list = []
 
             async def _fake_create_subprocess_exec(*args, **kwargs):
-                nonlocal active_count, max_observed
                 process = AsyncMock()
 
                 async def _communicate():

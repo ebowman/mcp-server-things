@@ -61,7 +61,7 @@ _MAX_PAGES = 4
 
 
 def _page_until_found(mcp, tool: str, base_kwargs: Dict[str, Any], target_uuid: str,
-                       page_size: int = 500, max_pages: int = _MAX_PAGES):
+                      page_size: int = 500, max_pages: int = _MAX_PAGES):
     """Page `tool` via offset (base_kwargs must not include offset/limit)
     until `target_uuid` is found, a short page is returned (end of data),
     or `max_pages` is exhausted. Returns (found, total, pages_fetched)."""
@@ -245,7 +245,7 @@ class TestSearchTodos:
         todo_id = seeded.uuid("inbox")
         for mode, allowed in (
             ("minimal", {"uuid", "title", "status", "type", "start", "project",
-                          "dueDate", "modificationDate", "creationDate"}),
+                         "dueDate", "modificationDate", "creationDate"}),
             ("standard", {"uuid", "title", "status", "type", "notes", "dueDate",
                           "modificationDate", "creationDate", "tags", "project",
                           "projectTitle", "heading", "headingTitle", "start",
