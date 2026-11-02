@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ValidationService:
     """Service for validating Things 3 entities and operations."""
-    
+
     def __init__(self, applescript_manager: AppleScriptManager):
         """Initialize validation service with AppleScript manager.
         
@@ -25,7 +25,7 @@ class ValidationService:
             applescript_manager: AppleScript manager instance for validation queries
         """
         self.applescript = applescript_manager
-    
+
     async def validate_todo_id(self, todo_id: str) -> Dict[str, Any]:
         """Validate that a todo ID exists and is accessible.
         
@@ -41,7 +41,7 @@ class ValidationService:
                 "error": "INVALID_ID_FORMAT",
                 "message": "Todo ID must be a non-empty string"
             }
-        
+
         try:
             # Try to access the todo to verify it exists
             script = f'''
@@ -54,9 +54,9 @@ class ValidationService:
                 end try
             end tell
             '''
-            
+
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            
+
             if result.get("success") and result.get("output") == "EXISTS":
                 return {
                     "valid": True,
@@ -68,7 +68,7 @@ class ValidationService:
                     "error": "TODO_NOT_FOUND",
                     "message": f"Todo with ID '{todo_id}' does not exist"
                 }
-        
+
         except Exception as e:
             logger.error(f"Error validating todo ID {todo_id}: {e}")
             return {
@@ -76,7 +76,7 @@ class ValidationService:
                 "error": "VALIDATION_EXCEPTION",
                 "message": f"Error during validation: {str(e)}"
             }
-    
+
     async def validate_project_id(self, project_id: str) -> Dict[str, Any]:
         """Validate that a project ID exists and is accessible.
         
@@ -92,7 +92,7 @@ class ValidationService:
                 "error": "INVALID_ID_FORMAT",
                 "message": "Project ID must be a non-empty string"
             }
-        
+
         try:
             script = f'''
             tell application "Things3"
@@ -104,9 +104,9 @@ class ValidationService:
                 end try
             end tell
             '''
-            
+
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            
+
             if result.get("success") and result.get("output") == "EXISTS":
                 return {
                     "valid": True,
@@ -118,7 +118,7 @@ class ValidationService:
                     "error": "PROJECT_NOT_FOUND",
                     "message": f"Project with ID '{project_id}' does not exist"
                 }
-        
+
         except Exception as e:
             logger.error(f"Error validating project ID {project_id}: {e}")
             return {
@@ -126,7 +126,7 @@ class ValidationService:
                 "error": "VALIDATION_EXCEPTION",
                 "message": f"Error during validation: {str(e)}"
             }
-    
+
     async def validate_area_id(self, area_id: str) -> Dict[str, Any]:
         """Validate that an area ID exists and is accessible.
         
@@ -142,7 +142,7 @@ class ValidationService:
                 "error": "INVALID_ID_FORMAT",
                 "message": "Area ID must be a non-empty string"
             }
-        
+
         try:
             script = f'''
             tell application "Things3"
@@ -154,9 +154,9 @@ class ValidationService:
                 end try
             end tell
             '''
-            
+
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            
+
             if result.get("success") and result.get("output") == "EXISTS":
                 return {
                     "valid": True,
@@ -168,7 +168,7 @@ class ValidationService:
                     "error": "AREA_NOT_FOUND",
                     "message": f"Area with ID '{area_id}' does not exist"
                 }
-        
+
         except Exception as e:
             logger.error(f"Error validating area ID {area_id}: {e}")
             return {
@@ -176,7 +176,7 @@ class ValidationService:
                 "error": "VALIDATION_EXCEPTION",
                 "message": f"Error during validation: {str(e)}"
             }
-    
+
     async def validate_list_name(self, list_name: str) -> Dict[str, Any]:
         """Validate that a list name is a valid Things 3 built-in list.
         
@@ -187,16 +187,16 @@ class ValidationService:
             Dict with validation result and details
         """
         valid_lists = ["inbox", "today", "anytime", "someday", "upcoming", "logbook", "trash"]
-        
+
         if not list_name or not isinstance(list_name, str):
             return {
                 "valid": False,
                 "error": "INVALID_LIST_NAME",
                 "message": "List name must be a non-empty string"
             }
-        
+
         normalized_name = list_name.lower().strip()
-        
+
         if normalized_name in valid_lists:
             return {
                 "valid": True,
@@ -209,7 +209,7 @@ class ValidationService:
                 "error": "INVALID_LIST_NAME",
                 "message": f"Invalid list name '{list_name}'. Valid options: {', '.join(valid_lists)}"
             }
-    
+
     def validate_destination_format(self, destination: str) -> Dict[str, Any]:
         """Validate the format of a destination string.
         
@@ -225,9 +225,9 @@ class ValidationService:
                 "error": "INVALID_DESTINATION_FORMAT",
                 "message": "Destination must be a non-empty string"
             }
-        
+
         destination = destination.strip()
-        
+
         # Check for project format: project:ID
         if destination.startswith("project:"):
             project_id = destination[8:].strip()  # Remove "project:" prefix
@@ -244,14 +244,14 @@ class ValidationService:
                     "error": "EMPTY_PROJECT_ID",
                     "message": "Project ID cannot be empty in 'project:ID' format"
                 }
-        
+
         # Check for area format: area:ID
         elif destination.startswith("area:"):
             area_id = destination[5:].strip()  # Remove "area:" prefix
             if area_id:
                 return {
                     "valid": True,
-                    "type": "area", 
+                    "type": "area",
                     "id": area_id,
                     "message": "Valid area destination format"
                 }
@@ -261,12 +261,12 @@ class ValidationService:
                     "error": "EMPTY_AREA_ID",
                     "message": "Area ID cannot be empty in 'area:ID' format"
                 }
-        
+
         # Check for list name (synchronous validation using the same logic)
         else:
             valid_lists = ["inbox", "today", "anytime", "someday", "upcoming", "logbook", "trash"]
             normalized_name = destination.lower().strip()
-            
+
             if normalized_name in valid_lists:
                 return {
                     "valid": True,
@@ -280,7 +280,7 @@ class ValidationService:
                     "error": "INVALID_DESTINATION",
                     "message": f"Invalid destination '{destination}'. Use list name, 'project:ID', or 'area:ID' format"
                 }
-    
+
     def _escape_id(self, id_string: str) -> str:
         """Escape an ID string for safe use in AppleScript.
         
@@ -296,7 +296,7 @@ class ValidationService:
         # Escape quotes and backslashes for AppleScript safety (delegates
         # to the shared escaper - see AppleScriptTemplates.escape_string_inner)
         return AppleScriptTemplates.escape_string_inner(id_string)
-    
+
     def validate_bulk_operation_limits(self, item_count: int, operation_type: str = "move") -> Dict[str, Any]:
         """Validate bulk operation limits to prevent system overload.
         
@@ -314,16 +314,16 @@ class ValidationService:
             "delete": 25,
             "create": 50
         }
-        
+
         max_limit = limits.get(operation_type, 50)
-        
+
         if item_count <= 0:
             return {
                 "valid": False,
                 "error": "INVALID_COUNT",
                 "message": "Item count must be greater than 0"
             }
-        
+
         if item_count > max_limit:
             return {
                 "valid": False,
@@ -332,7 +332,7 @@ class ValidationService:
                 "max_allowed": max_limit,
                 "recommended_batch_size": max_limit // 2
             }
-        
+
         return {
             "valid": True,
             "message": f"Bulk operation count {item_count} is within limits",

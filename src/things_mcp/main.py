@@ -73,14 +73,14 @@ def _legacy_launch_notice() -> Optional[str]:
 
 class ServerManager:
     """Manages the MCP server lifecycle."""
-    
+
     def __init__(self):
         """Initialize the server manager."""
         self.server: Optional[ThingsMCPServer] = None
         self.running = False
         self._shutdown_signalled = False
         self._setup_signal_handlers()
-    
+
     def _setup_signal_handlers(self):
         """Make SIGINT/SIGTERM raise KeyboardInterrupt in the main thread.
 
@@ -171,7 +171,7 @@ class ServerManager:
             if debug:
                 logging.getLogger().setLevel(logging.DEBUG)
                 logger.debug("Debug logging enabled")
-            
+
             # Note: Things 3 availability is checked lazily on the first tool call
             # via AppleScriptManager (async, with timeout + retries). We intentionally
             # do NOT probe Things 3 here: a synchronous `osascript` call at startup
@@ -182,14 +182,14 @@ class ServerManager:
 
             # Mark as running
             self.running = True
-            
+
             logger.info("Starting Things 3 MCP Server...")
             logger.info("Server is ready to handle requests")
             logger.info("Press Ctrl+C to stop")
-            
+
             # Run the server
             self.server.run()
-        
+
         except KeyboardInterrupt:
             logger.info("Server stopped by user")
         except Exception as e:
@@ -197,7 +197,7 @@ class ServerManager:
             sys.exit(1)
         finally:
             self.stop()
-    
+
     def stop(self):
         """Stop the MCP server gracefully."""
         if self.running and self.server:
@@ -279,21 +279,21 @@ Environment:
         action="store_true",
         help="Enable debug logging"
     )
-    
+
     parser.add_argument(
         "--timeout",
         type=float,
         default=None,
         help="AppleScript execution timeout in seconds, 1-300, fractions allowed (default: configuration, normally 30)"
     )
-    
+
     parser.add_argument(
         "--retry-count",
         type=int,
         default=None,
         help="Number of retries after the initial attempt; 0-10, 0 = run once (default: configuration, normally 2)"
     )
-    
+
     parser.add_argument(
         "--env-file",
         type=str,
@@ -327,19 +327,19 @@ Environment:
         action="store_true",
         help="Perform health check and exit"
     )
-    
+
     parser.add_argument(
         "--version",
         action="store_true",
         help="Show version information and exit"
     )
-    
+
     parser.add_argument(
         "--test-applescript",
         action="store_true",
         help="Test AppleScript connectivity and exit"
     )
-    
+
     return parser
 
 
@@ -355,38 +355,38 @@ async def perform_health_check(timeout: float, retry_count: int) -> int:
     """
     try:
         logger.info("Performing health check...")
-        
+
         # Check AppleScript availability
         import subprocess
         result = subprocess.run(["which", "osascript"], capture_output=True)
         if result.returncode != 0:
             logger.error("osascript not found - AppleScript not available")
             return 1
-        
+
         logger.info("✓ AppleScript available")
-        
+
         # Check Things 3 connectivity
         applescript_manager = AppleScriptManager(timeout=timeout, retry_count=retry_count)
-        
+
         if await applescript_manager.is_things_running():
             logger.info("✓ Things 3 is running and accessible")
         else:
             logger.warning("⚠ Things 3 is not running or not accessible")
             logger.info("  Please ensure Things 3 is installed and running")
-        
+
         # Test basic AppleScript execution
         script = 'return "Hello from AppleScript"'
         result = await applescript_manager.execute_applescript(script)
-        
+
         if result.get("success"):
             logger.info("✓ AppleScript execution working")
         else:
             logger.error(f"✗ AppleScript execution failed: {result.get('error')}")
             return 1
-        
+
         logger.info("Health check completed successfully")
         return 0
-    
+
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return 1
@@ -404,44 +404,44 @@ async def test_applescript_connectivity(timeout: float, retry_count: int) -> int
     """
     try:
         logger.info("Testing AppleScript connectivity...")
-        
+
         applescript_manager = AppleScriptManager(timeout=timeout, retry_count=retry_count)
-        
+
         # Test basic script execution
         logger.info("Testing basic AppleScript execution...")
         result = await applescript_manager.execute_applescript('return "test"')
-        
+
         if result.get("success"):
             logger.info("✓ Basic AppleScript execution successful")
         else:
             logger.error(f"✗ Basic AppleScript execution failed: {result.get('error')}")
             return 1
-        
+
         # Test Things 3 specific script
         logger.info("Testing Things 3 connectivity...")
         script = 'tell application "Things3" to return "connected"'
         result = await applescript_manager.execute_applescript(script)
-        
+
         if result.get("success"):
             logger.info("✓ Things 3 AppleScript connectivity successful")
             logger.info(f"Response: {result.get('output')}")
         else:
             logger.error(f"✗ Things 3 AppleScript connectivity failed: {result.get('error')}")
             return 1
-        
+
         # Test URL scheme
         logger.info("Testing Things 3 URL scheme...")
         result = await applescript_manager.execute_url_scheme("show", {"id": "today"})
-        
+
         if result.get("success"):
             logger.info("✓ Things 3 URL scheme successful")
         else:
             logger.error(f"✗ Things 3 URL scheme failed: {result.get('error')}")
             return 1
-        
+
         logger.info("All connectivity tests passed!")
         return 0
-    
+
     except Exception as e:
         logger.error(f"Connectivity test failed: {e}")
         return 1
@@ -594,20 +594,20 @@ def _main_dispatch() -> int:
 
     if args.health_check:
         return asyncio.run(perform_health_check(timeout, retry_count))
-    
+
     if args.test_applescript:
         return asyncio.run(test_applescript_connectivity(timeout, retry_count))
-    
+
     # Configure basic logging if no server will do it
     if args.version or args.health_check or args.test_applescript:
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-    
+
     # Start the server
     server_manager = ServerManager()
-    
+
     try:
         server_manager.start(
             debug=args.debug,
@@ -619,7 +619,7 @@ def _main_dispatch() -> int:
             port=args.port
         )
         return 0
-    
+
     except Exception as e:
         logger.error(f"Failed to start server: {e}")
         return 1

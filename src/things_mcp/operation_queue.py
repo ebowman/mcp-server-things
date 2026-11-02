@@ -27,7 +27,7 @@ def safe_log(level: int, message: str, *args, **kwargs):
             return
         if hasattr(sys.stderr, 'closed') and sys.stderr.closed:
             return
-        
+
         # Use the logger normally if streams are available
         logger.log(level, message, *args, **kwargs)
     except (ValueError, OSError):
@@ -137,7 +137,7 @@ class OperationQueue:
             return
 
         self._shutdown_event.set()
-        
+
         try:
             await asyncio.wait_for(self._worker_task, timeout=timeout)
         except asyncio.TimeoutError:
@@ -191,7 +191,7 @@ class OperationQueue:
         # Priority queue uses tuple (priority_value, counter, item)
         priority_value = priority.value
         counter = self._stats['total_operations']
-        
+
         await self._queue.put((priority_value, counter, operation))
         self._stats['total_operations'] += 1
 
@@ -214,7 +214,7 @@ class OperationQueue:
             Exception: If operation failed
         """
         start_time = time.time()
-        
+
         while True:
             # Check if operation is completed
             for op in self._completed_operations:
@@ -309,7 +309,7 @@ class OperationQueue:
                 # Can't cancel running operation, but mark it for cancellation
                 logger.warning(f"Cannot cancel running operation {operation_id}")
                 return False
-            
+
             op.status = OperationStatus.CANCELLED
             self._move_to_completed(op)
             return True
@@ -319,7 +319,7 @@ class OperationQueue:
     async def _worker(self):
         """Main worker loop that processes queued operations"""
         logger.info("Queue worker started")
-        
+
         try:
             while not self._shutdown_event.is_set():
                 try:
@@ -327,17 +327,17 @@ class OperationQueue:
                     _, _, operation = await asyncio.wait_for(
                         self._queue.get(), timeout=1.0
                     )
-                    
+
                     # Process the operation
                     await self._process_operation(operation)
-                    
+
                 except asyncio.TimeoutError:
                     # Timeout is normal, just check shutdown and continue
                     continue
                 except Exception as e:
                     logger.error(f"Unexpected error in queue worker: {e}")
                     logger.debug(traceback.format_exc())
-                    
+
         except asyncio.CancelledError:
             safe_log(logging.INFO, "Queue worker cancelled")
         finally:
@@ -349,31 +349,31 @@ class OperationQueue:
             self._active_operations[operation.id] = operation
             operation.status = OperationStatus.RUNNING
             operation.started_at = time.time()
-            
+
             logger.debug(f"Processing operation {operation.id}: {operation.name}")
-            
+
             try:
                 # Execute with timeout
                 result = await asyncio.wait_for(
                     operation.func(*operation.args, **operation.kwargs),
                     timeout=operation.timeout
                 )
-                
+
                 operation.result = result
                 operation.status = OperationStatus.COMPLETED
                 operation.completed_at = time.time()
                 self._stats['completed_operations'] += 1
-                
+
                 logger.debug(f"Operation {operation.id} completed successfully")
-                
+
             except asyncio.TimeoutError:
                 logger.warning(f"Operation {operation.id} timed out after {operation.timeout}s")
                 await self._handle_operation_failure(operation, TimeoutError("Operation timed out"))
-                
+
             except Exception as e:
                 logger.warning(f"Operation {operation.id} failed: {e}")
                 await self._handle_operation_failure(operation, e)
-            
+
             finally:
                 # Only move to completed if the operation is actually done (not re-queued for retry)
                 if operation.status != OperationStatus.PENDING:
@@ -387,23 +387,23 @@ class OperationQueue:
         """Handle operation failure with retry logic"""
         operation.error = error
         operation.retry_count += 1
-        
+
         if operation.retry_count <= operation.max_retries:
             logger.info(f"Retrying operation {operation.id} (attempt {operation.retry_count}/{operation.max_retries})")
-            
+
             # Reset operation state for retry
             operation.status = OperationStatus.PENDING
             operation.started_at = None
             self._stats['retried_operations'] += 1
-            
+
             # Re-queue with delay
             if operation.retry_delay > 0:
                 await asyncio.sleep(operation.retry_delay)
-            
+
             priority_value = operation.priority.value
             counter = self._stats['total_operations']
             await self._queue.put((priority_value, counter, operation))
-            
+
         else:
             # Max retries exceeded
             if isinstance(error, TimeoutError):
@@ -412,7 +412,7 @@ class OperationQueue:
             else:
                 operation.status = OperationStatus.FAILED
                 self._stats['failed_operations'] += 1
-            
+
             operation.completed_at = time.time()
             logger.error(f"Operation {operation.id} failed permanently after {operation.retry_count} attempts: {error}")
 
@@ -420,9 +420,9 @@ class OperationQueue:
         """Move operation from active to completed list"""
         if operation.id in self._active_operations:
             del self._active_operations[operation.id]
-        
+
         self._completed_operations.append(operation)
-        
+
         # Maintain history size limit
         if len(self._completed_operations) > self._max_completed_history:
             self._completed_operations = self._completed_operations[-self._max_completed_history:]

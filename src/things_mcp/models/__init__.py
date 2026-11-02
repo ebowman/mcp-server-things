@@ -30,7 +30,7 @@ try:
 except ImportError:
     # Define ServerStats here if not available in parent
     from pydantic import BaseModel
-    
+
     class ServerStats(BaseModel):
         """Server statistics."""
         uptime_seconds: float
@@ -43,7 +43,7 @@ except ImportError:
 
 __all__ = [
     'Todo',
-    'Project', 
+    'Project',
     'Area',
     'Tag',
     'Contact',
@@ -53,7 +53,7 @@ __all__ = [
     'ServerStats',
     'BaseThingsModel',
     'ThingsStatus',
-    'ThingsListType', 
+    'ThingsListType',
     'ScheduleOption',
     'ThingsList',
     'AppleScriptResult',

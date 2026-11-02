@@ -135,7 +135,7 @@ def _parse_tag_list_for_update(tags: Optional[str]) -> Optional[List[str]]:
 
 class ThingsMCPServer:
     """Simple MCP server for Things 3 integration."""
-    
+
     def __init__(
         self,
         env_file: Optional[str] = None,
@@ -151,7 +151,7 @@ class ThingsMCPServer:
         """
         self.mcp = FastMCP("things-mcp", lifespan=_server_lifespan)
         self.mcp.add_middleware(WriteErrorSignalingMiddleware())
-        
+
         # Load configuration from environment and optional .env file
         if env_file:
             try:
@@ -227,24 +227,24 @@ class ThingsMCPServer:
         """Configure logging based on configuration settings."""
         # Get root logger
         root_logger = logging.getLogger()
-        
+
         # Set log level from config
         root_logger.setLevel(self.config.log_level.value)
-        
+
         # Clear any existing handlers to avoid duplicates
         root_logger.handlers.clear()
-        
+
         # Create formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        
+
         # Add file handler if configured
         if self.config.log_file_path:
             try:
                 # Ensure log directory exists
                 self.config.log_file_path.parent.mkdir(parents=True, exist_ok=True)
-                
+
                 file_handler = logging.FileHandler(self.config.log_file_path)
                 file_handler.setFormatter(formatter)
                 root_logger.addHandler(file_handler)
@@ -277,7 +277,7 @@ class ThingsMCPServer:
 
     def _register_tools(self) -> None:
         """Register all MCP tools with the server."""
-        
+
         # Todo management tools
         @self.mcp.tool()
         async def get_todos(
@@ -394,7 +394,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def create_tag(
             tag_name: str = Field(..., min_length=1, description="Name of the tag to create")
@@ -511,9 +511,9 @@ class ThingsMCPServer:
                     heading=heading,
                     checklist_items=checklist_items
                 )
-                
+
                 # Enhance response with tag validation feedback if available
-                if (tag_list and self.tools.tag_validation_service and 
+                if (tag_list and self.tools.tag_validation_service and
                     hasattr(result, 'get') and result.get('success')):
                     # Get tag validation info from the result
                     if 'tag_info' in result:
@@ -524,12 +524,12 @@ class ThingsMCPServer:
                             result['message'] = result.get('message', '') + f" Filtered tags: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
-                
+
                 return result
             except Exception as e:
                 logger.error(f"Error adding todo: {e}")
                 raise
-        
+
         @self.mcp.tool()
         async def update_todo(
             id: str = Field(..., description="ID of the todo to update"),
@@ -953,7 +953,7 @@ class ThingsMCPServer:
                 if is_db_access_error(e):
                     return self._read_error_from_exception(e)
                 raise
-        
+
         @self.mcp.tool()
         async def delete_todo(
             todo_id: str = Field(..., description="ID of the todo or project to delete")
@@ -974,7 +974,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error deleting todo: {e}")
                 raise
-        
+
         @self.mcp.tool()
         async def move_record(
             todo_id: str = Field(..., description="ID of the todo to move"),
@@ -1002,7 +1002,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error moving todo: {e}")
                 raise
-        
+
         @self.mcp.tool()
         async def bulk_move_records(
             todo_ids: str = Field(..., description="Comma-separated list of todo IDs to move"),
@@ -1027,12 +1027,12 @@ class ThingsMCPServer:
                     destination=destination,
                     max_concurrent=max_concurrent
                 )
-                
+
                 return result
             except Exception as e:
                 logger.error(f"Error in bulk move operation: {e}")
                 raise
-        
+
         # Project management tools
         @self.mcp.tool()
         async def get_projects(
@@ -1075,7 +1075,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting projects: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def add_project(
             title: str = Field(..., min_length=1, description="Title of the project"),
@@ -1134,7 +1134,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error adding project: {e}")
                 raise
-        
+
         @self.mcp.tool()
         async def update_project(
             id: str = Field(..., description="ID of the project to update"),
@@ -1236,7 +1236,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error updating project: {e}")
                 raise
-        
+
         # Area management tools
         @self.mcp.tool()
         async def get_areas(
@@ -1352,7 +1352,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting inbox: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_today(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
@@ -1386,7 +1386,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting today's todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_upcoming(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
@@ -1445,7 +1445,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting upcoming todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_anytime(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
@@ -1479,7 +1479,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting anytime todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_someday(
             mode: Optional[str] = Field(None, description="Response mode: auto/summary/minimal/standard/detailed/raw"),
@@ -1516,7 +1516,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting someday todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_logbook(
             limit: int = Field(50, description="Maximum number of entries to return. Defaults to 50 (1-500)", ge=1, le=500),
@@ -1535,7 +1535,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting logbook: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_trash(
             limit: int = Field(50, description="Maximum number of items to return (default: 50, max: 100)", ge=1, le=100),
@@ -1570,7 +1570,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting trash: {e}")
                 return self._handle_read_exception(e)
-        
+
         # Efficient date-range query tools using AppleScript 'whose' clause
         @self.mcp.tool()
         async def get_due_in_days(
@@ -1643,7 +1643,7 @@ class ThingsMCPServer:
                     e,
                     todos=[], items=[], count=0, total=0, mode=None, limit=None, offset=None,
                 )
-        
+
         # Tag management tools
         @self.mcp.tool()
         async def get_tags(
@@ -1656,7 +1656,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting tags: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_tagged_items(
             tag: str = Field(..., description="Tag title to filter by")
@@ -1778,7 +1778,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting tag usage: {e}")
                 return self._handle_read_exception(e)
-        
+
         # Search tools
         @self.mcp.tool()
         async def search_todos(
@@ -1871,7 +1871,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error searching todos: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def search_advanced(
             status: Optional[str] = Field(None, description="Filter by todo status. If omitted, ALL statuses (incomplete, completed, canceled) are searched", pattern="^(incomplete|completed|canceled)$"),
@@ -1915,7 +1915,7 @@ class ThingsMCPServer:
             try:
                 # Import datetime for validation
                 from datetime import datetime
-                
+
                 # Validate mode parameter
                 mode_error = self._validate_mode(mode)
                 if mode_error is not None:
@@ -1941,7 +1941,7 @@ class ThingsMCPServer:
                             f"deadline must be in YYYY-MM-DD format. Got: {deadline}",
                             example="2024-12-31",
                         )
-                
+
                 # Prepare request parameters
                 request_params = {
                     'status': status,
@@ -2010,7 +2010,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error in advanced search: {e}")
                 return self._handle_read_exception(e)
-        
+
         @self.mcp.tool()
         async def get_recent(
             period: str = Field(..., description="Time period (e.g., '3d', '1w', '2m', '1y')", pattern=r"^\d+[dwmy]$"),
@@ -2038,7 +2038,7 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error getting recent items: {e}")
                 return self._handle_read_exception(e)
-        
+
         # Navigation tools
         @self.mcp.tool()
         async def add_tags(
@@ -2059,17 +2059,17 @@ class ThingsMCPServer:
                 # Convert comma-separated tags to list
                 tag_list = _parse_tag_list(tags) or []
                 result = await self.tools.add_tags(todo_id=todo_id, tags=tag_list)
-                
+
                 # Enhance response with tag policy feedback
                 if self.tools.tag_validation_service and result.get('success'):
                     policy = self.tools.config.tag_creation_policy if self.tools.config else 'allow_all'
-                    
+
                     # Add policy information to response
                     result['tag_policy'] = {
                         'policy': policy.value if hasattr(policy, 'value') else str(policy),
                         'description': self._get_policy_description(policy)
                     }
-                    
+
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
@@ -2079,12 +2079,12 @@ class ThingsMCPServer:
                             result['message'] = result.get('message', 'Tags added successfully.') + f" Filtered tags per policy: {', '.join(tag_info['filtered'])}"
                         if tag_info.get('warnings'):
                             result['tag_warnings'] = tag_info['warnings']
-                
+
                 return result
             except Exception as e:
                 logger.error(f"Error adding tags: {e}")
                 raise
-        
+
         @self.mcp.tool()
         async def remove_tags(
             todo_id: str = Field(..., description="ID of the todo"),
@@ -2107,10 +2107,10 @@ class ThingsMCPServer:
             except Exception as e:
                 logger.error(f"Error removing tags: {e}")
                 raise
-        
+
         # Removed show_item and search_items as they trigger UI changes
         # which are not appropriate for MCP server operations
-        
+
         # Health check tool
         # Empty request model for compatibility
         class HealthCheckRequest(BaseModel):
@@ -2160,7 +2160,7 @@ class ThingsMCPServer:
                     "error": str(e),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
-        
+
         # Context stats tool
         class ContextStatsRequest(BaseModel):
             """Empty request model - context_stats takes no parameters."""
@@ -2226,7 +2226,7 @@ class ThingsMCPServer:
                         },
                         "bulk_operations": {
                             "enabled": True,
-                            "badge": "🔄 Bulk-Capable", 
+                            "badge": "🔄 Bulk-Capable",
                             "max_concurrent": 10,
                             "operations": ["move", "tag_management", "status_updates"],
                             "queue_management": True,
@@ -2304,12 +2304,12 @@ class ThingsMCPServer:
                         "url_scheme_support": True
                     }
                 }
-                
+
                 # Add dynamic information
                 is_things_running = await self.applescript_manager.is_things_running()
                 queue = await get_operation_queue()
                 queue_status = queue.get_queue_status()
-                
+
                 capabilities["current_status"] = {
                     "things_running": is_things_running,
                     "server_healthy": True,
@@ -2318,7 +2318,7 @@ class ThingsMCPServer:
                     "auth_token_configured": bool(self.applescript_manager.auth_token),
                     "timestamp": self.applescript_manager._get_current_timestamp()
                 }
-                
+
                 return capabilities
             except Exception as e:
                 logger.error(f"Error getting server capabilities: {e}")
@@ -2326,7 +2326,7 @@ class ThingsMCPServer:
                     "error": str(e),
                     "fallback_info": {
                         "server_name": "Things 3 MCP Server",
-                        "basic_functionality": "Available", 
+                        "basic_functionality": "Available",
                         "capabilities_discovery": "Failed - using fallback mode"
                     }
                 }
@@ -2341,10 +2341,10 @@ class ThingsMCPServer:
                     "timestamp": self.applescript_manager._get_current_timestamp(),
                     "context_status": self.context_manager.get_context_usage_stats()
                 }
-                
+
                 # Get current system state
                 is_things_running = await self.applescript_manager.is_things_running()
-                
+
                 if operation:
                     # Provide operation-specific recommendations
                     if operation == "get_todos":
@@ -2352,7 +2352,7 @@ class ThingsMCPServer:
                         try:
                             sample_todos = await self.tools.get_todos(None, False)  # Small sample
                             todo_count = len(sample_todos)
-                            
+
                             if todo_count == 0:
                                 recommendations[operation] = {
                                     "suggested_mode": "standard",
@@ -2370,7 +2370,7 @@ class ThingsMCPServer:
                                 }
                             elif todo_count <= 50:
                                 recommendations[operation] = {
-                                    "suggested_mode": "standard", 
+                                    "suggested_mode": "standard",
                                     "suggested_limit": 30,
                                     "reason": "Medium dataset - standard mode with limit",
                                     "estimated_response_size_kb": 30,
@@ -2392,7 +2392,7 @@ class ThingsMCPServer:
                                 "fallback": True,
                                 "error": str(e)
                             }
-                    
+
                     elif operation == "bulk_move_records":
                         recommendations[operation] = {
                             "max_concurrent": min(5, max(1, int(10))),  # Conservative default
@@ -2401,7 +2401,7 @@ class ThingsMCPServer:
                             "estimated_time_per_item": "0.5-1 seconds",
                             "note": "Scheduling handled automatically based on destination"
                         }
-                    
+
                     elif operation == "add_todo":
                         existing_tags = []
                         try:
@@ -2410,7 +2410,7 @@ class ThingsMCPServer:
                         except Exception as e:
                             logger.warning(f"Failed to retrieve existing tags for recommendations: {e}")
                             tag_count = 0
-                        
+
                         recommendations[operation] = {
                             "tag_strategy": "Use existing tags only" if not self.config.ai_can_create_tags else "Can create new tags",
                             "available_tags_count": tag_count,
@@ -2441,7 +2441,7 @@ class ThingsMCPServer:
                             "Monitor queue_status() during concurrent operations"
                         ]
                     }
-                
+
                 # Add context-specific recommendations
                 current_stats = self.context_manager.get_context_usage_stats()
                 recommendations["context_guidance"] = {
@@ -2453,14 +2453,14 @@ class ThingsMCPServer:
                         "detailed_mode": int(current_stats["available_for_response_kb"] * 0.8)
                     }
                 }
-                
+
                 # Add system status
                 recommendations["system_status"] = {
                     "things_running": is_things_running,
                     "ready_for_operations": is_things_running,
                     "recommended_checks": [] if is_things_running else ["Start Things 3 application", "Check system permissions"]
                 }
-                
+
                 return recommendations
             except Exception as e:
                 logger.error(f"Error getting usage recommendations: {e}")
@@ -2475,10 +2475,10 @@ class ThingsMCPServer:
                         "guidance": "Use conservative parameters when server analysis is unavailable"
                     }
                 }
-        
+
         # NOTE: Natural language query tools removed - too complex to implement reliably
         # The Things API doesn't provide proper date fields for most todos,
-        # making date-based queries unreliable. Consider using get_today(), 
+        # making date-based queries unreliable. Consider using get_today(),
         # get_upcoming(), get_logbook() instead for specific time-based queries.
 
         logger.info("All MCP tools registered successfully")
@@ -2895,10 +2895,10 @@ class ThingsMCPServer:
             'warn_unknown': 'Unknown tags allowed with warnings',
             'reject_unknown': 'Operations with unknown tags will be rejected'
         }
-        
+
         policy_str = policy.value if hasattr(policy, 'value') else str(policy)
         return policy_descriptions.get(policy_str, 'Custom policy')
-    
+
     def run(self) -> None:
         """Run the MCP server.
 
@@ -2932,7 +2932,7 @@ class ThingsMCPServer:
         finally:
             # Never let the boot watchdog dump race interpreter shutdown.
             disarm_boot_watchdog()
-    
+
     def stop(self) -> None:
         """Log completion after FastMCP's lifespan has stopped async resources."""
         try:

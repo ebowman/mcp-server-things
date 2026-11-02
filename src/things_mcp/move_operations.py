@@ -42,15 +42,15 @@ _TODO_INFO_LOOKUP_RETRY_INTERVAL_SECS = 0.25
 
 class MoveOperationsTools:
     """Tools for moving todos and projects between containers."""
-    
+
     def __init__(
-        self, 
+        self,
         applescript_manager: AppleScriptManager,
         validation_service: ValidationService
     ):
         self.applescript = applescript_manager
         self.validator = validation_service
-    
+
     async def move_record(
         self,
         todo_id: str,
@@ -87,7 +87,7 @@ class MoveOperationsTools:
                 if "field" in validation_result:
                     error_response["field"] = validation_result["field"]
                 return error_response
-            
+
             # Get current todo information before moving
             current_todo = await self._get_todo_info(todo_id)
             if not current_todo["success"]:
@@ -98,7 +98,7 @@ class MoveOperationsTools:
                     "todo_id": todo_id,
                     "destination": destination
                 }
-            
+
             # Execute the move operation
             move_result = await self._execute_move(
                 todo_id,
@@ -130,7 +130,7 @@ class MoveOperationsTools:
                     "todo_id": todo_id,
                     "destination": destination
                 }
-        
+
         except Exception as e:
             logger.error(f"Error moving todo {todo_id} to {destination}: {e}")
             return {
@@ -140,7 +140,7 @@ class MoveOperationsTools:
                 "todo_id": todo_id,
                 "destination": destination
             }
-    
+
     async def bulk_move(
         self,
         todo_ids: List[str],
@@ -166,7 +166,7 @@ class MoveOperationsTools:
                     "message": "No todo IDs provided for bulk move",
                     "total_requested": 0
                 }
-            
+
             # Validate destination once for all moves
             dest_validation = await self._validate_destination(destination)
             if not dest_validation["valid"]:
@@ -176,26 +176,26 @@ class MoveOperationsTools:
                     "message": dest_validation["message"],
                     "total_requested": len(todo_ids)
                 }
-            
+
             successful_moves = []
             failed_moves = []
-            
+
             # Process todos in batches to avoid overwhelming the system
             import asyncio
             semaphore = asyncio.Semaphore(max_concurrent)
-            
+
             async def move_single_todo(todo_id: str) -> Dict[str, Any]:
                 async with semaphore:
                     return await self.move_record(todo_id, destination)
-            
+
             # Execute all moves concurrently
             tasks = [move_single_todo(todo_id) for todo_id in todo_ids]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Process results
             for i, result in enumerate(results):
                 todo_id = todo_ids[i]
-                
+
                 if isinstance(result, Exception):
                     failed_moves.append({
                         "id": todo_id,
@@ -214,7 +214,7 @@ class MoveOperationsTools:
                         "error": result.get("error", "UNKNOWN"),
                         "message": result.get("message", "Move operation failed")
                     })
-            
+
             bulk_result = {
                 "success": len(failed_moves) == 0,
                 "message": f"Bulk move completed: {len(successful_moves)} successful, {len(failed_moves)} failed",
@@ -233,7 +233,7 @@ class MoveOperationsTools:
                     "BULK_PARTIAL_FAILURE" if successful_moves else "BULK_OPERATION_FAILED"
                 )
             return bulk_result
-        
+
         except Exception as e:
             logger.error(f"Error during bulk move operation: {e}")
             return {
@@ -244,7 +244,7 @@ class MoveOperationsTools:
                 "total_successful": 0,
                 "total_failed": len(todo_ids)
             }
-    
+
     async def move_to_project(
         self,
         todo_id: str,
@@ -265,9 +265,9 @@ class MoveOperationsTools:
         destination = f"project:{project_id}"
         if heading:
             destination += f":{heading}"
-        
+
         return await self.move_record(todo_id, destination)
-    
+
     async def move_to_area(
         self,
         todo_id: str,
@@ -285,7 +285,7 @@ class MoveOperationsTools:
         """
         destination = f"area:{area_id}"
         return await self.move_record(todo_id, destination)
-    
+
     async def _validate_move_inputs(self, todo_id: str, destination: str) -> Dict[str, Any]:
         """Validate move operation inputs."""
         if not todo_id or not isinstance(todo_id, str) or not todo_id.strip():
@@ -294,15 +294,15 @@ class MoveOperationsTools:
                 "message": "Todo ID must be a non-empty string",
                 "field": "todo_id"
             }
-        
+
         if not destination or not isinstance(destination, str):
             return {
                 "valid": False,
                 "message": "Destination must be a non-empty string"
             }
-        
+
         return await self._validate_destination(destination)
-    
+
     async def _validate_destination(self, destination: str) -> Dict[str, Any]:
         """Validate destination string."""
         valid_lists = ["inbox", "today", "anytime", "someday", "logbook", "trash"]
@@ -336,7 +336,7 @@ class MoveOperationsTools:
                 return {"valid": True, "message": "Valid project destination"}
             else:
                 return {"valid": False, "message": "Project ID cannot be empty"}
-        
+
         # Check for area destinations
         if destination.startswith("area:"):
             area_part = destination[5:]  # Remove "area:" prefix
@@ -344,12 +344,12 @@ class MoveOperationsTools:
                 return {"valid": True, "message": "Valid area destination"}
             else:
                 return {"valid": False, "message": "Area ID cannot be empty"}
-        
+
         return {
             "valid": False,
             "message": f"Invalid destination '{destination}'. Must be a list name, project:ID, or area:ID"
         }
-    
+
     async def _get_todo_info(self, todo_id: str) -> Dict[str, Any]:
         """Get information about a todo before moving it, via things.py.
 
@@ -557,7 +557,7 @@ class MoveOperationsTools:
             return "anytime"
 
         return "anytime"
-    
+
     async def _execute_move(
         self,
         todo_id: str,
@@ -591,10 +591,10 @@ class MoveOperationsTools:
                     "error": "INVALID_DESTINATION",
                     "message": f"Unknown destination type: {destination}"
                 }
-            
+
             # Execute the move script
             result = await self.applescript.execute_applescript(script, cache_key=None)
-            
+
             if result.get("success"):
                 output = result.get("output", "")
                 if "ERROR:" in output:
@@ -617,7 +617,7 @@ class MoveOperationsTools:
                     "error": "SCRIPT_EXECUTION_FAILED",
                     "message": result.get("error", "AppleScript execution failed")
                 }
-        
+
         except Exception as e:
             logger.error(f"Error executing move for {todo_id}: {e}")
             return {
@@ -625,7 +625,7 @@ class MoveOperationsTools:
                 "error": "EXECUTION_EXCEPTION",
                 "message": str(e)
             }
-    
+
     async def _build_list_move_script(
         self,
         todo_id: str,
@@ -680,7 +680,7 @@ class MoveOperationsTools:
         ]
 
         return "\n".join(lines)
-    
+
     async def _build_project_move_script(
         self,
         todo_id: str,
@@ -703,9 +703,9 @@ class MoveOperationsTools:
             end try
         end tell
         '''
-        
+
         return script
-    
+
     async def _build_area_move_script(
         self,
         todo_id: str,
@@ -728,5 +728,5 @@ class MoveOperationsTools:
             end try
         end tell
         '''
-        
+
         return script

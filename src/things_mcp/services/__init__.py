@@ -7,7 +7,7 @@ from .error_handler import ErrorHandler
 
 __all__ = [
     'ValidationService',
-    'TagValidationService', 
+    'TagValidationService',
     'TagValidationResult',
     'AppleScriptManager',
     'ErrorHandler'

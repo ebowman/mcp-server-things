@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ResponseMode(str, Enum):
     """Response detail modes for context management."""
     SUMMARY = "summary"      # Count + key insights (< 1KB)
-    MINIMAL = "minimal"      # Essential fields only (< 5KB)  
+    MINIMAL = "minimal"      # Essential fields only (< 5KB)
     STANDARD = "standard"    # Default balanced response (< 50KB)
     DETAILED = "detailed"    # Full data with pagination (< 200KB per page)
     RAW = "raw"             # Original behavior (unlimited)
@@ -31,17 +31,17 @@ class ContextBudget:
     reserved_for_reasoning: float = 0.20  # 20% reserved for AI reasoning
     max_response_size: int = 80_000  # 80KB max response size
     warning_threshold: int = 60_000  # 60KB warning threshold
-    
+
     @property
     def available_for_response(self) -> int:
         """Calculate available context for response data."""
         return int(self.total_budget * (1 - self.reserved_for_reasoning))
-    
+
     def calculate_dynamic_limit(self, method_name: str, avg_item_size: int) -> int:
         """Calculate dynamic item limits based on method and average item size."""
         safe_size = self.max_response_size * 0.8  # 80% of max for safety margin
         base_limit = int(safe_size / max(avg_item_size, 100))  # Prevent division by zero
-        
+
         # Method-specific adjustments
         method_multipliers = {
             'get_todos': 1.0,
@@ -57,20 +57,20 @@ class ContextBudget:
             'search_todos': 1.0,    # Search results vary widely
             'search_advanced': 0.8, # Advanced search can be complex
         }
-        
+
         multiplier = method_multipliers.get(method_name, 1.0)
         return max(5, int(base_limit * multiplier))  # Always return at least 5 items
 
 
 class ResponseSizeEstimator:
     """Estimates response sizes for context budget management."""
-    
+
     # Base size estimates in bytes (measured from actual Things 3 data)
     BASE_TODO_SIZE = 480     # Updated based on actual data analysis
     BASE_PROJECT_SIZE = 520  # Projects have more metadata
     BASE_AREA_SIZE = 220     # Areas are simpler
     BASE_TAG_SIZE = 160      # Tags with metadata
-    
+
     # Field size multipliers (calibrated from real usage)
     FIELD_SIZES = {
         'notes': 2.2,         # Rich text + JSON escaping overhead
@@ -80,39 +80,39 @@ class ResponseSizeEstimator:
         'reminder_data': 60,   # Reminder time + metadata
         'dates': 35,          # ISO timestamps
     }
-    
+
     def calculate_accurate_size(self, item: Dict[str, Any], mode: ResponseMode) -> int:
         """Calculate more accurate size based on actual field content."""
         if mode == ResponseMode.SUMMARY:
             return 55  # Just core fields
         elif mode == ResponseMode.MINIMAL:
             return 180  # Essential fields only
-        
+
         # Calculate based on actual content
         size = self.BASE_TODO_SIZE if 'name' in item else self.BASE_TAG_SIZE
-        
+
         # Add dynamic field sizes
         if 'notes' in item and item['notes']:
             size += len(str(item['notes'])) * self.FIELD_SIZES['notes']
-        
+
         if 'checklist_items' in item and item['checklist_items']:
             items_count = len(item['checklist_items']) if isinstance(item['checklist_items'], list) else 0
             size += items_count * self.FIELD_SIZES['checklist_items']
-        
+
         if 'tag_names' in item and item['tag_names']:
             tags_count = len(item['tag_names']) if isinstance(item['tag_names'], list) else 0
             size += tags_count * self.FIELD_SIZES['tag_names']
-        
+
         # Add reminder data size
         if item.get('has_reminder') or item.get('reminder_time'):
             size += self.FIELD_SIZES['reminder_data']
-        
+
         # Cap size for modes
         if mode == ResponseMode.STANDARD:
             return min(size, 1200)  # Standard mode cap
-        
+
         return size
-    
+
     def estimate_todo_size(self, todo: Dict[str, Any], mode: ResponseMode) -> int:
         """Estimate size of a todo object based on response mode."""
         if mode == ResponseMode.SUMMARY:
@@ -135,33 +135,33 @@ class ResponseSizeEstimator:
             if 'tag_names' in todo:
                 size += len(todo['tag_names']) * self.FIELD_SIZES['tag_names']
             return size
-    
+
     def estimate_response_size(self, data: List[Dict[str, Any]], mode: ResponseMode) -> int:
         """Estimate total response size for a list of objects using accurate calculations."""
         if not data:
             return 150  # Empty response overhead
-        
+
         # Use accurate size calculation for better estimates
         total_size = 0
         sample_size = min(10, len(data))  # Larger sample for accuracy
-        
+
         for item in data[:sample_size]:
             total_size += self.calculate_accurate_size(item, mode)
-        
+
         if sample_size < len(data):
             # Extrapolate from sample
             average_size = total_size / sample_size
             total_size = int(average_size * len(data))
-        
+
         # Add response overhead (metadata, pagination info, JSON structure)
         overhead = 800 + (len(data) * 15)  # Base overhead + per-item JSON overhead
-        
+
         return total_size + overhead
 
 
 class SmartDefaultManager:
     """Applies intelligent defaults based on method and context."""
-    
+
     # Default limits by method
     DEFAULT_LIMITS = {
         'get_todos': 50,
@@ -179,7 +179,7 @@ class SmartDefaultManager:
         'get_due_in_days': 40,        # Overdue backlog can grow large; mirrors get_anytime
         'get_activating_in_days': 40,  # Same rationale as get_due_in_days
     }
-    
+
     # Default modes by method (AUTO mode for intelligent selection)
     DEFAULT_MODES = {
         'get_todos': ResponseMode.AUTO,
@@ -198,36 +198,36 @@ class SmartDefaultManager:
         'get_due_in_days': ResponseMode.AUTO,        # Result size varies with the window/backlog
         'get_activating_in_days': ResponseMode.AUTO,  # Same rationale as get_due_in_days
     }
-    
+
     def apply_smart_defaults(self, method_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Apply intelligent defaults to method parameters."""
         optimized_params = params.copy()
-        
+
         # Set default response mode if not specified or is None
         if optimized_params.get('mode') is None:
             optimized_params['mode'] = self.DEFAULT_MODES.get(method_name, ResponseMode.STANDARD)
-        
+
         # Set default limit if not specified or is None and method has high volume potential
         if method_name in self.DEFAULT_LIMITS and optimized_params.get('limit') is None:
             default_limit = self.DEFAULT_LIMITS[method_name]
             if default_limit > 0:  # 0 means no limit
                 optimized_params['limit'] = default_limit
-        
+
         # Disable include_items by default for high-volume methods
         high_volume_methods = ['get_todos', 'get_projects', 'get_areas', 'get_tags', 'search_todos', 'search_advanced']
         if method_name in high_volume_methods and 'include_items' not in optimized_params:
             optimized_params['include_items'] = False
-        
+
         return optimized_params
 
 
 class ProgressiveDisclosureEngine:
     """Handles progressive data disclosure patterns."""
-    
+
     def __init__(self, context_budget: ContextBudget):
         self.context_budget = context_budget
         self.size_estimator = ResponseSizeEstimator()
-    
+
     def create_summary_response(self, data: List[Dict[str, Any]], method_name: str) -> Dict[str, Any]:
         """Create a lightweight summary response with useful information."""
         if not data:
@@ -241,7 +241,7 @@ class ProgressiveDisclosureEngine:
                 "message": empty_message,
                 "suggestions": self._get_empty_suggestions(method_name)
             }
-        
+
         summary = {
             "success": True,
             "count": len(data),
@@ -249,7 +249,7 @@ class ProgressiveDisclosureEngine:
             "data_available": True,
             "message": f"Found {len(data)} items"
         }
-        
+
         # Add method-specific summary insights
         if method_name in ['get_todos', 'get_today', 'get_inbox', 'get_upcoming', 'get_anytime', 'get_someday']:
             summary.update(self._summarize_todos(data))
@@ -263,9 +263,9 @@ class ProgressiveDisclosureEngine:
             summary.update(self._summarize_logbook(data))
         elif 'search' in method_name:
             summary.update(self._summarize_search_results(data))
-        
+
         return summary
-    
+
     def _build_summary_preview_row(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Build a single SUMMARY-mode preview row for a todo/project item.
 
@@ -342,26 +342,26 @@ class ProgressiveDisclosureEngine:
                 self._build_summary_preview_row(p) for p in projects[:3]
             ]
         }
-    
+
     def _summarize_tags(self, tags: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create tag-specific summary."""
         # Sort by usage if available
         tag_names = [tag.get('name', '') for tag in tags[:10]]
-        
+
         return {
             "most_common": tag_names,
             "total_tags": len(tags)
         }
-    
+
     def _summarize_areas(self, areas: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create area-specific summary."""
         area_names = [area.get('name', '') for area in areas[:10]]
-        
+
         return {
             "areas": area_names,
             "total_areas": len(areas)
         }
-    
+
     def _summarize_logbook(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create logbook-specific summary."""
         # Group by completion date
@@ -371,7 +371,7 @@ class ProgressiveDisclosureEngine:
             if completion_date:
                 date_key = completion_date.split('T')[0] if 'T' in completion_date else completion_date
                 dates[date_key] = dates.get(date_key, 0) + 1
-        
+
         return {
             "completed_count": len(entries),
             "completion_by_date": dict(list(dates.items())[:7]),  # Last 7 days
@@ -379,7 +379,7 @@ class ProgressiveDisclosureEngine:
                 {"name": e.get("name", "")[:50]} for e in entries[:5]
             ]
         }
-    
+
     def _summarize_search_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create search-specific summary."""
         status_counts = {}
@@ -398,7 +398,7 @@ class ProgressiveDisclosureEngine:
             "result_preview": recent_items,
             "suggestion": "Use mode='minimal' or 'standard' to see more details, or add filters to narrow results"
         }
-    
+
     def _get_empty_message(self, method_name: str) -> str:
         """Get helpful message for empty results."""
         messages_map = {
@@ -411,7 +411,7 @@ class ProgressiveDisclosureEngine:
             'search_advanced': "No items matched the specified filters"
         }
         return messages_map.get(method_name, "No items found")
-    
+
     def _get_empty_suggestions(self, method_name: str) -> List[str]:
         """Get helpful suggestions for empty datasets."""
         suggestions_map = {
@@ -427,13 +427,13 @@ class ProgressiveDisclosureEngine:
 
 class ContextAwareResponseManager:
     """Main manager for context-aware responses."""
-    
+
     def __init__(self, context_budget: Optional[ContextBudget] = None):
         self.context_budget = context_budget or ContextBudget()
         self.smart_defaults = SmartDefaultManager()
         self.progressive_engine = ProgressiveDisclosureEngine(self.context_budget)
         self.size_estimator = ResponseSizeEstimator()
-    
+
     def optimize_request(self, method_name: str, params: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
         """
         Optimize request parameters for context awareness.
@@ -443,14 +443,14 @@ class ContextAwareResponseManager:
         """
         original_params = params.copy()
         optimized_params = self.smart_defaults.apply_smart_defaults(method_name, params)
-        
+
         was_modified = original_params != optimized_params
         if was_modified:
             logger.info(f"Applied smart defaults to {method_name}: {optimized_params}")
-        
+
         return optimized_params, was_modified
-    
-    def optimize_response(self, data: List[Dict[str, Any]], method_name: str, 
+
+    def optimize_response(self, data: List[Dict[str, Any]], method_name: str,
                          mode: ResponseMode, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Optimize response based on context constraints with enhanced AUTO mode support.
@@ -480,18 +480,18 @@ class ContextAwareResponseManager:
         if mode == ResponseMode.AUTO:
             mode = self._select_optimal_mode(data, method_name)
             logger.info(f"AUTO mode selected {mode.value} for {method_name} with {len(data)} items")
-        
+
         # Handle different response modes
         if mode == ResponseMode.SUMMARY:
             return self.progressive_engine.create_summary_response(data, method_name)
-        
+
         # Estimate response size using accurate calculations
         estimated_size = self.size_estimator.estimate_response_size(data, mode)
-        
+
         # Check if we need to paginate or truncate
         if estimated_size > self.context_budget.max_response_size:
             return self._handle_oversized_response(data, method_name, mode, params, estimated_size)
-        
+
         # Response fits within context budget
         filtered_data = self._apply_field_filtering(data, mode, method_name)
 
@@ -545,7 +545,7 @@ class ContextAwareResponseManager:
                 ),
             }
         }
-    
+
     # get_project_headings' items use a distinct schema (uuid/title/index/
     # todoCount) that shares no fields with the todo/project/area schemas
     # below. Filtered separately by method_name in _apply_field_filtering
@@ -713,22 +713,22 @@ class ContextAwareResponseManager:
             filtered_data.append(filtered_item)
 
         return filtered_data
-    
+
     def _apply_relevance_ranking(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Apply relevance-based ranking for prioritization."""
         from datetime import datetime, date
-        
+
         def relevance_score(item: Dict[str, Any]) -> int:
             score = 0
-            
+
             # High priority for today's items
             if item.get('scheduled_date') == 'today' or item.get('due_date') == str(date.today()):
                 score += 100
-            
+
             # Priority for open/incomplete items
             if item.get('status') == 'open':
                 score += 50
-            
+
             # Recent modifications are more relevant
             if item.get('modification_date'):
                 try:
@@ -739,11 +739,11 @@ class ContextAwareResponseManager:
                 except (ValueError, KeyError, TypeError) as e:
                     logger.debug(f"Could not parse modification_date for scoring: {item.get('modification_date')} - {e}")
                     pass
-            
+
             # Items with reminders are higher priority
             if item.get('has_reminder'):
                 score += 20
-            
+
             # Overdue items get highest priority
             if item.get('due_date') and item.get('status') == 'open':
                 try:
@@ -753,16 +753,16 @@ class ContextAwareResponseManager:
                 except (ValueError, KeyError) as e:
                     logger.debug(f"Could not parse due_date for scoring: {item.get('due_date')} - {e}")
                     pass
-            
+
             return score
-        
+
         # Sort by relevance score (highest first)
         return sorted(items, key=relevance_score, reverse=True)
-    
+
     def _select_optimal_mode(self, data: List[Dict[str, Any]], method_name: str) -> ResponseMode:
         """Automatically select the optimal response mode based on data characteristics and query intent."""
         item_count = len(data)
-        
+
         # Special handling for search methods - users likely want to see results
         if 'search' in method_name:
             if item_count <= 5:
@@ -773,16 +773,16 @@ class ContextAwareResponseManager:
                 return ResponseMode.MINIMAL   # Many results, show essentials
             else:
                 return ResponseMode.MINIMAL   # Too many results, minimal mode better than summary
-        
+
         # Quick size estimation for mode selection
         sample_item = data[0] if data else {}
         estimated_avg_size = self.size_estimator.calculate_accurate_size(sample_item, ResponseMode.STANDARD)
         projected_total = estimated_avg_size * item_count + 1000  # Add overhead
-        
+
         # General mode selection logic based on projected size and item count
         if projected_total <= 2000:  # Very small dataset
             return ResponseMode.DETAILED
-        elif projected_total <= 15000:  # Small dataset  
+        elif projected_total <= 15000:  # Small dataset
             return ResponseMode.STANDARD
         elif projected_total <= 50000:  # Medium dataset
             return ResponseMode.MINIMAL
@@ -790,7 +790,7 @@ class ContextAwareResponseManager:
             return ResponseMode.SUMMARY
         else:  # Large data per item
             return ResponseMode.MINIMAL
-    
+
     def get_context_usage_stats(self) -> Dict[str, Any]:
         """Get current context usage statistics for monitoring."""
         return {
@@ -800,7 +800,7 @@ class ContextAwareResponseManager:
             "available_for_response_kb": round(self.context_budget.available_for_response / 1024, 1),
             "reserved_for_reasoning_pct": self.context_budget.reserved_for_reasoning * 100
         }
-    
+
     def get_optimization_capabilities(self) -> Dict[str, Any]:
         """Get comprehensive information about context optimization capabilities."""
         return {
@@ -855,7 +855,7 @@ class ContextAwareResponseManager:
             "performance_metrics": {
                 "typical_savings": {
                     "summary_mode": "95% size reduction",
-                    "minimal_mode": "75% size reduction", 
+                    "minimal_mode": "75% size reduction",
                     "standard_mode": "40% size reduction",
                     "field_filtering": "20-60% per mode"
                 },
@@ -868,7 +868,7 @@ class ContextAwareResponseManager:
                 "context_exhaustion_prevention": "99.9% success rate"
             }
         }
-    
+
     def get_workflow_recommendations(self, data_size_hint: Optional[int] = None) -> Dict[str, Any]:
         """Get workflow-specific recommendations based on data characteristics."""
         recommendations = {
@@ -906,7 +906,7 @@ class ContextAwareResponseManager:
                 }
             }
         }
-        
+
         # Add size-specific recommendations
         if data_size_hint:
             if data_size_hint < 10:
@@ -917,7 +917,7 @@ class ContextAwareResponseManager:
                 }
             elif data_size_hint < 50:
                 recommendations["size_specific"] = {
-                    "recommended_mode": "standard", 
+                    "recommended_mode": "standard",
                     "suggested_limit": 30,
                     "reason": "Medium dataset - standard with limits",
                     "estimated_response_kb": min(30, data_size_hint) * 1.0
@@ -929,23 +929,23 @@ class ContextAwareResponseManager:
                     "next_step": "Use summary insights to guide detailed queries",
                     "estimated_response_kb": 2
                 }
-        
+
         return recommendations
-    
-    def analyze_response_efficiency(self, original_size: int, optimized_size: int, 
+
+    def analyze_response_efficiency(self, original_size: int, optimized_size: int,
                                   mode: ResponseMode, item_count: int) -> Dict[str, Any]:
         """Analyze the efficiency of response optimization."""
         if original_size == 0:
             return {"error": "Cannot analyze efficiency with zero original size"}
-        
+
         savings_percentage = round((1 - optimized_size / original_size) * 100, 1)
         size_per_item_kb = round(optimized_size / max(item_count, 1) / 1024, 2)
-        
+
         efficiency_score = "excellent" if savings_percentage >= 80 else \
                           "good" if savings_percentage >= 60 else \
                           "moderate" if savings_percentage >= 40 else \
                           "minimal"
-        
+
         return {
             "original_size_kb": round(original_size / 1024, 1),
             "optimized_size_kb": round(optimized_size / 1024, 1),
@@ -956,23 +956,23 @@ class ContextAwareResponseManager:
             "item_count": item_count,
             "recommendations": self._get_efficiency_recommendations(savings_percentage, mode)
         }
-    
+
     def _get_efficiency_recommendations(self, savings_percentage: float, mode: ResponseMode) -> List[str]:
         """Get recommendations based on efficiency analysis."""
         recommendations = []
-        
+
         if savings_percentage < 40:
             recommendations.extend([
                 "Consider using a more restrictive response mode",
                 "Try mode='minimal' or 'summary' for better context efficiency"
             ])
-        
+
         if mode == ResponseMode.RAW:
             recommendations.append("Consider using context-optimized modes for better performance")
         elif mode == ResponseMode.AUTO:
             recommendations.append("AUTO mode selected optimal settings based on data characteristics")
-        
+
         if savings_percentage >= 80:
             recommendations.append("Excellent optimization - context usage is highly efficient")
-        
+
         return recommendations

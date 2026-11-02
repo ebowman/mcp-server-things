@@ -32,7 +32,7 @@ _RESOLVE_UNAVAILABLE = object()
 class WriteOperations:
     """Write operations using AppleScript for reliable writes."""
 
-    def __init__(self, applescript_manager: AppleScriptManager, 
+    def __init__(self, applescript_manager: AppleScriptManager,
                  scheduler: PureAppleScriptScheduler,
                  validation_service: ValidationService,
                  move_operations: MoveOperationsTools,

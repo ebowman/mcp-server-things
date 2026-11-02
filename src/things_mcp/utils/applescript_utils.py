@@ -69,7 +69,7 @@ class AppleScriptTemplates:
             return '""'
 
         return f'"{AppleScriptTemplates.escape_string_inner(text)}"'
-    
+
     @staticmethod
     def build_property_dict(properties: Dict[str, Any]) -> str:
         """Build AppleScript properties dictionary.
@@ -82,7 +82,7 @@ class AppleScriptTemplates:
         """
         if not properties:
             return "{}"
-        
+
         props = []
         for key, value in properties.items():
             if isinstance(value, str):
@@ -91,7 +91,7 @@ class AppleScriptTemplates:
                 value = "true" if value else "false"
             elif value is None:
                 continue  # Skip null values
-            
+
             props.append(f"{key}:{value}")
-        
+
         return "{" + ", ".join(props) + "}"

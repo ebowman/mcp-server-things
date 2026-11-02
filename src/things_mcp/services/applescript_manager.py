@@ -258,4 +258,3 @@ class AppleScriptManager:
     def clear_cache(self) -> None:
         """Clear all cached results - no-op in hybrid implementation."""
         logger.info("Cache clearing requested but caching is disabled in hybrid implementation")
-

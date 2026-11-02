@@ -51,23 +51,23 @@ class ThingsMCPConfig(BaseSettings):
     - Configuration files (JSON/YAML)
     - Default values
     """
-    
+
     # Server configuration
     server_name: str = Field(
         default="things3-mcp-server",
         description="Name of the MCP server"
     )
-    
+
     server_version: str = Field(
         default="1.0.0",
         description="Version of the MCP server"
     )
-    
+
     server_description: str = Field(
         default="MCP server for Things 3 task management integration",
         description="Description of the MCP server"
     )
-    
+
     # AppleScript execution configuration
     applescript_timeout: float = Field(
         default=30.0,
@@ -75,57 +75,57 @@ class ThingsMCPConfig(BaseSettings):
         le=300.0,
         description="Timeout for AppleScript execution in seconds"
     )
-    
+
     applescript_retry_count: int = Field(
         default=2,
         ge=0,
         le=10,
         description="Number of retries after the initial attempt for failed AppleScript operations"
     )
-    
+
     preferred_execution_method: ExecutionMethod = Field(
         default=ExecutionMethod.HYBRID,
         description="Preferred method for executing Things 3 operations"
     )
-    
+
     # Cache configuration
     enable_caching: bool = Field(
         default=True,
         description="Enable response caching"
     )
-    
+
     cache_max_size: int = Field(
         default=1000,
         ge=10,
         le=10000,
         description="Maximum number of items in cache"
     )
-    
+
     cache_default_ttl: int = Field(
         default=300,
         ge=10,
         le=3600,
         description="Default TTL for cached items in seconds"
     )
-    
+
     cache_memory_limit: int = Field(
         default=100,  # MB
         ge=10,
         le=1000,
         description="Maximum memory usage for cache in MB"
     )
-    
+
     # Logging configuration
     log_level: LogLevel = Field(
         default=LogLevel.INFO,
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
-    
+
     log_file_path: Optional[Path] = Field(
         default=None,
         description="Path to log file (if None, logs to console only)"
     )
-    
+
     # Validation configuration
     max_title_length: int = Field(
         default=500,
@@ -133,28 +133,28 @@ class ThingsMCPConfig(BaseSettings):
         le=1000,
         description="Maximum length for todo/project titles"
     )
-    
+
     max_notes_length: int = Field(
         default=10000,
         ge=100,
         le=50000,
         description="Maximum length for notes"
     )
-    
+
     max_tags_per_item: int = Field(
         default=20,
         ge=1,
         le=50,
         description="Maximum number of tags per item"
     )
-    
+
     max_checklist_items: int = Field(
         default=50,
         ge=1,
         le=200,
         description="Maximum number of checklist items"
     )
-    
+
     # Performance configuration
     max_concurrent_operations: int = Field(
         default=10,
@@ -162,38 +162,38 @@ class ThingsMCPConfig(BaseSettings):
         le=50,
         description="Maximum concurrent AppleScript operations"
     )
-    
+
     batch_operation_max_size: int = Field(
         default=100,
         ge=10,
         le=1000,
         description="Maximum items in batch operations"
     )
-    
+
     search_results_limit: int = Field(
         default=100,
         ge=10,
         le=1000,
         description="Default maximum search results"
     )
-    
+
     # Security configuration
     enable_input_sanitization: bool = Field(
         default=True,
         description="Enable input sanitization for AppleScript"
     )
-    
+
     allowed_hosts: List[str] = Field(
         default=["localhost", "127.0.0.1"],
         description="Allowed hosts for server access (JSON array or comma-separated string)"
     )
-    
+
     # Tag management configuration
     ai_can_create_tags: bool = Field(
         default=False,
         description="Whether AI assistants can create new tags (false = human-only tag creation)"
     )
-    
+
     # Keep legacy field for backward compatibility but map to new simplified model
     #
     # Default is FILTER_WARN, not FAIL_ON_UNKNOWN. History: prior to the
@@ -213,19 +213,19 @@ class ThingsMCPConfig(BaseSettings):
         default=TagCreationPolicy.FILTER_WARN,
         description="[DEPRECATED - use ai_can_create_tags] Policy for handling unknown tags"
     )
-    
+
     tag_validation_case_sensitive: bool = Field(
         default=False,
         description="Enable case-sensitive tag validation"
     )
-    
+
     max_auto_created_tags_per_operation: int = Field(
         default=10,
         ge=1,
         le=50,
         description="Maximum number of tags that can be auto-created per operation"
     )
-    
+
     # Feature flags
     enable_experimental_features: bool = Field(
         default=False,
@@ -247,17 +247,17 @@ class ThingsMCPConfig(BaseSettings):
         default="Things3",
         description="Name of the Things 3 application"
     )
-    
+
     things_url_scheme_base: str = Field(
         default="things:///",
         description="Base URL for Things 3 URL schemes"
     )
-    
+
     verify_things_availability: bool = Field(
         default=True,
         description="Verify Things 3 is available on startup"
     )
-    
+
     # Development configuration
     enable_mock_mode: bool = Field(
         default=False,
@@ -306,14 +306,14 @@ class ThingsMCPConfig(BaseSettings):
         if v is not None:
             return Path(v)
         return v
-    
+
     @field_validator('mock_data_path', mode='before')
     @classmethod
     def validate_mock_data_path(cls, v):
         if v is not None:
             return Path(v)
         return v
-    
+
     @field_validator('allowed_hosts', mode='before')
     @classmethod
     def validate_allowed_hosts(cls, v):
@@ -335,21 +335,21 @@ class ThingsMCPConfig(BaseSettings):
         if isinstance(v, list):
             return v
         return ["localhost", "127.0.0.1"]
-    
+
     @field_validator('preferred_execution_method', mode='before')
     @classmethod
     def validate_execution_method(cls, v):
         if isinstance(v, str):
             return ExecutionMethod(v.lower())
         return v
-    
+
     @field_validator('log_level', mode='before')
     @classmethod
     def validate_log_level(cls, v):
         if isinstance(v, str):
             return LogLevel(v.upper())
         return v
-    
+
     @field_validator('tag_creation_policy', mode='before')
     @classmethod
     def validate_tag_creation_policy(cls, v):
@@ -436,7 +436,7 @@ class ThingsMCPConfig(BaseSettings):
         # THINGS_MCP_LOG_FILE_PATH=/var/log/things-mcp.log
         # THINGS_MCP_AI_CAN_CREATE_TAGS=true
         # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
-    
+
     @classmethod
     def from_env_file(cls, env_path: Optional[Path] = None) -> 'ThingsMCPConfig':
         """
@@ -474,10 +474,10 @@ class ThingsMCPConfig(BaseSettings):
                     logging.getLogger(__name__).warning(
                         "python-dotenv not installed. Install it to use .env files: pip install python-dotenv"
                     )
-        
+
         # Create config from environment variables
         return cls()
-    
+
     def get_applescript_config(self) -> Dict[str, Any]:
         """Get AppleScript-specific configuration"""
         return {
@@ -487,7 +487,7 @@ class ThingsMCPConfig(BaseSettings):
             "app_name": self.things_app_name,
             "enable_sanitization": self.enable_input_sanitization
         }
-    
+
     def get_cache_config(self) -> Dict[str, Any]:
         """Get cache-specific configuration"""
         return {
@@ -496,7 +496,7 @@ class ThingsMCPConfig(BaseSettings):
             "default_ttl": self.cache_default_ttl,
             "memory_limit": self.cache_memory_limit
         }
-    
+
     def get_validation_config(self) -> Dict[str, Any]:
         """Get validation-specific configuration"""
         return {
@@ -505,7 +505,7 @@ class ThingsMCPConfig(BaseSettings):
             "max_tags_per_item": self.max_tags_per_item,
             "max_checklist_items": self.max_checklist_items
         }
-    
+
     def get_tag_config(self) -> Dict[str, Any]:
         """Get tag management configuration"""
         return {
@@ -513,14 +513,14 @@ class ThingsMCPConfig(BaseSettings):
             "case_sensitive": self.tag_validation_case_sensitive,
             "max_auto_created_per_operation": self.max_auto_created_tags_per_operation
         }
-    
+
     def is_development_mode(self) -> bool:
         """Check if running in development mode"""
         return (
-            self.enable_mock_mode or 
+            self.enable_mock_mode or
             self.enable_experimental_features
         )
-    
+
     def validate_environment(self) -> List[str]:
         """
         Validate the current environment and configuration.
@@ -529,7 +529,7 @@ class ThingsMCPConfig(BaseSettings):
             List of validation warnings/errors
         """
         issues = []
-        
+
         # Check Things 3 availability if not in mock mode
         if not self.enable_mock_mode and self.verify_things_availability:
             try:
@@ -544,7 +544,7 @@ class ThingsMCPConfig(BaseSettings):
                     issues.append(f"Things 3 not accessible: {result.stderr}")
             except Exception as e:
                 issues.append(f"Could not verify Things 3 availability: {e}")
-        
+
         # Check log file path
         if self.log_file_path:
             log_dir = self.log_file_path.parent
@@ -552,26 +552,26 @@ class ThingsMCPConfig(BaseSettings):
                 issues.append(f"Log directory does not exist: {log_dir}")
             elif not os.access(log_dir, os.W_OK):
                 issues.append(f"Log directory is not writable: {log_dir}")
-        
+
         # Check mock data path
         if self.enable_mock_mode and self.mock_data_path:
             if not self.mock_data_path.exists():
                 issues.append(f"Mock data file not found: {self.mock_data_path}")
-        
+
         # Performance warnings
         if self.cache_max_size > 5000:
             issues.append("Large cache size may impact memory usage")
-        
+
         if self.max_concurrent_operations > 20:
             issues.append("High concurrent operation limit may overwhelm system")
-        
+
         return issues
 
 
 # Environment-specific configurations
 class DevelopmentConfig(ThingsMCPConfig):
     """Development environment configuration"""
-    
+
     cache_default_ttl: int = 60  # Shorter TTL for development
     enable_experimental_features: bool = True
     log_level: LogLevel = LogLevel.DEBUG
@@ -579,7 +579,7 @@ class DevelopmentConfig(ThingsMCPConfig):
 
 class ProductionConfig(ThingsMCPConfig):
     """Production environment configuration"""
-    
+
     applescript_timeout: float = 60.0  # Longer timeout for production
     cache_max_size: int = 2000  # Larger cache for production
     log_level: LogLevel = LogLevel.INFO
@@ -587,7 +587,7 @@ class ProductionConfig(ThingsMCPConfig):
 
 class TestingConfig(ThingsMCPConfig):
     """Testing environment configuration"""
-    
+
     enable_mock_mode: bool = True
     enable_caching: bool = False  # Disable caching for consistent tests
     applescript_timeout: float = 5.0  # Short timeout for tests
@@ -611,7 +611,7 @@ def get_config(environment: str = "development") -> ThingsMCPConfig:
         "production": ProductionConfig,
         "testing": TestingConfig
     }
-    
+
     config_class = env_configs.get(environment.lower(), ThingsMCPConfig)
     return config_class()
 
@@ -663,11 +663,11 @@ def validate_config(config: ThingsMCPConfig) -> bool:
         True if valid, False otherwise
     """
     issues = config.validate_environment()
-    
+
     if issues:
         print("Configuration issues found:")
         for issue in issues:
             print(f"  - {issue}")
         return False
-    
+
     return True

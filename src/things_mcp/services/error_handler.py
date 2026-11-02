@@ -57,15 +57,15 @@ class ErrorHandler:
     - Recovery suggestions
     - Error statistics and reporting
     """
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        
+
         # Error statistics
         self.error_stats = {
             category.value: 0 for category in ErrorCategory
         }
-        
+
         # Common error patterns and their mappings
         self.applescript_error_patterns = {
             "execution error": ErrorCategory.APPLESCRIPT_ERROR,
@@ -75,7 +75,7 @@ class ErrorHandler:
             "file not found": ErrorCategory.SYSTEM_ERROR,
             "network": ErrorCategory.NETWORK_ERROR,
         }
-        
+
         # User-friendly error messages
         self.error_messages = {
             ErrorCategory.APPLESCRIPT_ERROR: {
@@ -138,7 +138,7 @@ class ErrorHandler:
                 ]
             }
         }
-    
+
     async def handle_execution_error(
         self,
         error: Exception,
@@ -164,22 +164,22 @@ class ErrorHandler:
             timestamp=datetime.now(),
             retry_count=retry_count
         )
-        
+
         # Categorize the error
         category = self._categorize_error(error)
         severity = self._assess_severity(error, category)
-        
+
         # Generate error details
         error_details = await self._generate_error_details(
             error, category, severity, error_context
         )
-        
+
         # Log the error
         await self._log_error(error, error_details, error_context)
-        
+
         # Update statistics
         self.error_stats[category.value] += 1
-        
+
         # Create result with recovery information
         result = AppleScriptResult(
             success=False,
@@ -191,9 +191,9 @@ class ErrorHandler:
             timestamp=error_context.timestamp,
             context=context
         )
-        
+
         return result
-    
+
     async def handle_validation_error(
         self,
         validation_errors: List[str],
@@ -219,7 +219,7 @@ class ErrorHandler:
             timestamp=datetime.now(),
             operation=operation
         )
-        
+
         # Log validation error
         self.logger.warning(
             f"Validation failed for operation '{operation}': {validation_errors}",
@@ -229,9 +229,9 @@ class ErrorHandler:
                 "errors": validation_errors
             }
         )
-        
+
         self.error_stats[ErrorCategory.VALIDATION_ERROR.value] += 1
-        
+
         return OperationResult(
             success=False,
             error=ErrorCategory.VALIDATION_ERROR.value,
@@ -242,7 +242,7 @@ class ErrorHandler:
                 "suggestions": self._get_recovery_suggestions(ErrorCategory.VALIDATION_ERROR)
             }
         )
-    
+
     def _categorize_error(self, error: Exception) -> ErrorCategory:
         """
         Categorize an error based on its type and message.
@@ -255,7 +255,7 @@ class ErrorHandler:
         """
         error_str = str(error).lower()
         error_type = type(error).__name__.lower()
-        
+
         # Check for specific error types
         if "permission" in error_str or "access denied" in error_str:
             return ErrorCategory.PERMISSION_ERROR
@@ -271,15 +271,15 @@ class ErrorHandler:
             return ErrorCategory.THINGS_ERROR
         elif "system" in error_str or "os" in error_str:
             return ErrorCategory.SYSTEM_ERROR
-        
+
         # Check error patterns
         for pattern, category in self.applescript_error_patterns.items():
             if pattern in error_str:
                 return category
-        
+
         # Default to unknown error
         return ErrorCategory.UNKNOWN_ERROR
-    
+
     def _assess_severity(self, error: Exception, category: ErrorCategory) -> ErrorSeverity:
         """
         Assess the severity of an error.
@@ -294,21 +294,21 @@ class ErrorHandler:
         # High severity errors
         if category in [ErrorCategory.PERMISSION_ERROR, ErrorCategory.SYSTEM_ERROR]:
             return ErrorSeverity.HIGH
-        
+
         # Medium severity errors
         if category in [ErrorCategory.APPLESCRIPT_ERROR, ErrorCategory.THINGS_ERROR]:
             return ErrorSeverity.MEDIUM
-        
+
         # Low severity errors
         if category in [ErrorCategory.VALIDATION_ERROR, ErrorCategory.TIMEOUT_ERROR]:
             return ErrorSeverity.LOW
-        
+
         # Critical errors (data corruption, etc.)
         if "corrupt" in str(error).lower() or "critical" in str(error).lower():
             return ErrorSeverity.CRITICAL
-        
+
         return ErrorSeverity.MEDIUM
-    
+
     async def _generate_error_details(
         self,
         error: Exception,
@@ -333,7 +333,7 @@ class ErrorHandler:
             "message": "An unexpected error occurred.",
             "suggestions": ["Try the operation again", "Contact support if the problem persists"]
         })
-        
+
         return ErrorDetails(
             category=category.value,
             severity=severity.value,
@@ -347,7 +347,7 @@ class ErrorHandler:
             retry_count=context.retry_count,
             stack_trace=traceback.format_exc() if self.logger.isEnabledFor(logging.DEBUG) else None
         )
-    
+
     async def _log_error(
         self,
         error: Exception,
@@ -369,7 +369,7 @@ class ErrorHandler:
             "parameters": context.parameters,
             "retry_count": context.retry_count
         }
-        
+
         if error_details.severity == ErrorSeverity.CRITICAL.value:
             self.logger.critical(f"Critical error in {context.operation}: {error}", extra=log_data)
         elif error_details.severity == ErrorSeverity.HIGH.value:
@@ -378,7 +378,7 @@ class ErrorHandler:
             self.logger.warning(f"Error in {context.operation}: {error}", extra=log_data)
         else:
             self.logger.info(f"Low severity error in {context.operation}: {error}", extra=log_data)
-    
+
     def _get_recovery_suggestions(self, category: ErrorCategory) -> List[str]:
         """
         Get recovery suggestions for a specific error category.
@@ -393,7 +393,7 @@ class ErrorHandler:
             "Try the operation again",
             "Contact support if the problem persists"
         ])
-    
+
     async def get_error_statistics(self) -> Dict[str, Any]:
         """
         Get error statistics for monitoring and debugging.
@@ -402,7 +402,7 @@ class ErrorHandler:
             Dictionary with error statistics
         """
         total_errors = sum(self.error_stats.values())
-        
+
         return {
             "total_errors": total_errors,
             "error_breakdown": self.error_stats.copy(),
@@ -412,7 +412,7 @@ class ErrorHandler:
             },
             "most_common_error": max(self.error_stats.items(), key=lambda x: x[1])[0] if total_errors > 0 else None
         }
-    
+
     async def reset_statistics(self):
         """Reset error statistics."""
         self.error_stats = {category.value: 0 for category in ErrorCategory}
