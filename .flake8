@@ -1,0 +1,26 @@
+# flake8 does not read pyproject.toml, so its configuration lives here.
+[flake8]
+max-line-length = 88
+extend-ignore =
+    # whitespace before ':'
+    E203,
+    # line too long (handled by black)
+    E501,
+    # line break before binary operator
+    W503,
+    # line break after binary operator
+    W504
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .venv,
+    venv,
+    .eggs,
+    *.egg
+per-file-ignores =
+    # Allow unused imports/redefinitions/unused locals in tests
+    tests/*:F401,F811,F841
+    # Allow unused imports in __init__.py
+    __init__.py:F401

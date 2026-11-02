@@ -214,29 +214,8 @@ strict_optional = true
 module = "tests.*"
 ignore_errors = true
 
-# Flake8 Configuration
-[tool.flake8]
-max-line-length = 88
-extend-ignore = [
-    "E203",  # whitespace before ':'
-    "E501",  # line too long (handled by black)
-    "W503",  # line break before binary operator
-    "W504",  # line break after binary operator
-]
-exclude = [
-    ".git",
-    "__pycache__",
-    "build",
-    "dist",
-    ".venv",
-    "venv",
-    ".eggs",
-    "*.egg",
-]
-per-file-ignores = [
-    "tests/*:F401,F811,F841",  # Allow unused imports in tests
-    "__init__.py:F401",       # Allow unused imports in __init__.py
-]
+# Flake8 configuration lives in .flake8 (flake8 does not read pyproject.toml).
+# Do not add a [tool.flake8] section here; it would be silently ignored.
 
 # Bandit Security Linting
 [tool.bandit]

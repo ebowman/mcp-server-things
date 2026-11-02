@@ -68,10 +68,11 @@ unfiltered unit suite. All three runs set
 The existing wheel-build test skipped because the canonical interpreter has
 no `pip`; no dependencies were installed to remove that skip. The warnings
 were unawaited `AsyncMock` calls in AppleScript timeout tests.
-Quality checks remain baseline-limited (hq-6zw): `flake8 src tests` reports
-6445 diagnostics, unchanged from HEAD after accounting for shifted locations;
-`mypy src` reports 143 errors in 20 files, with source/config unchanged from
-HEAD. Neither check introduced new diagnostics.
+Quality checks remain baseline-limited (hq-6zw): at the time of that run,
+`flake8 src tests` reported 6445 diagnostics (flake8 was running with no
+configuration at all - see the `.flake8` note below) and `mypy src` reported
+143 errors in 20 files, with source/config unchanged from HEAD. Neither check
+introduced new diagnostics. hq-6zw is driving both counts to zero.
 
 ## Nullable search and read-failure contracts (GH #21)
 
@@ -128,7 +129,9 @@ This is synthetic, mocked-source evidence, not a replay of the reporter's
 database/client/transport. The reported public advanced-query route remains
 unresolved. Run the full unit suite after the focused suite and the existing
 `make lint` checks (`flake8 src tests`, `mypy src`) with the canonical
-interpreter; compare any diagnostics to the unchanged baseline (existing
+interpreter. flake8 reads its settings from `.flake8` at the repo root
+(flake8 does not read `pyproject.toml`, so the config lives there and
+nowhere else); compare any diagnostics to the unchanged baseline (existing
 lint/type debt is tracked as hq-6zw). Neither the focused command nor the
 unit command runs the live suites below. Both live smoke and live API
 regression gates remain opt-in release prerequisites, not part of this
