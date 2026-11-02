@@ -129,7 +129,7 @@ This is synthetic, mocked-source evidence, not a replay of the reporter's
 database/client/transport. The reported public advanced-query route remains
 unresolved. Run the full unit suite after the focused suite and the existing
 `make lint` checks (`flake8 src tests`, `mypy src`) with the canonical
-interpreter. flake8 reads its settings from `.flake8` at the repo root
+interpreter. Both checks must be clean before committing; CI's test job now runs them (pinned to flake8 7.4.1 / mypy 2.4.0) and fails on any diagnostic. flake8 reads its settings from `.flake8` at the repo root
 (flake8 does not read `pyproject.toml`, so the config lives there and
 nowhere else); compare any diagnostics to the unchanged baseline (existing
 lint/type debt is tracked as hq-6zw). Neither the focused command nor the
