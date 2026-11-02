@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class LocaleAwareDateHandler:
     """
     Provides locale-independent date handling for Things 3 AppleScript integration.
-    
+
     Uses property-based AppleScript date construction to avoid locale-specific
     string parsing issues.
     """
@@ -65,10 +65,10 @@ class LocaleAwareDateHandler:
     def normalize_date_input(self, date_input: Union[str, datetime, date, None]) -> Optional[Tuple[int, int, int]]:
         """
         Parse any date format to year, month, day components.
-        
+
         Args:
             date_input: Date in various formats (string, datetime, date, or None)
-            
+
         Returns:
             Tuple of (year, month, day) or None if parsing fails
         """
@@ -269,14 +269,14 @@ class LocaleAwareDateHandler:
     def build_applescript_date_property(self, year: int, month: int, day: int) -> str:
         """
         Build AppleScript date using property-based construction.
-        
+
         This avoids locale-specific string parsing by setting date properties directly.
-        
+
         Args:
             year: Year (e.g., 2024)
             month: Month (1-12)
             day: Day (1-31)
-            
+
         Returns:
             AppleScript code that creates a date object
         """
@@ -299,13 +299,13 @@ class LocaleAwareDateHandler:
     def parse_applescript_date_output(self, output: str) -> Optional[Tuple[int, int, int]]:
         """
         Parse AppleScript date output without locale dependencies.
-        
+
         Uses regex patterns to extract date components from various AppleScript
         output formats, avoiding locale-specific date parsing.
-        
+
         Args:
             output: Raw AppleScript output containing date information
-            
+
         Returns:
             Tuple of (year, month, day) or None if parsing fails
         """
@@ -404,12 +404,12 @@ class LocaleAwareDateHandler:
     def convert_iso_to_applescript(self, iso_date: str) -> str:
         """
         Convert ISO date string to AppleScript date construction.
-        
+
         This is the main replacement for the problematic function in the original code.
-        
+
         Args:
             iso_date: ISO format date string (YYYY-MM-DD)
-            
+
         Returns:
             AppleScript code that creates the date
         """
@@ -428,11 +428,11 @@ class LocaleAwareDateHandler:
     def format_for_display(self, date_components: Tuple[int, int, int], format_style: str = 'iso') -> str:
         """
         Format date components for display.
-        
+
         Args:
             date_components: Tuple of (year, month, day)
             format_style: Format style ('iso', 'us', 'readable')
-            
+
         Returns:
             Formatted date string
         """
@@ -465,7 +465,7 @@ class LocaleAwareDateHandler:
     def compare_dates(self, date1: Tuple[int, int, int], date2: Tuple[int, int, int]) -> int:
         """
         Compare two date components.
-        
+
         Returns:
             -1 if date1 < date2, 0 if equal, 1 if date1 > date2
         """

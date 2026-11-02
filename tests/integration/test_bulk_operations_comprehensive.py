@@ -4,7 +4,7 @@ Comprehensive Test Suite for Bulk Operations and Record Movement
 Tests all bulk operations with various parameter combinations, edge cases,
 and performance characteristics. Validates:
 - bulk_update_todos: Single and multi-field updates
-- bulk_move_records: Moving to different destinations  
+- bulk_move_records: Moving to different destinations
 - move_record: Individual record moves
 - add_tags/remove_tags: Tag management operations
 

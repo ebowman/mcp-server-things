@@ -13,7 +13,7 @@ Research Sources:
 
 Architecture: Multi-layered approach with graceful fallback:
 1. URL Scheme (95% reliability) - Primary method
-2. AppleScript Date Objects (90% reliability) - Fallback 
+2. AppleScript Date Objects (90% reliability) - Fallback
 3. List Assignment (85% reliability) - Final fallback
 """
 
@@ -187,7 +187,7 @@ class ReliableThingsScheduler:
         tell application "Things3"
             try
                 set theTodo to to do id "{todo_id}"
-                
+
                 -- Construct date object safely to avoid month overflow bug
                 set targetDate to current date
                 set time of targetDate to 0  -- Reset time first
@@ -195,7 +195,7 @@ class ReliableThingsScheduler:
                 set year of targetDate to {target_date.year}
                 set month of targetDate to {month_constant}  -- Use month constant, not numeric
                 set day of targetDate to {target_date.day}   -- Set actual day last
-                
+
                 -- Schedule using date object
                 schedule theTodo for targetDate
                 return "scheduled"

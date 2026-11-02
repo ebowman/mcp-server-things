@@ -253,12 +253,12 @@ class MoveOperationsTools:
     ) -> Dict[str, Any]:
         """
         Move a todo to a specific project, optionally under a heading.
-        
+
         Args:
             todo_id: ID of the todo to move
             project_id: ID of the target project
             heading: Optional heading within the project
-            
+
         Returns:
             Dict with move result
         """
@@ -275,11 +275,11 @@ class MoveOperationsTools:
     ) -> Dict[str, Any]:
         """
         Move a todo to a specific area.
-        
+
         Args:
             todo_id: ID of the todo to move
             area_id: ID of the target area
-            
+
         Returns:
             Dict with move result
         """
@@ -692,11 +692,11 @@ class MoveOperationsTools:
             try
                 set theTodo to to do id "{todo_id}"
                 set targetProject to project id "{project_id}"
-                
+
                 -- Set the project property instead of using move command
                 -- The move command doesn't work for projects in Things 3
                 set project of theTodo to targetProject
-                
+
                 return "MOVED to project {project_id}"
             on error errMsg
                 return "ERROR: " & errMsg
@@ -717,11 +717,11 @@ class MoveOperationsTools:
             try
                 set theTodo to to do id "{todo_id}"
                 set targetArea to area id "{area_id}"
-                
+
                 -- Set the area property instead of using move command
                 -- The move command doesn't work for areas in Things 3
                 set area of theTodo to targetArea
-                
+
                 return "MOVED to area {area_id}"
             on error errMsg
                 return "ERROR: " & errMsg

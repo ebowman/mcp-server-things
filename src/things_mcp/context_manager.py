@@ -437,7 +437,7 @@ class ContextAwareResponseManager:
     def optimize_request(self, method_name: str, params: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
         """
         Optimize request parameters for context awareness.
-        
+
         Returns:
             Tuple of (optimized_params, was_modified)
         """
@@ -454,13 +454,13 @@ class ContextAwareResponseManager:
                          mode: ResponseMode, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Optimize response based on context constraints with enhanced AUTO mode support.
-        
+
         Args:
             data: Raw data from AppleScript
             method_name: Name of the method being called
             mode: Requested response mode
             params: Original request parameters
-            
+
         Returns:
             Optimized response with metadata
         """

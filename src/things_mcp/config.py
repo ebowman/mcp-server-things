@@ -45,7 +45,7 @@ class TagCreationPolicy(str, Enum):
 class ThingsMCPConfig(BaseSettings):
     """
     Configuration model for Things 3 MCP Server.
-    
+
     Supports configuration via:
     - Environment variables (prefixed with THINGS_MCP_)
     - Configuration files (JSON/YAML)
@@ -441,10 +441,10 @@ class ThingsMCPConfig(BaseSettings):
     def from_env_file(cls, env_path: Optional[Path] = None) -> 'ThingsMCPConfig':
         """
         Load configuration from environment variables and optional .env file.
-        
+
         Args:
             env_path: Optional path to .env file. If not provided, looks for .env in current directory.
-            
+
         Returns:
             ThingsMCPConfig instance
         """
@@ -524,7 +524,7 @@ class ThingsMCPConfig(BaseSettings):
     def validate_environment(self) -> List[str]:
         """
         Validate the current environment and configuration.
-        
+
         Returns:
             List of validation warnings/errors
         """
@@ -599,10 +599,10 @@ class TestingConfig(ThingsMCPConfig):
 def get_config(environment: str = "development") -> ThingsMCPConfig:
     """
     Get configuration for specific environment.
-    
+
     Args:
         environment: Environment name (development, production, testing)
-        
+
     Returns:
         Appropriate configuration instance
     """
@@ -620,10 +620,10 @@ def get_config(environment: str = "development") -> ThingsMCPConfig:
 def load_config_from_env(env_file: Optional[Path] = None) -> ThingsMCPConfig:
     """
     Load configuration from environment variables and optional .env file.
-    
+
     Args:
         env_file: Optional path to .env file
-        
+
     Returns:
         ThingsMCPConfig instance
     """
@@ -655,10 +655,10 @@ def apply_execution_overrides(
 def validate_config(config: ThingsMCPConfig) -> bool:
     """
     Validate configuration and environment.
-    
+
     Args:
         config: Configuration to validate
-        
+
     Returns:
         True if valid, False otherwise
     """

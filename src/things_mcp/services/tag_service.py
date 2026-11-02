@@ -31,7 +31,7 @@ class TagValidationService:
 
     def __init__(self, applescript_manager: AppleScriptManager, config: ThingsMCPConfig):
         """Initialize tag validation service.
-        
+
         Args:
             applescript_manager: AppleScript manager instance
             config: MCP configuration with tag policy settings
@@ -42,10 +42,10 @@ class TagValidationService:
 
     async def validate_and_filter_tags(self, tags: List[str]) -> TagValidationResult:
         """Main validation method that applies configured tag policies.
-        
+
         Args:
             tags: List of tag names to validate
-            
+
         Returns:
             TagValidationResult with processed tags and metadata
         """
@@ -85,7 +85,7 @@ class TagValidationService:
 
     async def _get_existing_tags(self) -> Set[str]:
         """Get current tags from Things 3.
-        
+
         Returns:
             Set of existing tag names (preserving original case)
         """
@@ -142,11 +142,11 @@ class TagValidationService:
 
     async def _apply_policy(self, tags: List[str], existing_tags: Set[str]) -> TagValidationResult:
         """Apply the configured policy to tag validation.
-        
+
         Args:
             tags: List of tags to process
             existing_tags: Set of existing tag names
-            
+
         Returns:
             TagValidationResult with policy-applied results
         """
@@ -235,10 +235,10 @@ class TagValidationService:
 
     async def create_tags(self, tag_names: List[str]) -> Dict[str, Any]:
         """Create new tags in Things 3.
-        
+
         Args:
             tag_names: List of tag names to create
-            
+
         Returns:
             Dict with creation results and any errors
         """

@@ -20,7 +20,7 @@ class ValidationService:
 
     def __init__(self, applescript_manager: AppleScriptManager):
         """Initialize validation service with AppleScript manager.
-        
+
         Args:
             applescript_manager: AppleScript manager instance for validation queries
         """
@@ -28,10 +28,10 @@ class ValidationService:
 
     async def validate_todo_id(self, todo_id: str) -> Dict[str, Any]:
         """Validate that a todo ID exists and is accessible.
-        
+
         Args:
             todo_id: The todo ID to validate
-            
+
         Returns:
             Dict with validation result and details
         """
@@ -79,10 +79,10 @@ class ValidationService:
 
     async def validate_project_id(self, project_id: str) -> Dict[str, Any]:
         """Validate that a project ID exists and is accessible.
-        
+
         Args:
             project_id: The project ID to validate
-            
+
         Returns:
             Dict with validation result and details
         """
@@ -129,10 +129,10 @@ class ValidationService:
 
     async def validate_area_id(self, area_id: str) -> Dict[str, Any]:
         """Validate that an area ID exists and is accessible.
-        
+
         Args:
             area_id: The area ID to validate
-            
+
         Returns:
             Dict with validation result and details
         """
@@ -179,10 +179,10 @@ class ValidationService:
 
     async def validate_list_name(self, list_name: str) -> Dict[str, Any]:
         """Validate that a list name is a valid Things 3 built-in list.
-        
+
         Args:
             list_name: The list name to validate
-            
+
         Returns:
             Dict with validation result and details
         """
@@ -212,10 +212,10 @@ class ValidationService:
 
     def validate_destination_format(self, destination: str) -> Dict[str, Any]:
         """Validate the format of a destination string.
-        
+
         Args:
             destination: Destination string (list name, project:ID, or area:ID)
-            
+
         Returns:
             Dict with validation result and parsed components
         """
@@ -283,10 +283,10 @@ class ValidationService:
 
     def _escape_id(self, id_string: str) -> str:
         """Escape an ID string for safe use in AppleScript.
-        
+
         Args:
             id_string: The ID string to escape
-            
+
         Returns:
             Escaped ID string
         """
@@ -299,11 +299,11 @@ class ValidationService:
 
     def validate_bulk_operation_limits(self, item_count: int, operation_type: str = "move") -> Dict[str, Any]:
         """Validate bulk operation limits to prevent system overload.
-        
+
         Args:
             item_count: Number of items in bulk operation
             operation_type: Type of operation (for different limits)
-            
+
         Returns:
             Dict with validation result and recommended limits
         """

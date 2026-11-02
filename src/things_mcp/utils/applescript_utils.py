@@ -73,10 +73,10 @@ class AppleScriptTemplates:
     @staticmethod
     def build_property_dict(properties: Dict[str, Any]) -> str:
         """Build AppleScript properties dictionary.
-        
+
         Args:
             properties: Dictionary of properties
-            
+
         Returns:
             AppleScript properties string
         """

@@ -49,7 +49,7 @@ class ErrorContext:
 class ErrorHandler:
     """
     Centralized error handling service for Things 3 MCP operations.
-    
+
     Provides:
     - Error categorization and severity assessment
     - User-friendly error messages
@@ -148,13 +148,13 @@ class ErrorHandler:
     ) -> AppleScriptResult:
         """
         Handle AppleScript execution errors with comprehensive analysis.
-        
+
         Args:
             error: The exception that occurred
             operation: Name of the operation that failed
             context: Context information about the operation
             retry_count: Number of retries attempted
-            
+
         Returns:
             AppleScriptResult with error details and recovery information
         """
@@ -202,12 +202,12 @@ class ErrorHandler:
     ) -> OperationResult:
         """
         Handle validation errors with detailed field-level information.
-        
+
         Args:
             validation_errors: List of validation error messages
             operation: Operation that failed validation
             parameters: Parameters that failed validation
-            
+
         Returns:
             OperationResult with validation error details
         """
@@ -246,10 +246,10 @@ class ErrorHandler:
     def _categorize_error(self, error: Exception) -> ErrorCategory:
         """
         Categorize an error based on its type and message.
-        
+
         Args:
             error: The exception to categorize
-            
+
         Returns:
             ErrorCategory enum value
         """
@@ -283,11 +283,11 @@ class ErrorHandler:
     def _assess_severity(self, error: Exception, category: ErrorCategory) -> ErrorSeverity:
         """
         Assess the severity of an error.
-        
+
         Args:
             error: The exception
             category: Categorized error type
-            
+
         Returns:
             ErrorSeverity enum value
         """
@@ -318,13 +318,13 @@ class ErrorHandler:
     ) -> ErrorDetails:
         """
         Generate comprehensive error details.
-        
+
         Args:
             error: The original exception
             category: Error category
             severity: Error severity
             context: Error context
-            
+
         Returns:
             ErrorDetails object with comprehensive information
         """
@@ -356,7 +356,7 @@ class ErrorHandler:
     ):
         """
         Log error with appropriate level and context.
-        
+
         Args:
             error: Original exception
             error_details: Processed error details
@@ -382,10 +382,10 @@ class ErrorHandler:
     def _get_recovery_suggestions(self, category: ErrorCategory) -> List[str]:
         """
         Get recovery suggestions for a specific error category.
-        
+
         Args:
             category: Error category
-            
+
         Returns:
             List of recovery suggestions
         """
@@ -397,7 +397,7 @@ class ErrorHandler:
     async def get_error_statistics(self) -> Dict[str, Any]:
         """
         Get error statistics for monitoring and debugging.
-        
+
         Returns:
             Dictionary with error statistics
         """

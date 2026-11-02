@@ -143,7 +143,7 @@ class ThingsMCPServer:
         retry_count: Optional[int] = None,
     ):
         """Initialize the Things MCP server.
-        
+
         Args:
             env_file: Optional path to .env file
             timeout: Optional AppleScript timeout override in seconds

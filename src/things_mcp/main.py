@@ -345,11 +345,11 @@ Environment:
 
 async def perform_health_check(timeout: float, retry_count: int) -> int:
     """Perform system health check.
-    
+
     Args:
         timeout: AppleScript timeout
         retry_count: Retry count
-        
+
     Returns:
         Exit code (0 for healthy, 1 for issues)
     """
@@ -394,11 +394,11 @@ async def perform_health_check(timeout: float, retry_count: int) -> int:
 
 async def test_applescript_connectivity(timeout: float, retry_count: int) -> int:
     """Test AppleScript connectivity to Things 3.
-    
+
     Args:
         timeout: AppleScript timeout
         retry_count: Retry count
-        
+
     Returns:
         Exit code (0 for success, 1 for failure)
     """

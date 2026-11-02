@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class SharedCache:
     """
     File-based cache with TTL support and concurrent access handling.
-    
+
     Features:
     - File-based storage in temporary directory
     - Timestamp-based TTL checking
@@ -36,7 +36,7 @@ class SharedCache:
     def __init__(self, cache_dir: Optional[str] = None, default_ttl: float = 30.0):
         """
         Initialize the shared cache.
-        
+
         Args:
             cache_dir: Directory to store cache files. If None, uses system temp dir.
             default_ttl: Default time-to-live for cache entries in seconds.
@@ -68,7 +68,7 @@ class SharedCache:
     def _file_lock(self, file_path: Path, mode: str = 'r'):
         """
         Context manager for file locking to handle concurrent access.
-        
+
         Args:
             file_path: Path to the file to lock
             mode: File open mode ('r' for read, 'w' for write)
@@ -129,10 +129,10 @@ class SharedCache:
     def get(self, key: str) -> Optional[Any]:
         """
         Retrieve a value from the cache.
-        
+
         Args:
             key: The cache key
-            
+
         Returns:
             The cached value if it exists and hasn't expired, None otherwise
         """
@@ -163,7 +163,7 @@ class SharedCache:
     def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
         """
         Store a value in the cache.
-        
+
         Args:
             key: The cache key
             value: The value to cache
@@ -206,10 +206,10 @@ class SharedCache:
     def delete(self, key: str) -> bool:
         """
         Delete a cache entry.
-        
+
         Args:
             key: The cache key to delete
-            
+
         Returns:
             True if the key existed and was deleted, False otherwise
         """
@@ -250,7 +250,7 @@ class SharedCache:
     def keys(self) -> list[str]:
         """
         Get all cache keys (for debugging/monitoring).
-        
+
         Returns:
             List of original cache keys
         """
@@ -273,7 +273,7 @@ class SharedCache:
     def stats(self) -> Dict[str, Any]:
         """
         Get cache statistics.
-        
+
         Returns:
             Dictionary with cache statistics
         """
@@ -319,11 +319,11 @@ _shared_cache: Optional[SharedCache] = None
 def get_shared_cache(cache_dir: Optional[str] = None, default_ttl: float = 30.0) -> SharedCache:
     """
     Get the global shared cache instance (singleton pattern).
-    
+
     Args:
         cache_dir: Directory to store cache files
         default_ttl: Default TTL for cache entries
-        
+
     Returns:
         SharedCache instance
     """

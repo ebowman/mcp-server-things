@@ -93,7 +93,7 @@ class Operation:
 class OperationQueue:
     """
     Async operation queue with priority support, timeouts, and retry logic.
-    
+
     Ensures write operations are executed serially to prevent race conditions
     and data inconsistency in Things 3.
     """
@@ -101,7 +101,7 @@ class OperationQueue:
     def __init__(self, max_concurrent: int = 1):
         """
         Initialize the operation queue.
-        
+
         Args:
             max_concurrent: Maximum concurrent operations (default 1 for serialization)
         """
@@ -163,7 +163,7 @@ class OperationQueue:
     ) -> str:
         """
         Enqueue an operation for execution.
-        
+
         Args:
             func: Async function to execute
             *args: Positional arguments for the function
@@ -173,7 +173,7 @@ class OperationQueue:
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
             **kwargs: Keyword arguments for the function
-            
+
         Returns:
             Operation ID
         """
@@ -201,14 +201,14 @@ class OperationQueue:
     async def wait_for_operation(self, operation_id: str, timeout: float = None) -> Any:
         """
         Wait for a specific operation to complete.
-        
+
         Args:
             operation_id: ID of the operation to wait for
             timeout: Maximum time to wait
-            
+
         Returns:
             Operation result
-            
+
         Raises:
             asyncio.TimeoutError: If operation doesn't complete within timeout
             Exception: If operation failed
@@ -296,10 +296,10 @@ class OperationQueue:
     async def cancel_operation(self, operation_id: str) -> bool:
         """
         Cancel a pending or active operation.
-        
+
         Args:
             operation_id: ID of operation to cancel
-            
+
         Returns:
             True if operation was cancelled, False if not found or already completed
         """

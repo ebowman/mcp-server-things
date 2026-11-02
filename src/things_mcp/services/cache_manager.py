@@ -9,7 +9,7 @@ class CacheManager:
 
     def __init__(self, default_ttl: int = 300):
         """Initialize cache manager.
-        
+
         Args:
             default_ttl: Default time-to-live in seconds
         """
@@ -18,10 +18,10 @@ class CacheManager:
 
     def get(self, key: str) -> Optional[Any]:
         """Get value from cache.
-        
+
         Args:
             key: Cache key
-            
+
         Returns:
             Cached value or None if not found/expired
         """
@@ -37,7 +37,7 @@ class CacheManager:
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """Set value in cache.
-        
+
         Args:
             key: Cache key
             value: Value to cache
@@ -53,10 +53,10 @@ class CacheManager:
 
     def delete(self, key: str) -> bool:
         """Delete key from cache.
-        
+
         Args:
             key: Cache key to delete
-            
+
         Returns:
             True if key was found and deleted
         """
@@ -68,10 +68,10 @@ class CacheManager:
 
     def clear_pattern(self, pattern: str) -> int:
         """Clear entries matching pattern.
-        
+
         Args:
             pattern: Simple glob pattern (supports * wildcard)
-            
+
         Returns:
             Number of entries cleared
         """
