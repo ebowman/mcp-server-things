@@ -6,10 +6,9 @@ while maintaining full API functionality through progressive disclosure patterns
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class ContextBudget:
             'get_someday': 0.8,
             'get_logbook': 0.9,
             'search_todos': 1.0,    # Search results vary widely
-            'search_advanced': 0.8, # Advanced search can be complex
+            'search_advanced': 0.8,  # Advanced search can be complex
         }
 
         multiplier = method_multipliers.get(method_name, 1.0)
@@ -74,7 +73,7 @@ class ResponseSizeEstimator:
     # Field size multipliers (calibrated from real usage)
     FIELD_SIZES = {
         'notes': 2.2,         # Rich text + JSON escaping overhead
-        'checklist_items': 35, # Per item + array overhead
+        'checklist_items': 35,  # Per item + array overhead
         'tag_names': 25,       # Tag names + array structure
         'relationships': 180,  # Project/area references
         'reminder_data': 60,   # Reminder time + metadata
@@ -451,7 +450,7 @@ class ContextAwareResponseManager:
         return optimized_params, was_modified
 
     def optimize_response(self, data: List[Dict[str, Any]], method_name: str,
-                         mode: ResponseMode, params: Dict[str, Any]) -> Dict[str, Any]:
+                          mode: ResponseMode, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Optimize response based on context constraints with enhanced AUTO mode support.
 
@@ -504,8 +503,8 @@ class ContextAwareResponseManager:
         }
 
     def _handle_oversized_response(self, data: List[Dict[str, Any]], method_name: str,
-                                  mode: ResponseMode, params: Dict[str, Any],
-                                  estimated_size: int) -> Dict[str, Any]:
+                                   mode: ResponseMode, params: Dict[str, Any],
+                                   estimated_size: int) -> Dict[str, Any]:
         """Handle responses that exceed context budget.
 
         hq-cal.2: this is the *implicit* budget-truncation path - it fires even when
@@ -573,8 +572,8 @@ class ContextAwareResponseManager:
             'uuid', 'title', 'status', 'type', 'notes', 'dueDate', 'modificationDate',
             'creationDate', 'tags', 'project', 'projectTitle', 'heading', 'headingTitle',
             'start', 'startDate', 'inheritedSomeday',
-                'reminderTime'
-            },
+            'reminderTime'
+        },
         ResponseMode.DETAILED: None  # Include all fields
     }
 
@@ -933,7 +932,7 @@ class ContextAwareResponseManager:
         return recommendations
 
     def analyze_response_efficiency(self, original_size: int, optimized_size: int,
-                                  mode: ResponseMode, item_count: int) -> Dict[str, Any]:
+                                    mode: ResponseMode, item_count: int) -> Dict[str, Any]:
         """Analyze the efficiency of response optimization."""
         if original_size == 0:
             return {"error": "Cannot analyze efficiency with zero original size"}
@@ -942,9 +941,9 @@ class ContextAwareResponseManager:
         size_per_item_kb = round(optimized_size / max(item_count, 1) / 1024, 2)
 
         efficiency_score = "excellent" if savings_percentage >= 80 else \
-                          "good" if savings_percentage >= 60 else \
-                          "moderate" if savings_percentage >= 40 else \
-                          "minimal"
+                           "good" if savings_percentage >= 60 else \
+                           "moderate" if savings_percentage >= 40 else \
+                           "minimal"
 
         return {
             "original_size_kb": round(original_size / 1024, 1),

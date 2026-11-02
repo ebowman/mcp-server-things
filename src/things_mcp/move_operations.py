@@ -6,7 +6,7 @@ projects, and areas in Things 3. Provides both single and bulk move operations
 with comprehensive error handling and validation.
 """
 
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 import asyncio
 import logging

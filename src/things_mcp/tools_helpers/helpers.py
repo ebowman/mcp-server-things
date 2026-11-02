@@ -2,7 +2,7 @@
 
 import logging
 from typing import Any, Dict, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from ..utils.applescript_utils import AppleScriptTemplates
 

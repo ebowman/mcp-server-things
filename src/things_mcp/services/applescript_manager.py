@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..locale_aware_dates import locale_handler
 from ..config import ThingsMCPConfig
 from .applescript import (
     AppleScriptExecutor,

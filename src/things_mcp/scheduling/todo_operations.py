@@ -1160,11 +1160,11 @@ class TodoOperations:
             return _write_error("APPLESCRIPT_ERROR", "Failed to replace checklist items", details=str(e))
 
     def _build_update_script(self, todo_id: str, title: Optional[str], notes: Optional[str],
-                            tags: Optional[List[str]],
-                            deadline: Optional[str], area: str, project: str,
-                            completed: Optional[bool], canceled: Optional[bool],
-                            project_id: Optional[str] = None,
-                            area_id: Optional[str] = None) -> str:
+                             tags: Optional[List[str]],
+                             deadline: Optional[str], area: str, project: str,
+                             completed: Optional[bool], canceled: Optional[bool],
+                             project_id: Optional[str] = None,
+                             area_id: Optional[str] = None) -> str:
         """Build AppleScript for updating a todo.
 
         Clear-field contract: ``None`` (or, for title/area/project, the empty
@@ -1681,8 +1681,8 @@ class TodoOperations:
 
             if not skip_applescript:
                 script = self._build_update_script(todo_id, title, notes, tags, deadline,
-                                                  area, project, completed, canceled,
-                                                  project_id=project_id, area_id=area_id)
+                                                   area, project, completed, canceled,
+                                                   project_id=project_id, area_id=area_id)
                 result = await self.applescript.execute_applescript(script)
 
                 if result.get("success"):

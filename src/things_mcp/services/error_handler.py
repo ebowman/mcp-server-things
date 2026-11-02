@@ -211,15 +211,6 @@ class ErrorHandler:
         Returns:
             OperationResult with validation error details
         """
-        error_details = ErrorDetails(
-            category=ErrorCategory.VALIDATION_ERROR.value,
-            severity=ErrorSeverity.MEDIUM.value,
-            message="Input validation failed",
-            field_errors=validation_errors,
-            timestamp=datetime.now(),
-            operation=operation
-        )
-
         # Log validation error
         self.logger.warning(
             f"Validation failed for operation '{operation}': {validation_errors}",
@@ -254,7 +245,6 @@ class ErrorHandler:
             ErrorCategory enum value
         """
         error_str = str(error).lower()
-        error_type = type(error).__name__.lower()
 
         # Check for specific error types
         if "permission" in error_str or "access denied" in error_str:

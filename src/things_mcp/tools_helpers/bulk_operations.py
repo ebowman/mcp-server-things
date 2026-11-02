@@ -163,7 +163,7 @@ class BulkOperations:
         script += '    set errorMessages to {}\n'
 
         for todo_id in todo_ids:
-            script += f'    try\n'
+            script += '    try\n'
             script += f'        set targetTodo to to do id "{todo_id}"\n'
 
             # Handle status updates with proper precedence (mirrors
@@ -173,14 +173,14 @@ class BulkOperations:
             # canceled=False alone (with completed omitted/None) reopens the
             # todo rather than being a no-op.
             if kwargs.get('canceled'):
-                script += f'        set status of targetTodo to canceled\n'
+                script += '        set status of targetTodo to canceled\n'
             elif 'completed' in kwargs and kwargs['completed'] is not None:
                 if kwargs['completed']:
-                    script += f'        set status of targetTodo to completed\n'
+                    script += '        set status of targetTodo to completed\n'
                 else:
-                    script += f'        set status of targetTodo to open\n'
+                    script += '        set status of targetTodo to open\n'
             elif 'canceled' in kwargs and kwargs['canceled'] is False:
-                script += f'        set status of targetTodo to open\n'
+                script += '        set status of targetTodo to open\n'
 
             if 'title' in kwargs and kwargs['title'] is not None:
                 escaped_title = ToolsHelpers.escape_applescript_string(kwargs['title'])

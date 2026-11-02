@@ -5,9 +5,8 @@ Provides validation functionality for todo IDs, project IDs, area IDs,
 and other Things 3 entities to ensure data integrity and proper error handling.
 """
 
-import re
-from typing import Dict, Any, Optional
 import logging
+from typing import Dict, Any
 
 from .applescript_manager import AppleScriptManager
 from ..utils.applescript_utils import AppleScriptTemplates

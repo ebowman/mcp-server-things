@@ -1,7 +1,6 @@
 """Simple FastMCP 3.x server implementation for Things 3 integration."""
 
 import logging
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
@@ -26,7 +25,7 @@ from .tools_helpers.read_operations import read_error_from_exception as _tools_r
 from .tools_helpers.read_operations import is_db_access_error
 from .tools_helpers.errors import write_error as _tools_write_error
 from .operation_queue import shutdown_operation_queue, get_operation_queue
-from .config import ThingsMCPConfig, apply_execution_overrides, load_config_from_env
+from .config import apply_execution_overrides, load_config_from_env
 from .context_manager import ContextAwareResponseManager, ResponseMode
 from .middleware import WriteErrorSignalingMiddleware
 # from .query_engine import NaturalLanguageQueryEngine  # Removed - too complex
@@ -157,7 +156,7 @@ class ThingsMCPServer:
             try:
                 self.config = load_config_from_env(Path(env_file))
                 logger.info(f"Loaded configuration from {env_file}")
-            except FileNotFoundError as e:
+            except FileNotFoundError:
                 logger.error(f"Configuration file not found: {env_file}")
                 raise
             except Exception as e:
@@ -331,7 +330,7 @@ class ThingsMCPServer:
                                 "invalid_limit",
                                 f"Limit must be between 1 and 500, got {actual_limit}",
                             )
-                    except (ValueError, TypeError) as e:
+                    except (ValueError, TypeError):
                         return self._read_error(
                             "invalid_limit",
                             f"Limit must be a number between 1 and 500, got '{limit}'",
@@ -513,8 +512,10 @@ class ThingsMCPServer:
                 )
 
                 # Enhance response with tag validation feedback if available
-                if (tag_list and self.tools.tag_validation_service and
-                    hasattr(result, 'get') and result.get('success')):
+                if (
+                        tag_list and self.tools.tag_validation_service and
+                        hasattr(result, 'get') and result.get('success')
+                ):
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']
@@ -687,8 +688,10 @@ class ThingsMCPServer:
                 )
 
                 # Enhance response with tag validation feedback if available
-                if (tag_list and self.tools.tag_validation_service and
-                    hasattr(result, 'get') and result.get('success')):
+                if (
+                        tag_list and self.tools.tag_validation_service and
+                        hasattr(result, 'get') and result.get('success')
+                ):
                     # Get tag validation info from the result
                     if 'tag_info' in result:
                         tag_info = result['tag_info']

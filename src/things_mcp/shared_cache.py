@@ -6,12 +6,11 @@ multiple MCP server instances to share cached AppleScript execution results.
 """
 
 import json
-import os
 import tempfile
 import time
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 from contextlib import contextmanager
 import fcntl
 import hashlib

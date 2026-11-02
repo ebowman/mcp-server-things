@@ -9,7 +9,6 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field
 from enum import Enum
 try:
     from pydantic_settings import BaseSettings
@@ -366,7 +365,7 @@ class ThingsMCPConfig(BaseSettings):
             # Map old names to new ones for backward compatibility
             compatibility_map = {
                 'filter_unknown': 'filter_warn',     # Old filter_unknown becomes filter_warn
-                'reject_unknown': 'fail_on_unknown', # Old reject_unknown becomes fail_on_unknown
+                'reject_unknown': 'fail_on_unknown',  # Old reject_unknown becomes fail_on_unknown
                 'warn_unknown': 'allow_all',         # Old warn_unknown actually created tags
             }
             v_lower = compatibility_map.get(v_lower, v_lower)
@@ -433,9 +432,9 @@ class ThingsMCPConfig(BaseSettings):
         # THINGS_MCP_CACHE_MAX_SIZE=2000
         # THINGS_MCP_LOG_LEVEL=DEBUG
     )
-        # THINGS_MCP_LOG_FILE_PATH=/var/log/things-mcp.log
-        # THINGS_MCP_AI_CAN_CREATE_TAGS=true
-        # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
+    # THINGS_MCP_LOG_FILE_PATH=/var/log/things-mcp.log
+    # THINGS_MCP_AI_CAN_CREATE_TAGS=true
+    # THINGS_MCP_MAX_AUTO_CREATED_TAGS_PER_OPERATION=10
 
     @classmethod
     def from_env_file(cls, env_path: Optional[Path] = None) -> 'ThingsMCPConfig':

@@ -9,7 +9,6 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Union
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
-from uuid import UUID
 
 
 class ThingsStatus(str, Enum):

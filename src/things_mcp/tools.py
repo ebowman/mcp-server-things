@@ -9,8 +9,8 @@ from .services.validation_service import ValidationService
 from .services.tag_service import TagValidationService
 from .move_operations import MoveOperationsTools
 from .config import ThingsMCPConfig
-from .operation_queue import get_operation_queue, Priority
-from .tools_helpers import ToolsHelpers, ReadOperations, WriteOperations, BulkOperations
+from .operation_queue import get_operation_queue  # noqa: F401  (patched by tests as things_mcp.tools.get_operation_queue)
+from .tools_helpers import ReadOperations, WriteOperations, BulkOperations
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class ThingsTools:
         return await self.read_ops.get_tag_usage(only_unused=only_unused, mode=mode)
 
     async def search_todos(self, query: str, limit: Optional[int] = None,
-                            status: Optional[str] = 'incomplete', offset: int = 0) -> List[Dict]:
+                           status: Optional[str] = 'incomplete', offset: int = 0) -> List[Dict]:
         """Search todos directly in database with optional limit, offset, and status filter."""
         return await self.read_ops.search_todos(query=query, limit=limit, status=status, offset=offset)
 
@@ -106,12 +106,12 @@ class ThingsTools:
         return await self.read_ops.get_inbox(limit=limit)
 
     async def get_today(self, limit: Optional[int] = None,
-                         include_projects: bool = False) -> List[Dict]:
+                        include_projects: bool = False) -> List[Dict]:
         """Get today items directly from database."""
         return await self.read_ops.get_today(limit=limit, include_projects=include_projects)
 
     async def get_upcoming(self, limit: Optional[int] = None, days: Optional[int] = None,
-                            include_projects: bool = False) -> List[Dict]:
+                           include_projects: bool = False) -> List[Dict]:
         """Get upcoming items. If days is specified, returns todos due/activating within that timeframe."""
         if days is not None:
             result = await self.read_ops.get_todos_upcoming_in_days(days=days)
@@ -121,26 +121,26 @@ class ThingsTools:
         return await self.read_ops.get_upcoming(limit=limit, include_projects=include_projects)
 
     async def get_anytime(self, limit: Optional[int] = None,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_projects: bool = False) -> List[Dict]:
         """Get anytime items directly from database."""
         return await self.read_ops.get_anytime(limit=limit, include_projects=include_projects)
 
     async def get_someday(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_project_tasks: bool = False,
+                          include_projects: bool = False) -> List[Dict]:
         """Get someday items directly from database."""
         return await self.read_ops.get_someday(
             limit=limit, include_project_tasks=include_project_tasks,
             include_projects=include_projects)
 
     async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
-                           include_canceled: bool = True) -> List[Dict]:
+                          include_canceled: bool = True) -> List[Dict]:
         """Get completed (and, by default, canceled) items directly from database."""
         return await self.read_ops.get_logbook(
             limit=limit, period=period, offset=offset, include_canceled=include_canceled)
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
-                         include_projects: bool = False) -> Dict[str, Any]:
+                        include_projects: bool = False) -> Dict[str, Any]:
         """Get trashed items directly from database with pagination."""
         return await self.read_ops.get_trash(limit=limit, offset=offset, include_projects=include_projects)
 
@@ -181,7 +181,7 @@ class ThingsTools:
         return await self.read_ops.search_advanced(**filters)
 
     async def get_recent(self, period: str, status: Optional[str] = None,
-                          type: Optional[str] = None) -> List[Dict[str, Any]]:
+                         type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get recent items. Defaults to all statuses, to-dos + projects (no headings
         unless type='heading' is passed explicitly) - see read_ops.get_recent."""
         return await self.read_ops.get_recent(period=period, status=status, type=type)

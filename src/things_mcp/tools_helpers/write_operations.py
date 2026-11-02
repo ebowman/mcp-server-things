@@ -424,8 +424,8 @@ class WriteOperations:
             # Only re-validate the fields validate_update_params understands;
             # area_id/area_title/area are project-specific and pass through as-is.
             validate_kwargs = {k: v for k, v in kwargs.items()
-                                if k in ('title', 'notes', 'tags', 'when', 'deadline',
-                                         'completed', 'canceled')}
+                               if k in ('title', 'notes', 'tags', 'when', 'deadline',
+                                        'completed', 'canceled')}
             validated_params = ParameterValidator.validate_update_params(**validate_kwargs)
             kwargs.update(validated_params)
 
@@ -545,7 +545,7 @@ class WriteOperations:
             return write_error("APPLESCRIPT_ERROR", "Failed to add area", details=str(e))
 
     async def update_area(self, area_id: str, title: Optional[str] = None,
-                           tags: Optional[List[str]] = None) -> Dict[str, Any]:
+                          tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """Update an existing area using AppleScript.
 
         Clear-field contract: title left at None (not provided) leaves the

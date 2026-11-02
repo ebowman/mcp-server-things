@@ -22,7 +22,7 @@ This class now acts as a facade, delegating to specialized scheduling modules.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 from .scheduling import SchedulingHelpers, SchedulingStrategies, TodoOperations, SearchOperations
 

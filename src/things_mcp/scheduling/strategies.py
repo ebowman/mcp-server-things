@@ -1,7 +1,7 @@
 """Scheduling strategies for reliable date scheduling in Things 3."""
 
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from typing import Dict, Any
 
 from ..locale_aware_dates import locale_handler

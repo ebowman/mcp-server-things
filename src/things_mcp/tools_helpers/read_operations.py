@@ -326,7 +326,7 @@ def _fill_project_from_heading(items: List[Dict[str, Any]]) -> List[Dict[str, An
 
 
 def _is_in_someday_project(todo: Dict[str, Any], someday_project_ids: set,
-                            heading_cache: Dict[str, Optional[str]]) -> bool:
+                           heading_cache: Dict[str, Optional[str]]) -> bool:
     """Check whether a todo belongs to a Someday project, directly or via heading.
 
     Args:
@@ -467,7 +467,7 @@ class ReadOperations:
     VALID_TODO_STATUSES = ('incomplete', 'completed', 'canceled')
 
     async def get_todos(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+                        status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
         """Get todos using things.py, optionally scoped to a project.
 
         Historically, project-scoped queries went through AppleScript
@@ -501,7 +501,7 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_todos_sync, project_uuid, include_items, status)
 
     def _get_todos_sync(self, project_uuid: Optional[str] = None, include_items: Optional[bool] = None,
-                       status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
+                        status: Optional[str] = 'incomplete') -> Union[List[Dict], Dict[str, Any]]:
         """Synchronous implementation of get_todos using things.py.
 
         Returns a structured error dict (not a list) if ``status`` is unrecognized -
@@ -890,7 +890,7 @@ class ReadOperations:
             raise
 
     async def get_today(self, limit: Optional[int] = None,
-                         include_projects: bool = False) -> List[Dict]:
+                        include_projects: bool = False) -> List[Dict]:
         """Get todos due today.
 
         Args:
@@ -904,7 +904,7 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_today_sync, limit, include_projects)
 
     def _get_today_sync(self, limit: Optional[int] = None,
-                         include_projects: bool = False) -> List[Dict]:
+                        include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
             today_todos = _fetch_list(things.today, include_projects)
@@ -924,7 +924,7 @@ class ReadOperations:
             raise
 
     async def get_upcoming(self, limit: Optional[int] = None,
-                            include_projects: bool = False) -> List[Dict]:
+                           include_projects: bool = False) -> List[Dict]:
         """Get upcoming todos.
 
         Args:
@@ -938,7 +938,7 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_upcoming_sync, limit, include_projects)
 
     def _get_upcoming_sync(self, limit: Optional[int] = None,
-                            include_projects: bool = False) -> List[Dict]:
+                           include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
             upcoming_todos = _fetch_list(things.upcoming, include_projects)
@@ -958,7 +958,7 @@ class ReadOperations:
             raise
 
     async def get_anytime(self, limit: Optional[int] = None,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_projects: bool = False) -> List[Dict]:
         """Get todos from Anytime list.
 
         Args:
@@ -972,7 +972,7 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_anytime_sync, limit, include_projects)
 
     def _get_anytime_sync(self, limit: Optional[int] = None,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
             anytime_todos = _fetch_list(things.anytime, include_projects)
@@ -992,8 +992,8 @@ class ReadOperations:
             raise
 
     async def get_someday(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_project_tasks: bool = False,
+                          include_projects: bool = False) -> List[Dict]:
         """Get todos from Someday list.
 
         Args:
@@ -1017,8 +1017,8 @@ class ReadOperations:
             None, self._get_someday_sync, limit, include_project_tasks, include_projects)
 
     def _get_someday_sync(self, limit: Optional[int] = None,
-                           include_project_tasks: bool = False,
-                           include_projects: bool = False) -> List[Dict]:
+                          include_project_tasks: bool = False,
+                          include_projects: bool = False) -> List[Dict]:
         """Synchronous implementation."""
         try:
             someday_todos = list(_fetch_list(things.someday, include_projects))
@@ -1062,14 +1062,14 @@ class ReadOperations:
             raise
 
     async def get_logbook(self, limit: int = 50, period: str = "7d", offset: int = 0,
-                           include_canceled: bool = True) -> List[Dict]:
+                          include_canceled: bool = True) -> List[Dict]:
         """Get completed (and, by default, canceled) todos from Logbook."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, self._get_logbook_sync, limit, period, offset, include_canceled)
 
     def _get_logbook_sync(self, limit: int = 50, period: str = "7d", offset: int = 0,
-                           include_canceled: bool = True) -> List[Dict]:
+                          include_canceled: bool = True) -> List[Dict]:
         """Synchronous implementation.
 
         Args:
@@ -1137,7 +1137,7 @@ class ReadOperations:
             raise
 
     async def get_trash(self, limit: int = 50, offset: int = 0,
-                         include_projects: bool = False) -> Dict[str, Any]:
+                        include_projects: bool = False) -> Dict[str, Any]:
         """Get trashed todos with pagination.
 
         Args:
@@ -1152,7 +1152,7 @@ class ReadOperations:
         return await loop.run_in_executor(None, self._get_trash_sync, limit, offset, include_projects)
 
     def _get_trash_sync(self, limit: int = 50, offset: int = 0,
-                         include_projects: bool = False) -> Dict[str, Any]:
+                        include_projects: bool = False) -> Dict[str, Any]:
         """Synchronous implementation."""
         try:
             trash_data = _fetch_list(things.trash, include_projects)

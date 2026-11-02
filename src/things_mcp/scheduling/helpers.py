@@ -1,7 +1,6 @@
 """Scheduling helper utilities."""
 
 import logging
-from typing import Any, Optional
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)

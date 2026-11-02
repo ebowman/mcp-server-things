@@ -8,7 +8,7 @@ like the recent tag concatenation issue and ensure consistent error handling.
 import re
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class ParameterValidator:
 
             return limit_int
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             raise ValidationError(
                 field_name,
                 f"must be a number between {min_val} and {max_val}",
@@ -102,7 +102,7 @@ class ParameterValidator:
 
     @staticmethod
     def validate_offset(offset: Any, min_val: int = 0,
-                       field_name: str = "offset") -> int:
+                        field_name: str = "offset") -> int:
         """
         Validate and convert offset parameter.
 
@@ -139,16 +139,16 @@ class ParameterValidator:
 
             return offset_int
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             raise ValidationError(
                 field_name,
-                f"must be a non-negative integer",
+                "must be a non-negative integer",
                 offset
             )
 
     @staticmethod
     def validate_days(days: Any, min_val: int = 1, max_val: int = 365,
-                     field_name: str = "days") -> int:
+                      field_name: str = "days") -> int:
         """
         Validate days parameter for date range queries.
 
@@ -186,7 +186,7 @@ class ParameterValidator:
 
             return days_int
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             raise ValidationError(
                 field_name,
                 f"must be a number between {min_val} and {max_val}",
@@ -296,7 +296,7 @@ class ParameterValidator:
 
     @staticmethod
     def validate_date_format(date_str: Any, field_name: str = "date",
-                            allow_relative: bool = True) -> Optional[str]:
+                             allow_relative: bool = True) -> Optional[str]:
         """
         Validate date format (YYYY-MM-DD or relative like "today", "tomorrow").
 
@@ -565,7 +565,7 @@ class ParameterValidator:
 
     @staticmethod
     def validate_tag_list(tags: Union[str, List[str], None],
-                         field_name: str = "tags") -> Optional[List[str]]:
+                          field_name: str = "tags") -> Optional[List[str]]:
         """
         Validate and normalize tag list.
 
@@ -630,7 +630,7 @@ class ParameterValidator:
 
     @staticmethod
     def validate_id_list(ids: Union[str, List[str]],
-                        field_name: str = "ids") -> List[str]:
+                         field_name: str = "ids") -> List[str]:
         """
         Validate and normalize ID list.
 

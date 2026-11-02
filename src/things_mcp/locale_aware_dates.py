@@ -8,7 +8,7 @@ property-based date construction instead of string-based parsing.
 import re
 import logging
 from datetime import datetime, timedelta, date
-from typing import Optional, Tuple, Union, Dict, Any
+from typing import Optional, Tuple, Union, Any
 import calendar
 
 logger = logging.getLogger(__name__)
@@ -483,18 +483,22 @@ class LocaleAwareDateHandler:
 # Global instance for easy import and use
 locale_handler = LocaleAwareDateHandler()
 
+
 # Convenience functions for backward compatibility
 def normalize_date_input(date_input):
     """Convenience function for date normalization."""
     return locale_handler.normalize_date_input(date_input)
 
+
 def convert_iso_to_applescript(iso_date):
     """Convenience function for ISO to AppleScript conversion."""
     return locale_handler.convert_iso_to_applescript(iso_date)
 
+
 def parse_applescript_date_output(output):
     """Convenience function for parsing AppleScript date output."""
     return locale_handler.parse_applescript_date_output(output)
+
 
 def build_applescript_date_property(year, month, day):
     """Convenience function for building AppleScript date properties."""

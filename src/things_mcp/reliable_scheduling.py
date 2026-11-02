@@ -23,6 +23,7 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class ReliableThingsScheduler:
     """Ultra-reliable scheduler for Things 3 date scheduling."""
 
@@ -116,7 +117,7 @@ class ReliableThingsScheduler:
         # For specific dates, try to keep in ISO format
         try:
             # Validate and return ISO format
-            parsed = datetime.strptime(date_input, '%Y-%m-%d')
+            datetime.strptime(date_input, '%Y-%m-%d')
             return date_input  # Already in correct format
         except ValueError:
             # If not ISO, return as-is and let URL scheme handle it
