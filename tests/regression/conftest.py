@@ -30,13 +30,16 @@ import asyncio
 import os
 import subprocess
 import time
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytest
 
 from regression import suite_cleanup
 from regression.helpers import SANDBOX_PREFIX, sandbox_title, ts
 from regression.seed import create_seed_set
+
+if TYPE_CHECKING:
+    from things_mcp.server import ThingsMCPServer
 
 _OSASCRIPT_PROBE_TIMEOUT_SECS = 5
 
@@ -105,16 +108,24 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(scope="session")
-def live_server():
+def live_server() -> "ThingsMCPServer":
     """A real ThingsMCPServer, built with the real AppleScriptManager and
     config from the environment as normal (same construction the actual
-    server entrypoint uses). Only constructed inside this already-gated
+    server entrypoint uses), with optional REG execution overrides. Only
+    constructed inside this already-gated
     session, so importing this module never touches Things 3 at collection
     time.
     """
     from things_mcp.server import ThingsMCPServer
 
-    return ThingsMCPServer()
+    timeout = os.environ.get("THINGS_MCP_REG_APPLESCRIPT_TIMEOUT")
+    retry_count = os.environ.get("THINGS_MCP_REG_APPLESCRIPT_RETRY_COUNT")
+    # Explicit constructor overrides survive normal dotenv loading. Keep None
+    # for omitted values and let the constructor validate the usual bounds.
+    return ThingsMCPServer(
+        timeout=float(timeout) if timeout is not None else None,
+        retry_count=int(retry_count) if retry_count is not None else None,
+    )
 
 
 class _MCPCallHelper:

@@ -30,6 +30,23 @@ Without `THINGS_MCP_LIVE_TESTS=1`, `pytest tests/regression -q` collects and
 skips every test - it is safe to run in CI or any environment without
 Things 3.
 
+For an explicitly authorized slow-environment retry, the regression fixture
+accepts process-local execution overrides:
+
+```bash
+THINGS_MCP_LIVE_TESTS=1 THINGS_MCP_REG_APPLESCRIPT_TIMEOUT=90 \
+  THINGS_MCP_REG_APPLESCRIPT_RETRY_COUNT=0 PYTHONPATH=src \
+  .venv/bin/python -m pytest tests/regression -q
+```
+
+These are passed to the existing server constructor after normal config
+loading, so the repository `.env` cannot replace them with ordinary
+`THINGS_MCP_APPLESCRIPT_*` settings. Omitted values retain normal config
+precedence; explicit retry count `0` disables retries. Invalid values fail
+fixture setup (timeout must be 1–300 seconds; retry count an integer 0–10).
+No saved settings, assertions, pytest timeouts, cleanup, collateral guards,
+or raw AppleScript helper timeouts are changed.
+
 ## What the sandbox creates
 
 The session-scoped `sandbox` fixture (`conftest.py`) creates, once per test

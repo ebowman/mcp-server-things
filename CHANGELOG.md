@@ -5,7 +5,7 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.2] - 2026-11-02
 
 ### Fixed
 
@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests and documentation
 
+- Live checklist smoke checks now poll within a bounded window for exact,
+  ordered contents after asynchronous URL updates, with offline coverage for
+  delayed visibility, incorrect contents and read failures.
 - Isolated the retry-count class-default assertion from ambient environment
   settings, including normal dotenv loading. Production configuration and
   CLI/environment override behavior remain unchanged.

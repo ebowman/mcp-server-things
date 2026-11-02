@@ -30,6 +30,31 @@ def _settle():
     time.sleep(1)
 
 
+def _wait_for_checklist_titles(
+    todo_id: str,
+    expected: list[str],
+    timeout: float = 20.0,
+    interval: float = 0.25,
+) -> None:
+    """Assert exact checklist content within a bounded URL-processing window.
+
+    A successful URL dispatch does not mean Things has applied the update.
+    Live tracing observed an empty read after _settle(), with the expected
+    items appearing another 3.145 seconds later without a second write.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        titles = [item["title"] for item in things.checklist_items(todo_id)]
+        if titles == expected:
+            return
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, (
+            f"Checklist did not become {expected!r} within {timeout}s; "
+            f"last observed: {titles!r}"
+        )
+        time.sleep(min(interval, remaining))
+
+
 # (a) add_todo -> get_todos(project_uuid=P) and get_todo_by_id return the
 # exact title and notes, including a title with commas/quotes/colon and
 # multi-line notes.
@@ -227,11 +252,7 @@ async def test_checklist_tools_require_auth_token_or_roundtrip(live_things_tools
         return
 
     assert result.get("success"), result
-    _settle()
-    items = things.checklist_items(todo_id)
-    titles = [i["title"] for i in items]
-    assert "Item one" in titles
-    assert "Item two" in titles
+    _wait_for_checklist_titles(todo_id, ["Item one", "Item two"])
 
     after = things.get(todo_id)
     assert after["modified"] == modification_date_before, (
