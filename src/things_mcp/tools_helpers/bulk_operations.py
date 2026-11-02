@@ -106,7 +106,7 @@ class BulkOperations:
 
             # Check for blocking errors
             if tag_validation.get('errors'):
-                raise ValidationError("; ".join(tag_validation['errors']))
+                raise ValidationError('tags', "; ".join(tag_validation['errors']), tags)
 
             # Update kwargs with only valid tags. If every requested tag was
             # filtered out by policy, drop 'tags' entirely rather than
