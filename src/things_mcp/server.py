@@ -3,7 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Union, cast
 
 # Optional dotenv support
 try:
@@ -1414,7 +1414,7 @@ class ThingsMCPServer:
                 # If days is specified, filter todos by date range
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
-                    todos = await self.tools.get_todos_upcoming_in_days(days)
+                    todos = cast(List[Dict[str, Any]], await self.tools.get_todos_upcoming_in_days(days))
                     pre_limit_total = len(todos)
 
                     # Apply offset/limit window over the full ordered set
@@ -1672,7 +1672,7 @@ class ThingsMCPServer:
             with case-insensitive suggestions instead of an empty result.
             """
             try:
-                tagged_items = await self.tools.get_tagged_items(tag=tag)
+                tagged_items: Any = await self.tools.get_tagged_items(tag=tag)
                 if isinstance(tagged_items, dict) and tagged_items.get('error') == 'unknown_tag':
                     # 'tag' is already set on this dict by
                     # _build_unknown_tag_error (read_operations.py) - no need
@@ -2821,7 +2821,7 @@ class ThingsMCPServer:
         if source_key is not None:
             result.pop(source_key, None)
 
-        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        meta: Dict[str, Any] = result["meta"] if isinstance(result.get("meta"), dict) else {}
 
         # When the requested mode is 'auto' (or unspecified), the *effective* mode chosen
         # by context_manager.optimize_response is recorded either in meta['mode'] (the

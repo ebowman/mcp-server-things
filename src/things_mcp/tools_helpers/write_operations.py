@@ -1,7 +1,7 @@
 """Write operations for Things 3 - uses AppleScript for reliable writes."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..services.applescript_manager import AppleScriptManager
 from ..pure_applescript_scheduler import PureAppleScriptScheduler
@@ -72,7 +72,9 @@ class WriteOperations:
                 'errors': []
             }
 
-    async def _prepare_tags(self, tags: Optional[List[str]]):
+    async def _prepare_tags(
+        self, tags: Optional[List[str]]
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[List[str]], Optional[Dict[str, Any]]]:
         """Validate and filter tags via the policy-aware tag validation service.
 
         This encapsulates the same validate-before-write pattern used by
@@ -630,7 +632,7 @@ class WriteOperations:
             if result.get("success"):
                 output = result.get("output", "").strip()
                 if output == "updated":
-                    response = {
+                    response: Dict[str, Any] = {
                         "success": True,
                         "message": "Area updated successfully" if not tags_all_filtered
                         else "Area updated successfully (no valid tags to apply; existing tags left unchanged)"
@@ -657,7 +659,7 @@ class WriteOperations:
             logger.error(f"Error moving record: {e}")
             return write_error("APPLESCRIPT_ERROR", "Failed to move record", details=str(e))
 
-    async def add_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+    async def add_tags(self, todo_id: str, tags: Union[str, List[str]]) -> Dict[str, Any]:
         """Add tags to a todo using AppleScript."""
         try:
             todo_id = ParameterValidator.validate_non_empty_string(todo_id, 'todo_id')
@@ -748,7 +750,7 @@ class WriteOperations:
             logger.error(f"Error replacing checklist items: {e}")
             return write_error("APPLESCRIPT_ERROR", "Failed to replace checklist items", details=str(e))
 
-    async def remove_tags(self, todo_id: str, tags: List[str]) -> Dict[str, Any]:
+    async def remove_tags(self, todo_id: str, tags: Union[str, List[str]]) -> Dict[str, Any]:
         """Remove tags from a todo using AppleScript.
 
         Note: unlike add_tags, this does NOT apply the configured

@@ -8,7 +8,7 @@ like the recent tag concatenation issue and ensure consistent error handling.
 import re
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +286,7 @@ class ParameterValidator:
         # Validate the date is actually valid
         try:
             datetime.strptime(date_str, '%Y-%m-%d')
-            return date_str
+            return cast(str, date_str)
         except ValueError as e:
             raise ValidationError(
                 field_name,
@@ -337,7 +337,7 @@ class ParameterValidator:
             if lowered == "tonight":
                 return "evening"
             if lowered in relative_dates:
-                return lowered
+                return cast(str, lowered)
 
         # Validate YYYY-MM-DD format
         iso_date_pattern = r'^\d{4}-\d{2}-\d{2}$'
@@ -345,7 +345,7 @@ class ParameterValidator:
             try:
                 # Verify it's a valid date
                 datetime.strptime(date_str, '%Y-%m-%d')
-                return date_str
+                return cast(str, date_str)
             except ValueError as e:
                 raise ValidationError(
                     field_name,
@@ -366,7 +366,7 @@ class ParameterValidator:
             try:
                 datetime.strptime(date_part, '%Y-%m-%d')
                 datetime.strptime(time_part, '%H:%M')
-                return date_str  # Valid datetime format
+                return cast(str, date_str)  # Valid datetime format
             except ValueError as e:
                 raise ValidationError(
                     field_name,
@@ -561,7 +561,7 @@ class ParameterValidator:
         if not value:
             raise ValidationError(field_name, "cannot be empty", "")
 
-        return value
+        return cast(str, value)
 
     @staticmethod
     def validate_tag_list(tags: Union[str, List[str], None],
@@ -674,7 +674,7 @@ class ParameterValidator:
         return id_list
 
     @staticmethod
-    def sanitize_string(value: Optional[str], max_length: Optional[int] = None) -> Optional[str]:
+    def sanitize_string(value: Any, max_length: Optional[int] = None) -> Optional[str]:
         """
         Sanitize a string by trimming whitespace and optionally limiting length.
 
@@ -700,7 +700,7 @@ class ParameterValidator:
             logger.warning(f"String truncated from {len(value)} to {max_length} characters")
             value = value[:max_length]
 
-        return value
+        return cast(Optional[str], value)
 
     @classmethod
     def validate_search_params(cls, query: str, limit: Optional[int] = None,
@@ -762,7 +762,7 @@ class ParameterValidator:
         Raises:
             ValidationError: If any parameter is invalid
         """
-        validated = {}
+        validated: Dict[str, Any] = {}
 
         if 'title' in kwargs and kwargs['title'] is not None:
             sanitized_title = cls.sanitize_string(kwargs['title'])
@@ -841,7 +841,7 @@ class ParameterValidator:
         Raises:
             ValidationError: If any parameter is invalid
         """
-        validated = {}
+        validated: Dict[str, Any] = {}
 
         if 'status' in kwargs and kwargs['status'] is not None:
             validated['status'] = cls.validate_status(kwargs['status'])
