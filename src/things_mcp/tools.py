@@ -144,7 +144,7 @@ class ThingsTools:
         """Get trashed items directly from database with pagination."""
         return await self.read_ops.get_trash(limit=limit, offset=offset, include_projects=include_projects)
 
-    async def get_tagged_items(self, tag: str) -> List[Dict]:
+    async def get_tagged_items(self, tag: str) -> Union[List[Dict], Dict[str, Any]]:
         """Get items with a specific tag directly from database."""
         return await self.read_ops.get_tagged_items(tag=tag)
 
@@ -172,7 +172,7 @@ class ThingsTools:
         """Get todos activating within specified days."""
         return await self.read_ops.get_todos_activating_in_days(days=days)
 
-    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get todos due or activating within specified days."""
         return await self.read_ops.get_todos_upcoming_in_days(days=days, mode=mode)
 

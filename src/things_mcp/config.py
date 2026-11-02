@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from enum import Enum
 try:
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
-    from pydantic import BaseSettings
-from pydantic import Field, field_validator, model_validator, ConfigDict
+    from pydantic import BaseSettings  # type: ignore[no-redef]  # pydantic v1 fallback when pydantic_settings is missing
+    from pydantic import ConfigDict as SettingsConfigDict  # type: ignore[assignment]  # same dict-style config, fallback only
+from pydantic import Field, field_validator, model_validator
 
 
 class ExecutionMethod(str, Enum):
@@ -424,7 +425,7 @@ class ThingsMCPConfig(BaseSettings):
 
         return self
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_prefix="THINGS_MCP_",
         case_sensitive=False,
         # Example environment variables (in .env file or system):

@@ -26,12 +26,12 @@ from .response_models import (
 
 # Import from parent models.py for backward compatibility if it exists
 try:
-    from ..models import ServerStats
+    from ..models import ServerStats  # type: ignore[attr-defined]  # parent models.py module is shadowed by this package; absent at type-check time
 except ImportError:
     # Define ServerStats here if not available in parent
     from pydantic import BaseModel
 
-    class ServerStats(BaseModel):
+    class ServerStats(BaseModel):  # type: ignore[no-redef]  # fallback definition when the parent import fails
         """Server statistics."""
         uptime_seconds: float
         total_requests: int

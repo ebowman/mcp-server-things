@@ -10,7 +10,7 @@ import tempfile
 import time
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -52,7 +52,7 @@ class SharedCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Track last cleanup time to avoid excessive cleanup calls
-        self._last_cleanup = 0
+        self._last_cleanup: float = 0
         self._cleanup_interval = 60  # Cleanup every 60 seconds
 
         logger.debug(f"SharedCache initialized with directory: {self.cache_dir}")
@@ -98,7 +98,7 @@ class SharedCache:
         """Check if a cache entry has expired."""
         if 'expires_at' not in cache_entry:
             return True
-        return time.time() > cache_entry['expires_at']
+        return cast(bool, time.time() > cache_entry['expires_at'])
 
     def _cleanup_expired(self) -> None:
         """Remove expired cache files."""

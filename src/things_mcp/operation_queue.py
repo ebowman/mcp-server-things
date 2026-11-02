@@ -12,7 +12,7 @@ import sys
 import weakref
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, List, Awaitable
+from typing import Any, Callable, Dict, Optional, List, Awaitable, cast
 from uuid import uuid4
 import traceback
 
@@ -57,7 +57,7 @@ class Operation:
     """Represents a queued operation"""
     id: str = field(default_factory=lambda: str(uuid4())[:8])
     name: str = ""
-    func: Callable[..., Awaitable[Any]] = None
+    func: Optional[Callable[..., Awaitable[Any]]] = None
     args: tuple = ()
     kwargs: dict = field(default_factory=dict)
     priority: Priority = Priority.NORMAL
@@ -198,7 +198,7 @@ class OperationQueue:
         logger.debug(f"Enqueued operation {operation.id}: {operation.name}")
         return operation.id
 
-    async def wait_for_operation(self, operation_id: str, timeout: float = None) -> Any:
+    async def wait_for_operation(self, operation_id: str, timeout: Optional[float] = None) -> Any:
         """
         Wait for a specific operation to complete.
 
@@ -355,7 +355,7 @@ class OperationQueue:
             try:
                 # Execute with timeout
                 result = await asyncio.wait_for(
-                    operation.func(*operation.args, **operation.kwargs),
+                    cast(Callable[..., Awaitable[Any]], operation.func)(*operation.args, **operation.kwargs),
                     timeout=operation.timeout
                 )
 

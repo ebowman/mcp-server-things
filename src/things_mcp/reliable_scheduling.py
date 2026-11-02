@@ -47,7 +47,7 @@ class ReliableThingsScheduler:
             '''
             result = await self.applescript.execute_applescript(script)
             if result.get("success") and "no_token_available" not in result.get("output", ""):
-                token = result.get("output", "").strip()
+                token: str = result.get("output", "").strip()
                 if token and len(token) > 10:  # Basic validation
                     self._auth_token = token
                     logger.info("Successfully discovered Things auth token")

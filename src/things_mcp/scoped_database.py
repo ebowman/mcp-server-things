@@ -11,6 +11,7 @@ import time
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional, cast
 
 from things.database import Database, dict_factory
 
@@ -18,7 +19,7 @@ from .things_import import HELPER_APP_ENV, ScopedHelperAccessError, ScopedHelper
 
 _TIMEOUT = 15.0
 _MAX_RESPONSE = 64 * 1024 * 1024
-_client = None
+_client: Optional["_HelperClient"] = None
 _client_lock = threading.Lock()
 
 
@@ -43,7 +44,9 @@ class _HelperClient:
         self._input = None
         self._output = None
         self._launcher = None
-        self._folder = tempfile.TemporaryDirectory(prefix="things-mcp-scoped-")
+        self._folder: Optional["tempfile.TemporaryDirectory[str]"] = (
+            tempfile.TemporaryDirectory(prefix="things-mcp-scoped-")
+        )
         try:
             input_path = os.path.join(self._folder.name, "input")
             output_path = os.path.join(self._folder.name, "output")
@@ -102,8 +105,8 @@ class _HelperClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ScopedHelperTimeoutError("Timed out waiting for the Things helper")
-            if select.select([self._output], [], [], remaining)[0]:
-                chunk = os.read(self._output, 65536)
+            if select.select([cast(int, self._output)], [], [], remaining)[0]:
+                chunk = os.read(cast(int, self._output), 65536)
                 if chunk:
                     self._buffer += chunk
                     if len(self._buffer) > _MAX_RESPONSE:
@@ -124,9 +127,9 @@ class _HelperClient:
         deadline = time.monotonic() + _TIMEOUT
         while data:
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([], [self._input], [], remaining)[1]:
+            if remaining <= 0 or not select.select([], [cast(int, self._input)], [], remaining)[1]:
                 raise ScopedHelperTimeoutError("Timed out sending a Things query")
-            data = data[os.write(self._input, data) :]
+            data = data[os.write(cast(int, self._input), data) :]
 
     def query(self, sql, parameters):
         with self._lock:

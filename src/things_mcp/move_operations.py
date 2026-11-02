@@ -6,7 +6,7 @@ projects, and areas in Things 3. Provides both single and bulk move operations
 with comprehensive error handling and validation.
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 from datetime import datetime, date
 import asyncio
 import logging
@@ -551,7 +551,7 @@ class MoveOperationsTools:
                     parsed_date = date.fromisoformat(str(start_date))
                     if parsed_date <= date.today():
                         return "today"
-                    return start_date
+                    return cast(str, start_date)
                 except (TypeError, ValueError):
                     return "anytime"
             return "anytime"

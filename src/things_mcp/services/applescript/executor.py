@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import weakref
-from typing import Dict, Any
+from typing import Dict, Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class AppleScriptExecutor:
         try:
             script = 'tell application "Things3" to return true'
             result = await self.execute_script(script)
-            return result.get("success", False)
+            return cast(bool, result.get("success", False))
         except Exception as e:
             logger.error(f"Error checking Things 3 status: {e}")
             return False

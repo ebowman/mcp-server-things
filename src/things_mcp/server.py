@@ -3,7 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Union, cast
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 # Optional dotenv support
 try:
@@ -1414,7 +1414,7 @@ class ThingsMCPServer:
                 # If days is specified, filter todos by date range
                 if days is not None:
                     logger.info(f"Getting todos upcoming in {days} days")
-                    todos = cast(List[Dict[str, Any]], await self.tools.get_todos_upcoming_in_days(days))
+                    todos = await self.tools.get_todos_upcoming_in_days(days)
                     pre_limit_total = len(todos)
 
                     # Apply offset/limit window over the full ordered set

@@ -28,7 +28,7 @@ class OperationResult:
     success: bool
     data: Any = None
     error: Optional[str] = None
-    warnings: List[str] = None
+    warnings: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):

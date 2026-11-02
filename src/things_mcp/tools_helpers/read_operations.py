@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 import sys
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union, cast
 from datetime import datetime, timedelta
 
 from ..things_import import LazyThingsProxy, ScopedHelperAccessError
@@ -52,7 +52,7 @@ class ListWithTotal(list):
     (e.g. an older mock) returns a plain list without setting it.
     """
 
-    total_count: int = None
+    total_count: Optional[int] = None
 
     def __new__(cls, iterable=(), total_count: Optional[int] = None):
         obj = super().__new__(cls)
@@ -405,7 +405,7 @@ def _fetch_list(things_fn, include_projects: bool) -> List[Dict[str, Any]]:
             return [data]
         if hasattr(data, '__iter__') and not isinstance(data, list):
             return list(data)
-        return data
+        return cast(List[Dict[str, Any]], data)
 
     if not include_projects:
         result = _normalize(things_fn(type='to-do'))
@@ -1094,7 +1094,7 @@ class ReadOperations:
         """
         try:
             statuses = ('completed', 'canceled') if include_canceled else ('completed',)
-            logbook_todos = []
+            logbook_todos: List[Dict[str, Any]] = []
             for status in statuses:
                 logbook_todos.extend(things.todos(status=status) or [])
 
@@ -1584,7 +1584,7 @@ class ReadOperations:
         """Alias for get_activating_in_days."""
         return await self.get_activating_in_days(days)
 
-    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None):
+    async def get_todos_upcoming_in_days(self, days: int, mode: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get todos due or activating within specified number of days."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_todos_upcoming_in_days_sync, days)

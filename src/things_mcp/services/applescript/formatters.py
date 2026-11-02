@@ -158,12 +158,12 @@ class AppleScriptFormatters:
                     elif pattern.startswith(r'^(\d{4})'):
                         # ISO format
                         if len(groups) == 6 and groups[3]:  # With time
-                            year, month, day, hour, minute, second = groups
-                            dt = datetime(int(year), int(month), int(day), int(hour), int(minute), int(second))
+                            iso_year, iso_month, iso_day, iso_hour, iso_minute, iso_second = groups
+                            dt = datetime(int(iso_year), int(iso_month), int(iso_day), int(iso_hour), int(iso_minute), int(iso_second))
                             return dt.isoformat()
                         else:  # Date only
-                            year, month, day = groups[:3]
-                            dt = datetime(int(year), int(month), int(day))
+                            iso_year, iso_month, iso_day = groups[:3]
+                            dt = datetime(int(iso_year), int(iso_month), int(iso_day))
                             return dt.date().isoformat()
 
             # If no pattern matches, return the cleaned string

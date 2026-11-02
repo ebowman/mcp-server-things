@@ -358,8 +358,8 @@ async def perform_health_check(timeout: float, retry_count: int) -> int:
 
         # Check AppleScript availability
         import subprocess
-        result = subprocess.run(["which", "osascript"], capture_output=True)
-        if result.returncode != 0:
+        which_result = subprocess.run(["which", "osascript"], capture_output=True)
+        if which_result.returncode != 0:
             logger.error("osascript not found - AppleScript not available")
             return 1
 

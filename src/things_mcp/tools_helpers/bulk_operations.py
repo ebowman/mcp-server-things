@@ -301,7 +301,7 @@ class BulkOperations:
 
         # Handle scheduling
         scheduling_results = []
-        when_is_evening = bool(when_value) and when_value.lower() == 'evening'
+        when_is_evening = bool(when_value and when_value.lower() == 'evening')
         when_has_time = when_has_time_component(when_value)
         if when_value and success_count > 0:
             logger.info(f"Scheduling {success_count} todos for: {when_value}")

@@ -8,7 +8,7 @@ property-based date construction instead of string-based parsing.
 import re
 import logging
 from datetime import datetime, timedelta, date
-from typing import Optional, Tuple, Union, Any
+from typing import Optional, Tuple, Any
 import calendar
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ class LocaleAwareDateHandler:
         """Initialize the LocaleAwareDateHandler."""
         logger.debug("Initializing LocaleAwareDateHandler")
 
-    def normalize_date_input(self, date_input: Union[str, datetime, date, None]) -> Optional[Tuple[int, int, int]]:
+    def normalize_date_input(self, date_input: Any) -> Optional[Tuple[int, int, int]]:
         """
         Parse any date format to year, month, day components.
 
@@ -351,13 +351,13 @@ class LocaleAwareDateHandler:
 
             # Pattern 4: Handle month names in output like "March 15, 2024"
             # First try to extract month names and convert them
-            month_match = None
+            month_num_match = None
             for month_name, month_num in self.MONTH_NAMES.items():
                 if month_name in output.lower():
-                    month_match = month_num
+                    month_num_match = month_num
                     break
 
-            if month_match:
+            if month_num_match:
                 # Look for day and year numbers
                 day_match = re.search(r'\b(\d{1,2})\b', output)
                 year_match = re.search(r'\b(\d{4})\b', output)
@@ -365,8 +365,8 @@ class LocaleAwareDateHandler:
                 if day_match and year_match:
                     day = int(day_match.group(1))
                     year = int(year_match.group(1))
-                    if self._validate_date(year, month_match, day):
-                        return (year, month_match, day)
+                    if self._validate_date(year, month_num_match, day):
+                        return (year, month_num_match, day)
 
             # Pattern 5: Handle Things 3 specific date output format
             # Look for patterns like "Tuesday, January 15, 2024" but extract numbers
