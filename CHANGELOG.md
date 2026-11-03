@@ -5,7 +5,7 @@ All notable changes to the Things 3 MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.0] - 2026-11-03
 
 ### Fixed
 - Summary-mode `overdue` and `scheduled_today` counters for to-dos were always 0 on live data: they tested for `status == 'open'` and snake_case date keys that real rows never carry; they now count active (`incomplete`) rows with a past `dueDate` / a `startDate` of today. The unused relevance-ranking helper that used the same keys was removed. (hq-5bs.1)
