@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- `TodoOperations.add_todo` no longer accepts an internal `area=` name kwarg that bypassed area pre-resolution; it was unreachable through the MCP `add_todo` tool (use `list_id`/`list_title`). (hq-x1e)
+
 ### Changed
 - AppleScript execution no longer retries deterministic errors (object not found, syntax, invalid date, coercion); only transient failures (timeouts, Things not running, AppleEvent timeouts, connection/launch errors) are retried with backoff, removing ~3s of latency from not-found and validation failures. (hq-5j4)
 - In-script AppleScript errors (`ERROR:`/`error:`-prefixed output) are now retried only when the message is transient, matching the rc!=0 classification; semantic not-found/invalid errors return immediately. (hq-14w)

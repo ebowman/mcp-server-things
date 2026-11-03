@@ -140,7 +140,7 @@ class TodoOperations:
         return bool(value)
 
     def _build_create_todo_script(self, title: str, notes: str, tags: List[str],
-                                  deadline: str, area: str, project: str,
+                                  deadline: str, project: str,
                                   checklist: List[str], project_id: Optional[str] = None,
                                   area_id: Optional[str] = None) -> str:
         """Build AppleScript for creating a new todo.
@@ -150,14 +150,15 @@ class TodoOperations:
             notes: Todo notes
             tags: Tags list
             deadline: Deadline date
-            area: Area name (looked up by name via `area <name>`)
             project: Project ID (looked up by id via `project id "..."`, unescaped -
                 kept only for backwards compatibility; prefer project_id)
             checklist: Checklist items
             project_id: Project UUID to place the todo in, escaped safely via
                 AppleScriptTemplates.escape_string. Takes precedence over `project`.
             area_id: Area UUID to place the todo in, escaped safely via
-                AppleScriptTemplates.escape_string. Takes precedence over `area`.
+                AppleScriptTemplates.escape_string. Resolved from list_id/list_title via things.py
+                before this is called; there is deliberately no unresolved
+                area-name parameter (hq-x1e).
 
         Returns:
             AppleScript code
@@ -177,9 +178,6 @@ class TodoOperations:
         if area_id:
             escaped_area_id = AppleScriptTemplates.escape_string(area_id)
             script += f'set area of newTodo to area id {escaped_area_id}\n                    '
-        elif area:
-            escaped_area = AppleScriptTemplates.escape_string(area)
-            script += f'set area of newTodo to area {escaped_area}\n                    '
 
         if project_id:
             escaped_project_id = AppleScriptTemplates.escape_string(project_id)
@@ -446,7 +444,6 @@ class TodoOperations:
             tags = kwargs.get('tags', [])
             when = kwargs.get('when', '')
             deadline = kwargs.get('deadline', '')
-            area = kwargs.get('area', '')
             project = kwargs.get('project', '') or kwargs.get('list_id', '')
             checklist = kwargs.get('checklist_items') or []
             heading = kwargs.get('heading', '')
@@ -527,7 +524,7 @@ class TodoOperations:
                     return target_error
 
             script = self._build_create_todo_script(
-                title, notes, tags, deadline, area,
+                title, notes, tags, deadline,
                 project='', checklist=checklist,
                 project_id=project_id, area_id=area_id
             )
