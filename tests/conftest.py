@@ -14,11 +14,10 @@ import os
 import pytest
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from things_mcp.models import Todo, Project, Area, Tag, TodoResult
 from things_mcp.config import ThingsMCPConfig
-from things_mcp.server import ThingsMCPServer
 from things_mcp.services.applescript_manager import AppleScriptManager
 
 logger = logging.getLogger(__name__)
@@ -127,9 +126,8 @@ def multiple_projects_data(sample_project_data):
 class MockAppleScriptManager:
     """Mock AppleScript manager for testing without Things 3 dependency."""
 
-    def __init__(self, config=None, error_handler=None, cache_manager=None):
+    def __init__(self, config=None, cache_manager=None):
         self.config = config
-        self.error_handler = error_handler
         self.cache_manager = cache_manager
         self.execution_calls = []
         self.url_scheme_calls = []
@@ -286,34 +284,6 @@ def mock_applescript_manager_with_data(mock_applescript_manager, sample_todo_dat
 
 
 # Mock Service Classes
-class MockErrorHandler:
-    """Mock error handler for testing."""
-
-    def __init__(self, enable_detailed_logging=False):
-        self.enable_detailed_logging = enable_detailed_logging
-        self.errors = []
-
-    async def handle_error(self, error: Exception, context: str = ""):
-        """Mock error handling."""
-        self.errors.append({
-            "error": str(error),
-            "context": context,
-            "timestamp": datetime.now()
-        })
-
-    async def get_error_statistics(self):
-        """Mock error statistics."""
-        return {
-            "total_errors": len(self.errors),
-            "recent_errors": self.errors[-10:] if self.errors else [],
-            "error_rate": 0.1 if self.errors else 0.0
-        }
-
-    async def reset_statistics(self):
-        """Reset error statistics."""
-        self.errors.clear()
-
-
 class MockCacheManager:
     """Mock cache manager for testing."""
 
@@ -392,12 +362,6 @@ class MockValidationService:
 
 
 @pytest.fixture
-def mock_error_handler():
-    """Fixture providing mock error handler."""
-    return MockErrorHandler()
-
-
-@pytest.fixture
 def mock_cache_manager():
     """Fixture providing mock cache manager."""
     return MockCacheManager()
@@ -422,32 +386,6 @@ def test_config():
         enable_detailed_logging=True,
         enable_debug_logging=False
     )
-
-
-@pytest.fixture
-async def mock_server(test_config, mock_applescript_manager_with_data, mock_error_handler, mock_cache_manager, mock_validation_service):
-    """Fixture providing fully mocked Things MCP server."""
-    with patch('things_mcp.server.AppleScriptManager') as mock_asm_class, \
-         patch('things_mcp.server.ErrorHandler') as mock_eh_class, \
-         patch('things_mcp.server.CacheManager') as mock_cm_class, \
-         patch('things_mcp.server.ValidationService') as mock_vs_class:
-
-        # Configure the mocked classes to return our mock instances
-        mock_asm_class.return_value = mock_applescript_manager_with_data
-        mock_eh_class.return_value = mock_error_handler
-        mock_cm_class.return_value = mock_cache_manager
-        mock_vs_class.return_value = mock_validation_service
-
-        # Create server instance
-        server = ThingsMCPServer(config=test_config)
-
-        # Store references to mocks for test access
-        server._mock_applescript_manager = mock_applescript_manager_with_data
-        server._mock_error_handler = mock_error_handler
-        server._mock_cache_manager = mock_cache_manager
-        server._mock_validation_service = mock_validation_service
-
-        yield server
 
 
 # Test Utilities
