@@ -6,6 +6,7 @@ while maintaining full API functionality through progressive disclosure patterns
 """
 
 import logging
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass
@@ -287,22 +288,45 @@ class ProgressiveDisclosureEngine:
             allowed_fields = ContextAwareResponseManager.TODO_FIELD_SETS[ResponseMode.SUMMARY]
         return {k: v for k, v in item.items() if k in (allowed_fields or set())}
 
+    @staticmethod
+    def _parse_iso_date(value: Any) -> Optional[date]:
+        """Parse the leading YYYY-MM-DD of a date string; None if unparseable."""
+        if not isinstance(value, str):
+            return None
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+
     def _summarize_todos(self, todos: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Create todo-specific summary."""
+        """Create todo-specific summary.
+
+        Counters use the keys real rows carry (``ToolsHelpers.convert_todo``):
+        ``status`` is ``incomplete``/``completed``/``canceled`` and dates are
+        camelCase ISO strings. The legacy AppleScript-parsed shape
+        (``open``, ``due_date``, ``start_date``, ``scheduled_date``) is still
+        honored. Only active rows count toward ``overdue``/``scheduled_today``.
+        """
         status_counts: Dict[str, int] = {}
         overdue_count = 0
         today_count = 0
+        today = date.today()
 
         for todo in todos:
-            status = todo.get('status', 'open')
+            status = todo.get('status', 'incomplete')
             status_counts[status] = status_counts.get(status, 0) + 1
 
-            # Check for overdue (simplified)
-            if todo.get('due_date') and todo.get('status') == 'open':
+            if status not in ('incomplete', 'open'):
+                continue
+
+            # Overdue: due date strictly before today
+            due = self._parse_iso_date(todo.get('dueDate') or todo.get('due_date'))
+            if due is not None and due < today:
                 overdue_count += 1
 
-            # Check for today
-            if todo.get('scheduled_date') == 'today':
+            # Scheduled for today
+            start = self._parse_iso_date(todo.get('startDate') or todo.get('start_date'))
+            if (start is not None and start == today) or todo.get('scheduled_date') == 'today':
                 today_count += 1
 
         return {
@@ -385,7 +409,7 @@ class ProgressiveDisclosureEngine:
         recent_items: List[Any] = []
 
         for result in results:
-            status = result.get('status', 'open')
+            status = result.get('status', 'incomplete')
             status_counts[status] = status_counts.get(status, 0) + 1
 
             # Add to preview (first 3 items)
@@ -712,51 +736,6 @@ class ContextAwareResponseManager:
             filtered_data.append(filtered_item)
 
         return filtered_data
-
-    def _apply_relevance_ranking(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Apply relevance-based ranking for prioritization."""
-        from datetime import datetime, date
-
-        def relevance_score(item: Dict[str, Any]) -> int:
-            score = 0
-
-            # High priority for today's items
-            if item.get('scheduled_date') == 'today' or item.get('due_date') == str(date.today()):
-                score += 100
-
-            # Priority for open/incomplete items
-            if item.get('status') == 'open':
-                score += 50
-
-            # Recent modifications are more relevant
-            if item.get('modification_date'):
-                try:
-                    mod_date = datetime.fromisoformat(item['modification_date'].replace('Z', '+00:00'))
-                    days_ago = (datetime.now(mod_date.tzinfo) - mod_date).days
-                    if days_ago <= 7:
-                        score += 25
-                except (ValueError, KeyError, TypeError) as e:
-                    logger.debug(f"Could not parse modification_date for scoring: {item.get('modification_date')} - {e}")
-                    pass
-
-            # Items with reminders are higher priority
-            if item.get('has_reminder'):
-                score += 20
-
-            # Overdue items get highest priority
-            if item.get('due_date') and item.get('status') == 'open':
-                try:
-                    due_date = datetime.strptime(item['due_date'], '%Y-%m-%d').date()
-                    if due_date < date.today():
-                        score += 200  # Highest priority
-                except (ValueError, KeyError) as e:
-                    logger.debug(f"Could not parse due_date for scoring: {item.get('due_date')} - {e}")
-                    pass
-
-            return score
-
-        # Sort by relevance score (highest first)
-        return sorted(items, key=relevance_score, reverse=True)
 
     def _select_optimal_mode(self, data: List[Dict[str, Any]], method_name: str) -> ResponseMode:
         """Automatically select the optimal response mode based on data characteristics and query intent."""

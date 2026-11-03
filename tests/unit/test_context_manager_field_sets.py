@@ -606,3 +606,56 @@ class TestSummaryPreviewRowShape:
         assert set(row.keys()) == {'uuid', 'title', 'status'}
         assert 'dueDate' not in row
         assert 'tags' not in row
+
+
+class TestSummaryCounters:
+    """hq-5bs.1: overdue/scheduled_today counters use real row keys."""
+
+    @staticmethod
+    def _day(offset: int) -> str:
+        from datetime import date, timedelta
+        return (date.today() + timedelta(days=offset)).isoformat()
+
+    def _sum(self, rows):
+        return _engine().progressive_engine._summarize_todos(rows)
+
+    def test_past_due_is_overdue(self):
+        s = self._sum([{'status': 'incomplete', 'dueDate': self._day(-1)}])
+        assert s['overdue'] == 1
+
+    def test_due_today_not_overdue(self):
+        assert self._sum([{'status': 'incomplete', 'dueDate': self._day(0)}])['overdue'] == 0
+
+    def test_due_tomorrow_not_overdue(self):
+        assert self._sum([{'status': 'incomplete', 'dueDate': self._day(1)}])['overdue'] == 0
+
+    def test_completed_past_due_not_overdue(self):
+        assert self._sum([{'status': 'completed', 'dueDate': self._day(-3)}])['overdue'] == 0
+
+    def test_start_date_today_scheduled(self):
+        s = self._sum([{'status': 'incomplete', 'startDate': self._day(0)},
+                       {'status': 'incomplete', 'startDate': self._day(1)}])
+        assert s['scheduled_today'] == 1
+
+    def test_start_date_tomorrow_not_scheduled(self):
+        assert self._sum([{'status': 'incomplete', 'startDate': self._day(1)}])['scheduled_today'] == 0
+
+    def test_legacy_shape_still_honored(self):
+        s = self._sum([{'status': 'open', 'due_date': self._day(-1), 'scheduled_date': 'today'}])
+        assert s['overdue'] == 1
+        assert s['scheduled_today'] == 1
+
+    def test_malformed_date_ignored(self):
+        s = self._sum([{'status': 'incomplete', 'dueDate': 'not-a-date', 'startDate': 42}])
+        assert s['overdue'] == 0
+        assert s['scheduled_today'] == 0
+
+    def test_missing_status_defaults_to_incomplete(self):
+        assert self._sum([{'title': 'x'}])['status_breakdown'] == {'incomplete': 1}
+
+    def test_search_summary_default_status_incomplete(self):
+        s = _engine().progressive_engine._summarize_search_results([{'title': 'x'}])
+        assert s['search_results_breakdown'] == {'incomplete': 1}
+
+    def test_relevance_ranking_removed(self):
+        assert not hasattr(_engine().progressive_engine, '_apply_relevance_ranking')

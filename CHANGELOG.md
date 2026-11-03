@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Summary-mode `overdue` and `scheduled_today` counters for to-dos were always 0 on live data: they tested for `status == 'open'` and snake_case date keys that real rows never carry; they now count active (`incomplete`) rows with a past `dueDate` / a `startDate` of today. The unused relevance-ranking helper that used the same keys was removed. (hq-5bs.1)
+
 ### Removed
 - `TodoOperations.add_todo` no longer accepts an internal `area=` name kwarg that bypassed area pre-resolution; it was unreachable through the MCP `add_todo` tool (use `list_id`/`list_title`). (hq-x1e)
 
