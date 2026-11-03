@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
-from regression.helpers import read_back, sandbox_title
+from regression.helpers import read_back, recover_unconfirmed_create, sandbox_title
 
 # Multiline/notes torture string: quotes, commas, backslash, newline, emoji.
 # Exercises the AppleScript string escaper (CLAUDE.md "Multi-line notes
@@ -112,6 +112,17 @@ def create_seed_set(mcp, sandbox) -> SeedSet:
     def _create(class_name: str, **kwargs) -> Optional[str]:
         title = _title(class_name)
         result = mcp.call_sync("add_todo", title=title, **kwargs)
+        if (
+            result.get("success") is False
+            and result.get("error") == "CREATE_UNCONFIRMED"
+        ):
+            # URL-scheme seed items (evening, under_heading, with_checklist)
+            # can outlive the server's id-lookup budget under load; recover
+            # the id by exact title instead of failing the session (hq-5bs.2).
+            todo_id = recover_unconfirmed_create(result, title)
+            sandbox.track(todo_id)
+            seed.ids[class_name] = todo_id
+            return todo_id
         assert result.get("success"), (
             f"seed class {class_name!r}: add_todo failed: {result}"
         )
