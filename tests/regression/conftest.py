@@ -156,6 +156,14 @@ def mcp(live_server):
     return _MCPCallHelper(live_server)
 
 
+@pytest.fixture()
+def require_auth_token(live_server):
+    """Skip (not fail) on machines without a configured Things auth token -
+    all things:///update-based checklist operations require one."""
+    if not live_server.applescript_manager.auth_token:
+        pytest.skip("Things auth token not configured")
+
+
 @pytest.fixture(scope="session")
 def server_tools(live_server):
     """Direct access to live_server.tools for rare cases that need to bypass

@@ -238,14 +238,52 @@ class TestUpdateTodoTags:
 
 
 class TestUpdateTodoWhen:
-    @pytest.mark.parametrize("keyword", ["tomorrow", "someday", "evening", "tonight"])
-    def test_when_keyword(self, mcp, sandbox, keyword):
+    def test_when_tomorrow_read_back(self, mcp, sandbox):
+        from datetime import date, timedelta
+
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="tomorrow")
+        assert result.get("success") is True, result
+
+        tomorrow_str = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+        record = read_back(
+            todo_id, lambda r: r is not None and r.get("start_date") == tomorrow_str
+        )
+        assert record is not None and record.get("start_date") == tomorrow_str, record
+
+    def test_when_someday_read_back(self, mcp, sandbox):
+        todo_id, _ = _new_todo(mcp, sandbox)
+        result = mcp.call_sync("update_todo", id=todo_id, when="someday")
+        assert result.get("success") is True, result
+
+        record = read_back(
+            todo_id,
+            lambda r: r is not None
+            and r.get("start") == "Someday"
+            and r.get("start_date") is None,
+        )
+        assert record is not None, "someday: todo never read back"
+        assert record.get("start") == "Someday", record
+        assert record.get("start_date") is None, record
+
+    @pytest.mark.usefixtures("require_auth_token")
+    @pytest.mark.parametrize("keyword", ["evening", "tonight"])
+    def test_when_evening_keyword_read_back(self, mcp, sandbox, keyword):
+        """evening/tonight route via things:///update (auth token needed);
+        only get_todo_by_id exposes the evening flag (hq-wsa.9)."""
         todo_id, _ = _new_todo(mcp, sandbox)
         result = mcp.call_sync("update_todo", id=todo_id, when=keyword)
         assert result.get("success") is True, result
 
         record = read_back(todo_id, lambda r: r is not None)
         assert record is not None, f"{keyword}: todo never read back"
+
+        deadline = time.monotonic() + 20
+        item = _get_item(mcp, todo_id)
+        while item.get("evening") is not True and time.monotonic() < deadline:
+            time.sleep(0.25)
+            item = _get_item(mcp, todo_id)
+        assert item.get("evening") is True, item
 
     def test_when_today_membership(self, mcp, sandbox):
         """hq-x9z fixed: update_todo(when='today') (the AppleScript

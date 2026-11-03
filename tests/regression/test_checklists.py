@@ -153,14 +153,6 @@ class TestAddTodoChecklistOrderAndContent:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def require_auth_token(live_server):
-    """Skip (not fail) on machines without a configured Things auth token -
-    all things:///update-based checklist operations require one."""
-    if not live_server.applescript_manager.auth_token:
-        pytest.skip("Things auth token not configured")
-
-
 @pytest.mark.usefixtures("require_auth_token")
 class TestAddChecklistItems:
     def test_appends_at_end_order_preserved(self, mcp, sandbox):
