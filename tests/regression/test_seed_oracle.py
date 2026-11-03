@@ -132,17 +132,17 @@ def _build_tool_calls(sandbox) -> List[ToolCall]:
         # sanity probe (one page, limit=100) - see the trash_envelope_sanity fixture.
         ToolCall("get_trash", lambda mcp: set()),
         ToolCall("get_due_in_days7_overdueT", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_due_in_days", {"days": 7, "include_overdue": True})),
+            mcp, "get_due_in_days", {"mode": "minimal", "limit": 500, "days": 7, "include_overdue": True})),
         ToolCall("get_due_in_days7_overdueF", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_due_in_days", {"days": 7, "include_overdue": False})),
+            mcp, "get_due_in_days", {"mode": "minimal", "limit": 500, "days": 7, "include_overdue": False})),
         ToolCall("get_due_in_days30", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_due_in_days", {"days": 30})),
+            mcp, "get_due_in_days", {"mode": "minimal", "limit": 500, "days": 30})),
         ToolCall("get_due_in_days90", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_due_in_days", {"days": 90})),
+            mcp, "get_due_in_days", {"mode": "minimal", "limit": 500, "days": 90})),
         ToolCall("get_activating_in_days7", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_activating_in_days", {"days": 7})),
+            mcp, "get_activating_in_days", {"mode": "minimal", "limit": 500, "days": 7})),
         ToolCall("get_activating_in_days30", lambda mcp: _collect_minimal_uuids(
-            mcp, "get_activating_in_days", {"days": 30})),
+            mcp, "get_activating_in_days", {"mode": "minimal", "limit": 500, "days": 30})),
         ToolCall("get_recent_1d", lambda mcp: _collect_minimal_uuids(
             mcp, "get_recent", {"period": "1d"})),
         ToolCall("search_todos", lambda mcp: _collect_minimal_uuids(
