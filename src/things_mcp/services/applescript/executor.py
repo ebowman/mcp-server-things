@@ -2,11 +2,47 @@
 
 import asyncio
 import logging
+import re
 import time
 import weakref
-from typing import Dict, Any, cast
+from typing import Dict, Any, Optional, cast
 
 logger = logging.getLogger(__name__)
+
+# Substrings (lower-case) marking a failure that may succeed on retry.
+_TRANSIENT_SUBSTRINGS = (
+    "timed out",  # our own asyncio timeout and "AppleEvent timed out"
+    "not running",
+    "isn't running",
+    "connection is invalid",
+    "unknown applescript error",
+)
+
+# Parenthesized AppleScript error codes that mark transient failures.
+# Anchored on the "(-NNNN)" form so a number inside a todo title cannot match.
+_TRANSIENT_CODE_RE = re.compile(r"\(-(?:1712|600|609|10810)\)")
+
+
+def is_transient_error(error: Optional[str]) -> bool:
+    """Classify a failed AppleScript result's error text.
+
+    Returns True when a retry might succeed (timeouts, Things not running,
+    connection/launch errors, subprocess-level failures, or an empty/unknown
+    error shape - kept retryable for safety). Everything else (object not
+    found -1728, syntax -2741, invalid date, coercion, ...) is deterministic
+    and will fail identically on every attempt.
+    """
+    if not error or not error.strip():
+        return True
+    # Our own subprocess-exception envelope. Case-sensitive on purpose:
+    # osascript's stderr says lower-case "execution error:" for ordinary
+    # (deterministic) script failures.
+    if error.lstrip().startswith("Execution error:"):
+        return True
+    text = error.lower()
+    if any(token in text for token in _TRANSIENT_SUBSTRINGS):
+        return True
+    return bool(_TRANSIENT_CODE_RE.search(text))
 
 
 class AppleScriptExecutor:
@@ -139,6 +175,11 @@ class AppleScriptExecutor:
                 last_error = result.get("output")
             else:
                 last_error = result.get("error")
+                if not is_transient_error(last_error):
+                    logger.debug(
+                        f"deterministic AppleScript error, not retrying: {last_error}"
+                    )
+                    break
 
             if attempt < self.retry_count:
                 wait_time = 2 ** attempt  # Exponential backoff

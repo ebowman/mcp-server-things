@@ -97,7 +97,7 @@ def test_server_validates_execution_overrides(override):
 
 def _failing_process():
     proc = AsyncMock()
-    proc.communicate.return_value = (b"", b"boom")
+    proc.communicate.return_value = (b"", b"AppleEvent timed out. (-1712)")
     proc.returncode = 1
     return proc
 

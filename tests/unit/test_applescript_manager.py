@@ -521,7 +521,7 @@ class TestRetryLogic:
 
             # First call fails, second succeeds
             process1 = AsyncMock()
-            process1.communicate.return_value = (b"", b"Temporary error")
+            process1.communicate.return_value = (b"", b"Temporary error: AppleEvent timed out. (-1712)")
             process1.returncode = 1
 
             process2 = AsyncMock()
@@ -547,7 +547,7 @@ class TestRetryLogic:
 
             # All attempts fail
             mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"", b"Persistent error")
+            mock_process.communicate.return_value = (b"", b"Persistent error: Things is not running")
             mock_process.returncode = 1
             mock_create.return_value = mock_process
 
@@ -570,7 +570,7 @@ class TestRetryLogic:
 
             # All attempts fail
             mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"", b"Error")
+            mock_process.communicate.return_value = (b"", b"Things is not running")
             mock_process.returncode = 1
             mock_create.return_value = mock_process
 
@@ -654,7 +654,7 @@ class TestRetryOnErrorStdout:
              patch('asyncio.sleep') as mock_sleep:
 
             mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"", b"Persistent error")
+            mock_process.communicate.return_value = (b"", b"Persistent error: Things is not running")
             mock_process.returncode = 1
             mock_create.return_value = mock_process
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- AppleScript execution no longer retries deterministic errors (object not found, syntax, invalid date, coercion); only transient failures (timeouts, Things not running, AppleEvent timeouts, connection/launch errors) are retried with backoff, removing ~3s of latency from not-found and validation failures. (hq-5j4)
 - `add_todo`/`add_project` via the Things URL scheme (checklists, headings, evening, @HH:MM) now wait up to 10s (was 3s) for Things to register the new item before returning `CREATE_UNCONFIRMED`; the success path is unchanged. (hq-nye)
 
 ## [1.12.3] - 2026-11-02
