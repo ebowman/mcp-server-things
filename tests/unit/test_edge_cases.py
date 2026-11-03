@@ -61,7 +61,7 @@ class TestBoundaryConditions:
         with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             # Create 600 mock todos
             mock_data = [
-                {"uuid": f"todo-{i}", "title": f"Todo {i}", "status": "open"}
+                {"uuid": f"todo-{i}", "title": f"Todo {i}", "status": "incomplete"}
                 for i in range(600)
             ]
             mock_todos.return_value = mock_data
@@ -84,7 +84,7 @@ class TestBoundaryConditions:
                     "uuid": "todo-1",
                     "title": "Far future todo",
                     "deadline": (date.today() + timedelta(days=300)).strftime('%Y-%m-%d'),
-                    "status": "open"
+                    "status": "incomplete"
                 }
             ]
 
@@ -369,7 +369,7 @@ class TestInvalidInputs:
         """Test search with negative limit."""
         with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = [
-                {"uuid": "todo-1", "title": "Test", "status": "open"}
+                {"uuid": "todo-1", "title": "Test", "status": "incomplete"}
             ]
 
             # Negative limit should be handled gracefully
@@ -383,7 +383,7 @@ class TestInvalidInputs:
         """Test search with zero limit."""
         with patch('things_mcp.tools_helpers.read_operations.things.todos') as mock_todos:
             mock_todos.return_value = [
-                {"uuid": "todo-1", "title": "Test", "status": "open"}
+                {"uuid": "todo-1", "title": "Test", "status": "incomplete"}
             ]
 
             result = await tools_with_mock.search_todos(query="Test", limit=0)
@@ -501,7 +501,7 @@ class TestChecklistItems:
                     {"title": "Item 1", "status": "incomplete"},
                     {"title": "Item 2", "status": "completed"}
                 ],
-                "status": "open"
+                "status": "incomplete"
             }]
 
             result = await tools_with_mock.get_todos()
@@ -530,7 +530,7 @@ class TestURLAndMetadata:
                 "title": "Test",
                 "creationDate": now,  # things.py field name
                 "modificationDate": now,  # things.py field name
-                "status": "open",
+                "status": "incomplete",
                 "tags": []
             }]
 

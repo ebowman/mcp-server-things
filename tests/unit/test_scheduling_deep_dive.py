@@ -198,7 +198,7 @@ class TestTemporalQueries:
                     'uuid': 'upcoming-1',
                     'title': 'Upcoming task',
                     'start_date': (date.today() + timedelta(days=3)).strftime('%Y-%m-%d'),
-                    'status': 'open',
+                    'status': 'incomplete',
                     'tags': []
                 }
             ]

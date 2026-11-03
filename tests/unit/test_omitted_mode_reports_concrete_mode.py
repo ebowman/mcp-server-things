@@ -32,7 +32,7 @@ def _make_server_with_mock_tools(**overrides):
 SAMPLE_TODO = {
     "uuid": "abc123",
     "title": "Test todo",
-    "status": "open",
+    "status": "incomplete",
     "notes": "Some notes",
     "tags": [],
     "dueDate": None,

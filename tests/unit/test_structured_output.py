@@ -23,7 +23,7 @@ from things_mcp.tools import ThingsTools
 SAMPLE_TODO = {
     "uuid": "abc123",
     "title": "Test todo",
-    "status": "open",
+    "status": "incomplete",
     "notes": "Some notes",
     "tags": ["work"],
     "dueDate": None,
@@ -33,7 +33,7 @@ SAMPLE_PROJECT = {
     "uuid": "proj123",
     "title": "Test project",
     "type": "project",
-    "status": "open",
+    "status": "incomplete",
     "notes": "Some notes",
     "tags": ["work"],
     "area": "area-uuid",

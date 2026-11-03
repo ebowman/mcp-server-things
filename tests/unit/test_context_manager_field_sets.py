@@ -43,7 +43,7 @@ SAMPLE_PROJECT_ITEM = {
     'uuid': 'project-1',
     'title': 'Sample project',
     'type': 'project',
-    'status': 'open',
+    'status': 'incomplete',
     'notes': 'Project notes',
     'tags': ['work'],
     'area': 'area-uuid',
@@ -532,27 +532,9 @@ class TestSummaryPreviewRowShape:
         assert 'name' not in row
         assert row['uuid'] == 'project-1'
         assert row['title'] == 'Sample project'
-        assert row['status'] == 'open'
+        assert row['status'] == 'incomplete'
         assert row['tags'] == ['work']
         assert row['dueDate'] == '2026-09-01'
-        # hq-wsa.1: SAMPLE_PROJECT_ITEM's fixture status ('open') does not
-        # match the real things.py/convert_project status value
-        # ('incomplete') - so this single-item, status='open' case
-        # necessarily reports active=0 here. See
-        # test_summarize_projects_active_counts_incomplete_status below for
-        # the real-shape ('incomplete') case that hq-wsa.1 actually fixes.
-        assert summary['active'] == 0
-        assert summary['completed'] == 0
-        assert summary['canceled'] == 0
-        assert summary['status_breakdown'] == {'open': 1}
-
-    def test_summarize_projects_active_counts_incomplete_status(self):
-        """hq-wsa.1: things.py/convert_project emit status == 'incomplete'
-        for open projects, never 'open' - active must count 'incomplete'
-        rows, not a literal 'open' string that live data never produces."""
-        engine = _engine()
-        incomplete_project = dict(SAMPLE_PROJECT_ITEM, uuid='project-2', status='incomplete')
-        summary = engine.progressive_engine._summarize_projects([incomplete_project])
         assert summary['active'] == 1
         assert summary['completed'] == 0
         assert summary['canceled'] == 0
@@ -618,7 +600,7 @@ class TestSummaryPreviewRowShape:
         missing a SUMMARY field (e.g. no dueDate key at all) simply omits
         it, same convention as non-preview field filtering."""
         engine = _engine()
-        sparse_todo = {'uuid': 'todo-2', 'title': 'No due date', 'status': 'open'}
+        sparse_todo = {'uuid': 'todo-2', 'title': 'No due date', 'status': 'incomplete'}
         summary = engine.progressive_engine._summarize_todos([sparse_todo])
         row = summary['recent_preview'][0]
         assert set(row.keys()) == {'uuid', 'title', 'status'}

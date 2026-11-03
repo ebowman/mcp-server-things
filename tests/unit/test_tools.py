@@ -253,7 +253,7 @@ class TestGetTags:
             ]
             # Mock things.todos() to return sample todos for tags
             mock_things.todos.return_value = [
-                {'uuid': '1', 'title': 'Sample Todo', 'status': 'open'}
+                {'uuid': '1', 'title': 'Sample Todo', 'status': 'incomplete'}
             ]
 
             result = await tools_with_mock.get_tags(include_items=True)
@@ -280,9 +280,9 @@ class TestGetTags:
             ]
             # Mock things.todos() to return 3 todos for count
             mock_things.todos.return_value = [
-                {'uuid': '1', 'title': 'Todo 1', 'status': 'open'},
-                {'uuid': '2', 'title': 'Todo 2', 'status': 'open'},
-                {'uuid': '3', 'title': 'Todo 3', 'status': 'open'}
+                {'uuid': '1', 'title': 'Todo 1', 'status': 'incomplete'},
+                {'uuid': '2', 'title': 'Todo 2', 'status': 'incomplete'},
+                {'uuid': '3', 'title': 'Todo 3', 'status': 'incomplete'}
             ]
 
             result = await tools_with_mock.get_tags(include_items=False)
