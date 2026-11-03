@@ -1,5 +1,10 @@
 # Makefile for Things 3 MCP Server
 
+# Interpreter: default to the project venv so pytest/flake8/mypy/black are the
+# pinned dev tools (a bare `python` can resolve to an unrelated interpreter,
+# e.g. miniconda, without them). Override per call: `make PYTHON=python3 test`.
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+
 .PHONY: help install test test-unit test-integration test-live test-regression lint clean coverage coverage-regression docs
 
 # Default target
@@ -28,35 +33,35 @@ help:
 
 # Installation
 install:
-	pip install -e .
-	pip install -r requirements-dev.txt
+	$(PYTHON) -m pip install -e .
+	$(PYTHON) -m pip install -r requirements-dev.txt
 
 # Testing targets
 test:
-	python -m pytest
+	$(PYTHON) -m pytest
 
 test-unit:
-	python -m pytest tests/unit -v
+	$(PYTHON) -m pytest tests/unit -v
 
 test-integration:
-	python -m pytest tests/integration -v
+	$(PYTHON) -m pytest tests/integration -v
 
 # Opt-in live Things 3 smoke suite (hq-f0w.14): requires a real, running
 # Things 3 and writes to (then cleans up after itself in) that live
 # database. Skipped entirely unless THINGS_MCP_LIVE_TESTS=1 is set - see
 # tests/live/conftest.py and docs/TESTING.md.
 test-live:
-	THINGS_MCP_LIVE_TESTS=1 python -m pytest tests/live -v
+	THINGS_MCP_LIVE_TESTS=1 $(PYTHON) -m pytest tests/live -v
 
 # Opt-in MCP-boundary regression suite (hq-gbl epic): drives the real
 # fastmcp Client against a real ThingsMCPServer().mcp, against a real,
 # running Things 3. See tests/regression/README.md. Skipped entirely
 # unless THINGS_MCP_LIVE_TESTS=1 is set.
 test-regression:
-	THINGS_MCP_LIVE_TESTS=1 python -m pytest tests/regression -v
+	THINGS_MCP_LIVE_TESTS=1 $(PYTHON) -m pytest tests/regression -v
 
 coverage:
-	python -m pytest --cov=src/things_mcp --cov-report=html --cov-report=term-missing
+	$(PYTHON) -m pytest --cov=src/things_mcp --cov-report=html --cov-report=term-missing
 
 # Branch coverage across unit + regression + live suites (hq-gbl.17): unit
 # coverage is written first, then regression+live coverage is appended onto
@@ -67,17 +72,17 @@ coverage:
 # which would otherwise abort the recipe after the unit line (current combined
 # coverage is below 80) and the live line would never run.
 coverage-regression:
-	python -m pytest tests/unit --cov=src/things_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage-unit.json --cov-fail-under=0 -q
-	THINGS_MCP_LIVE_TESTS=1 python -m pytest tests/regression tests/live --cov=src/things_mcp --cov-branch --cov-append --cov-report=json:coverage-all.json --cov-fail-under=0 -q
+	$(PYTHON) -m pytest tests/unit --cov=src/things_mcp --cov-branch --cov-report=term-missing --cov-report=json:coverage-unit.json --cov-fail-under=0 -q
+	THINGS_MCP_LIVE_TESTS=1 $(PYTHON) -m pytest tests/regression tests/live --cov=src/things_mcp --cov-branch --cov-append --cov-report=json:coverage-all.json --cov-fail-under=0 -q
 
 # Code quality
 lint:
-	python -m flake8 src tests
-	python -m mypy src
+	$(PYTHON) -m flake8 src tests
+	$(PYTHON) -m mypy src
 
 format:
-	python -m black src tests
-	python -m isort src tests
+	$(PYTHON) -m black src tests
+	$(PYTHON) -m isort src tests
 
 # Utilities
 clean:
