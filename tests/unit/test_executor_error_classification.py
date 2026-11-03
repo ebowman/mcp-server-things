@@ -107,13 +107,46 @@ async def test_transient_then_success_recovers():
 
 
 @pytest.mark.asyncio
-async def test_error_prefixed_stdout_still_retried():
-    """hq-c7a regression guard: rc=0 'ERROR:' stdout keeps being retried."""
-    bad = {"success": True, "output": "ERROR: Can't get to do id \"x\". (-1728)"}
+@pytest.mark.parametrize("prefix", ["ERROR:", "error:"])
+async def test_transient_error_stdout_retried_then_returned_as_is(prefix):
+    """hq-c7a/hq-14w: rc=0 transient in-script error stdout is retried."""
+    bad = {"success": True, "output": f"{prefix} AppleEvent timed out. (-1712)"}
     result, calls, sleeps = await _run(2, [bad] * 5)
     assert calls == 3
     assert sleeps == 2
     assert result == bad
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["ERROR:", "error:"])
+@pytest.mark.parametrize(
+    "body",
+    ["Can't get to do id \"x\". (-1728)", "Invalid date and time"],
+)
+async def test_deterministic_error_stdout_fails_fast_returned_as_is(prefix, body):
+    """hq-14w: deterministic in-script errors: 1 attempt, no sleep, as-is."""
+    bad = {"success": True, "output": f"{prefix} {body}"}
+    result, calls, sleeps = await _run(2, [bad] * 5)
+    assert calls == 1
+    assert sleeps == 0
+    assert result == bad
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_error_word_mid_string_is_success_not_error():
+    ok = {"success": True, "output": "Remember: error: handling is due, ERROR: too"}
+    result, calls, sleeps = await _run(2, [ok] * 5)
+    assert calls == 1 and sleeps == 0
+    assert result == ok
+
+
+@pytest.mark.asyncio
+async def test_mixed_case_prefix_not_treated_as_error_stdout():
+    ok = {"success": True, "output": "Error: (-1712)"}
+    result, calls, sleeps = await _run(2, [ok] * 5)
+    assert calls == 1 and sleeps == 0
+    assert result == ok
 
 
 @pytest.mark.asyncio

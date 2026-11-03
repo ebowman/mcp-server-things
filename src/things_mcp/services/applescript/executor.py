@@ -23,6 +23,11 @@ _TRANSIENT_SUBSTRINGS = (
 _TRANSIENT_CODE_RE = re.compile(r"\(-(?:1712|600|609|10810)\)")
 
 
+# In-script error prefixes (uppercase: move_operations/tag_service; lowercase:
+# scheduling/strategies, write_operations, todo_operations).
+_ERROR_STDOUT_PREFIXES = ("ERROR:", "error:")
+
+
 def is_transient_error(error: Optional[str]) -> bool:
     """Classify a failed AppleScript result's error text.
 
@@ -149,9 +154,11 @@ class AppleScriptExecutor:
            `return "ERROR: " & errMsg` - osascript itself still exits 0
            (it successfully ran the script and got a return value), so
            this failure shape bypasses case 1 entirely unless we also
-           check the payload here. Only an *exact* ``"ERROR:"`` prefix
-           (checked with ``.strip().startswith(...)``) is treated as
-           retryable - this deliberately does not pattern-match the
+           check the payload here. Only an *exact* ``"ERROR:"`` or
+           ``"error:"`` prefix (checked with ``.strip().startswith(...)``)
+           is recognized, and it is retried only when the message body is
+           transient per ``is_transient_error`` (hq-14w); deterministic
+           bodies return immediately, as produced - this deliberately does not pattern-match the
            substring anywhere else in the payload, since a legitimate
            todo/note body could otherwise contain the word "ERROR".
         """
@@ -169,10 +176,17 @@ class AppleScriptExecutor:
                 return result
 
             if result.get("success"):
-                # rc=0 but in-script "ERROR:"-prefixed stdout - retryable,
-                # but must NOT be reported as a generic execution failure
-                # if we exhaust retries (see fallthrough below).
+                # rc=0 but in-script "ERROR:"/"error:"-prefixed stdout.
+                # Retry only when the message body is transient; it must NOT
+                # be reported as a generic execution failure either way
+                # (see fallthrough below).
                 last_error = result.get("output")
+                body = self._error_stdout_body(last_error)
+                if not is_transient_error(body):
+                    logger.debug(
+                        f"deterministic in-script AppleScript error, not retrying: {last_error}"
+                    )
+                    break
             else:
                 last_error = result.get("error")
                 if not is_transient_error(last_error):
@@ -201,10 +215,20 @@ class AppleScriptExecutor:
     @staticmethod
     def _is_error_stdout(output: Any) -> bool:
         """True if a successful (rc=0) script's stdout is the in-script
-        ``"ERROR:"`` convention used by ``on error`` handlers that `return
-        "ERROR: " & errMsg` instead of failing the osascript process.
+        ``"ERROR:"`` / ``"error:"`` convention used by ``on error`` handlers
+        that `return "ERROR: " & errMsg` (or lowercase) instead of failing
+        the osascript process. Exact prefixes only; mixed case is not matched.
         """
-        return isinstance(output, str) and output.strip().startswith("ERROR:")
+        return isinstance(output, str) and output.strip().startswith(_ERROR_STDOUT_PREFIXES)
+
+    @staticmethod
+    def _error_stdout_body(output: Any) -> str:
+        """Message after the ``"ERROR:"``/``"error:"`` prefix (stripped)."""
+        text = output.strip() if isinstance(output, str) else ""
+        for prefix in _ERROR_STDOUT_PREFIXES:
+            if text.startswith(prefix):
+                return text[len(prefix):].strip()
+        return text
 
     async def _execute_script(self, script: str) -> Dict[str, Any]:
         """Execute a single AppleScript command with process-level locking.

@@ -587,8 +587,8 @@ class TestRetryOnErrorStdout:
     "ERROR:"-prefixed convention (move_operations.py's
     _build_project_move_script/_build_area_move_script/_get_todo_info,
     tag_service.py's tag-creation script - `on error errMsg / return
-    "ERROR: " & errMsg`) must be retried the same as a nonzero returncode,
-    since Things 3 intermittently errors under rapid back-to-back
+    "ERROR: " & errMsg`) are retried like a nonzero returncode when the
+    message is transient (hq-14w: deterministic bodies fail fast), since Things 3 intermittently errors under rapid back-to-back
     AppleEvents even though the osascript process itself still exits 0.
     """
 
@@ -605,13 +605,13 @@ class TestRetryOnErrorStdout:
         being wrapped in a different failure envelope - callers such as
         move_operations.py parse `output.startswith("ERROR:")` on the
         raw result and must keep working unchanged on final exhaustion."""
-        script = 'tell application "Things3" to return "ERROR: " & "boom"'
+        script = 'tell application "Things3" to return "ERROR: " & "timed out"'
 
         with patch('asyncio.create_subprocess_exec') as mock_create, \
              patch('asyncio.sleep') as mock_sleep:
 
             mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"ERROR: boom", b"")
+            mock_process.communicate.return_value = (b"ERROR: AppleEvent timed out. (-1712)", b"")
             mock_process.returncode = 0
             mock_create.return_value = mock_process
 
@@ -621,7 +621,7 @@ class TestRetryOnErrorStdout:
             assert mock_sleep.call_count == 2  # backoff before each retry
             # Returned exactly as produced - same shape callers already parse.
             assert result["success"] is True
-            assert result["output"] == "ERROR: boom"
+            assert result["output"] == "ERROR: AppleEvent timed out. (-1712)"
 
     @pytest.mark.asyncio
     async def test_normal_stdout_not_retried(self, manager_with_retries):
@@ -676,7 +676,7 @@ class TestRetryOnErrorStdout:
              patch('asyncio.sleep') as mock_sleep:
 
             process1 = AsyncMock()
-            process1.communicate.return_value = (b"ERROR: Things got confused", b"")
+            process1.communicate.return_value = (b"ERROR: AppleEvent timed out. (-1712)", b"")
             process1.returncode = 0
 
             process2 = AsyncMock()
@@ -696,13 +696,13 @@ class TestRetryOnErrorStdout:
     async def test_error_stdout_leading_whitespace_still_detected(self, manager_with_retries):
         """Output is stripped before the prefix check - leading/trailing
         whitespace around the 'ERROR:' prefix must not defeat detection."""
-        script = 'tell application "Things3" to return "  ERROR: boom  "'
+        script = 'tell application "Things3" to return "  ERROR: timed out  "'
 
         with patch('asyncio.create_subprocess_exec') as mock_create, \
              patch('asyncio.sleep') as mock_sleep:
 
             mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"  ERROR: boom  ", b"")
+            mock_process.communicate.return_value = (b"  ERROR: AppleEvent timed out. (-1712)  ", b"")
             mock_process.returncode = 0
             mock_create.return_value = mock_process
 
@@ -711,7 +711,7 @@ class TestRetryOnErrorStdout:
             assert mock_create.call_count == 3
             assert result["success"] is True
             # Executor strips stdout into `output` regardless of retry path.
-            assert result["output"] == "ERROR: boom"
+            assert result["output"] == "ERROR: AppleEvent timed out. (-1712)"
 
     @pytest.mark.asyncio
     async def test_error_substring_not_at_start_not_retried(self, manager_with_retries):
@@ -736,3 +736,53 @@ class TestRetryOnErrorStdout:
             assert mock_sleep.call_count == 0
             assert result["success"] is True
             assert result["output"] == "Remember: ERROR: handling notes are due Friday"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prefix", ["ERROR:", "error:"])
+    async def test_deterministic_error_stdout_fails_fast(self, manager_with_retries, prefix):
+        """hq-14w: semantic in-script error (-1728 not found) -> exactly one
+        attempt, no sleep, returned as produced with success True."""
+        payload = f'{prefix} Can\'t get to do id "x". (-1728)'.encode()
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (payload, b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript("return x")
+
+            assert mock_create.call_count == 1
+            assert mock_sleep.call_count == 0
+            assert result["success"] is True
+            assert result["output"] == payload.decode()
+
+    @pytest.mark.asyncio
+    async def test_lowercase_transient_error_stdout_retried(self, manager_with_retries):
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"error: AppleEvent timed out. (-1712)", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript("return x")
+
+            assert mock_create.call_count == 3
+            assert mock_sleep.call_count == 2
+            assert result["output"] == "error: AppleEvent timed out. (-1712)"
+
+    @pytest.mark.asyncio
+    async def test_lowercase_error_substring_mid_string_not_error(self, manager_with_retries):
+        with patch('asyncio.create_subprocess_exec') as mock_create, \
+             patch('asyncio.sleep') as mock_sleep:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"note: error: in the middle", b"")
+            mock_process.returncode = 0
+            mock_create.return_value = mock_process
+
+            result = await manager_with_retries.execute_applescript("return x")
+
+            assert mock_create.call_count == 1
+            assert mock_sleep.call_count == 0
+            assert result["output"] == "note: error: in the middle"
