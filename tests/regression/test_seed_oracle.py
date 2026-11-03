@@ -10,8 +10,8 @@ relevant to every list).
 Results are always read with mode='minimal', limit=500 (get_trash is
 verified by id, not paged - hq-8vx), and paged via
 offset (following next_offset) for the tools that support it
-(get_inbox/today/upcoming/anytime/someday, search_todos, get_logbook,
-get_trash) so a full page of the sandbox's own throwaway objects can never
+(get_inbox/today/upcoming/anytime/someday, search_todos, get_logbook)
+so a full page of the sandbox's own throwaway objects can never
 hide a seed uuid.
 
 Every entry in XFAILS documents one (tool_key, class_name, direction) pair
@@ -63,6 +63,20 @@ def _collect_minimal_uuids(
         for item in items:
             if "uuid" in item:
                 uuids.add(item["uuid"])
+        # Unpaged tools have no offset to follow: a truncated or larger-than-
+        # one-page window would silently drop seed uuids and yield a false
+        # must/must_not verdict, so fail loudly instead. A missing/non-int
+        # `total` is unknown and tolerated.
+        if isinstance(result, dict):
+            total = result.get("total")
+            truncated = result.get("truncated")
+            if truncated or (isinstance(total, int) and total > len(items)):
+                raise AssertionError(
+                    f"{tool}({kwargs}): unpaged read is incomplete "
+                    f"(len(items)={len(items)}, total={total}, "
+                    f"truncated={truncated!r}); tool has no offset paging; "
+                    "raise limit, narrow the window, or prefer someday/scratch "
+                    "seed states - see tests/regression/README.md")
         return uuids
 
     offset = 0

@@ -139,3 +139,18 @@ debugging a suspected guard false-positive).
 - `assert_read_error(result, code)` / `assert_write_error(result, code)` -
   assert `success is False`, an exact error `code` (lower_snake for reads,
   UPPER_SNAKE for writes), and a non-empty string `message`.
+
+## Seed oracle: list-size limits
+
+`test_seed_oracle.py` collects uuid membership per list tool. Tools with
+offset support (inbox/today/upcoming/anytime/someday, `search_todos`,
+`get_logbook`) are walked via `offset`/`next_offset` until the window is
+exhausted. Tools without it (`get_due_in_days`, `get_activating_in_days`,
+`get_recent`, `get_tagged_items`, `get_todos(project_uuid=...)`) are read
+once and guarded: if the envelope reports `truncated` or `total > len(items)`
+the collector raises `AssertionError` instead of silently dropping seed
+uuids. If that fires, raise `limit`, narrow the window, or change the seed.
+
+New regression files should prefer `when='someday'` or other scratch states
+for seed items so they do not compete with the user's large Anytime/Today
+lists.
