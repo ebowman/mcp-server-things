@@ -128,14 +128,59 @@ def delete_batch(kind: str, ids: Iterable[str], budget: Budget) -> Tuple[int, Li
     return deleted, undeleted
 
 
+def partition_active(kind: str, ids: Iterable[str]) -> Tuple[List[str], List[str]]:
+    """Split ids into (active, skipped) via things.py reads (hq-k8k).
+
+    An id is skipped when it is missing/purged (get -> None) or already
+    trashed; deleting those via AppleScript fails and would be misreported as
+    NOT DELETED. A read failure keeps the id ACTIVE (never skip a delete on a
+    failed read). Areas/tags reject the `trashed=` kwarg in things.py (and
+    cannot be trashed), so areas are only checked for existence.
+    """
+    ids = [i for i in dict.fromkeys(ids) if i]
+    active: List[str] = []
+    skipped: List[str] = []
+    read_failed = False
+    try:
+        import things
+    except Exception as e:  # reads unavailable: never skip a delete
+        log(f"{kind} prefilter skipped (things.py import failed): {e!r}")
+        return ids, skipped
+    for i in ids:
+        try:
+            rec = things.get(i) if kind == "area" else things.get(i, trashed=None)
+        except Exception:
+            read_failed = True
+            active.append(i)
+            continue
+        if rec is None or (kind != "area" and rec.get("trashed")):
+            skipped.append(i)
+        else:
+            active.append(i)
+    if read_failed:
+        log(f"things.py read failed for some {kind} ids; treating them as active")
+    return active, skipped
+
+
 def delete_all(todo_ids: Iterable[str], project_ids: Iterable[str],
-               area_ids: Iterable[str], budget: Budget) -> Dict[str, Tuple[int, List[str]]]:
+               area_ids: Iterable[str], budget: Budget,
+               prefilter: bool = True) -> Dict[str, Tuple[int, List[str]]]:
     """to-dos first, then projects, then areas (area delete purges the area and
-    trashes its projects but NOT their to-dos)."""
+    trashes its projects but NOT their to-dos).
+
+    With `prefilter` (default), ids already trashed or missing per things.py
+    are skipped (logged once per kind) so only genuinely active leftovers can
+    be reported as NOT DELETED. `undeleted` never contains skipped ids.
+    """
     out = {}
-    out["todos"] = delete_batch("todo", todo_ids, budget)
-    out["projects"] = delete_batch("project", project_ids, budget)
-    out["areas"] = delete_batch("area", area_ids, budget)
+    for key, kind, ids in (("todos", "todo", todo_ids),
+                           ("projects", "project", project_ids),
+                           ("areas", "area", area_ids)):
+        if prefilter:
+            ids, skipped = partition_active(kind, ids)
+            if skipped:
+                log(f"skipped {len(skipped)} already-trashed/missing {kind}")
+        out[key] = delete_batch(kind, ids, budget)
     for kind, (_n, left) in out.items():
         if left:
             log(f"NOT DELETED {kind} ({len(left)}): {left}")
@@ -215,7 +260,9 @@ def sweep_prefix(prefix: str, label: str, budget: Budget) -> Dict[str, int]:
         FAILURES.append(msg)
         return counts
 
-    res = delete_all(todo_ids, project_ids, area_ids, budget)
+    # Candidates are already active-only (select_sweep_targets), so skip the
+    # per-id prefilter reads.
+    res = delete_all(todo_ids, project_ids, area_ids, budget, prefilter=False)
     counts = {k: v[0] for k, v in res.items()}
     log(f"{label} sweep of prefix {prefix!r}: found {len(todo_ids)} to-dos / "
         f"{len(project_ids)} projects / {len(area_ids)} areas; deleted "
