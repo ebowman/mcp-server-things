@@ -53,7 +53,13 @@ import time
 
 import pytest
 
-from regression.helpers import assert_write_error, read_back, sandbox_title, ts
+from regression.helpers import (
+    assert_write_error,
+    read_back,
+    recover_unconfirmed_create,
+    sandbox_title,
+    ts,
+)
 
 pytestmark = pytest.mark.live
 
@@ -64,8 +70,12 @@ def _new_todo(mcp, sandbox, title=None, **kwargs):
     result = mcp.call_sync(
         "add_todo", title=title, list_id=sandbox.project_id, **kwargs
     )
-    assert result.get("success") is True, result
-    todo_id = result.get("todo_id")
+    if result.get("success") is False and result.get("error") == "CREATE_UNCONFIRMED":
+        # hq-nye: Things registered the item late; recover, never re-create.
+        todo_id = recover_unconfirmed_create(result, title)
+    else:
+        assert result.get("success") is True, result
+        todo_id = result.get("todo_id")
     assert todo_id
     sandbox.track(todo_id)
     return todo_id, title

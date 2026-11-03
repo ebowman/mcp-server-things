@@ -88,7 +88,7 @@ class TodoOperations:
 
     # How long to keep polling for the new todo's id after a URL-scheme
     # create before giving up (see _add_todo_via_url_scheme / hq-nxu.12).
-    _URL_SCHEME_LOOKUP_DEADLINE_SECS = 3.0
+    _URL_SCHEME_LOOKUP_DEADLINE_SECS = 10.0
     _URL_SCHEME_LOOKUP_POLL_INTERVAL_SECS = 0.25
 
     def __init__(self, applescript_manager, scheduler):

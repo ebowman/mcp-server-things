@@ -118,3 +118,31 @@ def track_ids(existing: List[str], *ids: Optional[str]) -> None:
     for item_id in ids:
         if item_id:
             existing.append(item_id)
+
+
+def recover_unconfirmed_create(
+    result: Dict[str, Any], title: str, timeout: float = 20.0, interval: float = 0.25
+) -> str:
+    """Recover the id of a URL-scheme create that returned CREATE_UNCONFIRMED (hq-nye).
+
+    Under load Things can register the new item after the server's lookup
+    deadline. Never re-issue the create (that could duplicate); instead poll
+    things.py for exactly one to-do whose title equals `title`. Returns its
+    id, or fails the test with the original result.
+    """
+    import pytest
+    import things
+
+    deadline = time.monotonic() + timeout
+    while True:
+        matches = [
+            t["uuid"]
+            for t in (things.todos(status=None) or [])
+            if t.get("title") == title
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1 or time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+    pytest.fail(f"CREATE_UNCONFIRMED not recovered for {title!r}: {result}")

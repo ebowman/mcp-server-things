@@ -1262,7 +1262,7 @@ replace_checklist_items(
 - Checklists use Things URL scheme API (not AppleScript)
 - URL scheme is automatically used when `checklist_items` parameter is provided
 - Todo ID is retrieved after creation by snapshotting existing to-do ids with
-  that title before the URL call and polling (up to 3s, every 250ms) for a
+  that title before the URL call and polling (up to 10s, every 250ms) for a
   new id afterward, so two same-titled to-dos created within a second still
   resolve to distinct correct ids (see CHANGELOG.md's `[1.7.0]` Fixed entry
   on `add_todo` id disambiguation); a lookup that times out returns
