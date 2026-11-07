@@ -65,7 +65,7 @@ def _batch_script(kind: str, ids: Sequence[str]) -> str:
                     delete (to do id theId)
                 on error
                     try
-                        move (to do id theId) to list "Trash"
+                        move (to do id theId) to list id "TMTrashListSource"
                     on error
                         set failed to failed & theId & linefeed
                     end try

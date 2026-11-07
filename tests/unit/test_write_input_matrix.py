@@ -574,8 +574,8 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript", contains=['list "Someday"'])),
-    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
+    ("someday", ok(route="applescript", contains=['list id "TMSomedayListSource"'])),
+    ("anytime", ok(route="applescript", contains=['list id "TMNextListSource"'])),
     ("evening", ok(route="url_add")),
     ("tonight", ok(route="url_add")),
     ("2031-01-15", ok(route="applescript")),
@@ -691,8 +691,8 @@ for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
     ("yesterday", ok(route="applescript")),  # observed: accepted as a relative date, not rejected
-    ("someday", ok(route="applescript", contains=['list "Someday"'])),
-    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
+    ("someday", ok(route="applescript", contains=['list id "TMSomedayListSource"'])),
+    ("anytime", ok(route="applescript", contains=['list id "TMNextListSource"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-02-15", ok(route="applescript")),
@@ -872,8 +872,8 @@ add(
 for w, exp in [
     ("today", ok(route="applescript")),
     ("tomorrow", ok(route="applescript")),
-    ("someday", ok(route="applescript", contains=['list "Someday"'])),
-    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
+    ("someday", ok(route="applescript", contains=['list id "TMSomedayListSource"'])),
+    ("anytime", ok(route="applescript", contains=['list id "TMNextListSource"'])),
     ("evening", ok(route="url_update")),
     ("tonight", ok(route="url_update")),
     ("2031-03-15", ok(route="applescript")),
@@ -970,8 +970,8 @@ add("add_project", {"title": "P", "tags": "a,b"}, ok(route="applescript", contai
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript", contains=['list "Someday"'])),
-    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
+    ("someday", ok(route="applescript", contains=['list id "TMSomedayListSource"'])),
+    ("anytime", ok(route="applescript", contains=['list id "TMNextListSource"'])),
     ("2031-04-15", ok(route="applescript")),
     # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
     # IS supported for projects - live-probed against things:///add-project
@@ -1051,8 +1051,8 @@ add("update_project", {"id": "PROJECTID1", "tags": "a,b"}, ok(route="applescript
 
 for w, exp in [
     ("today", ok(route="applescript")),
-    ("someday", ok(route="applescript", contains=['list "Someday"'])),
-    ("anytime", ok(route="applescript", contains=['list "Anytime"'])),
+    ("someday", ok(route="applescript", contains=['list id "TMSomedayListSource"'])),
+    ("anytime", ok(route="applescript", contains=['list id "TMNextListSource"'])),
     ("evening", write_error("UNSUPPORTED_FOR_PROJECTS")),  # projects don't support Evening
     ("2031-05-15", ok(route="applescript")),
     # hq-4gn: unlike 'evening' (UNSUPPORTED_FOR_PROJECTS), 'YYYY-MM-DD@HH:MM'
@@ -1274,18 +1274,18 @@ add(
 # ===========================================================================
 
 for dest, exp in [
-    ("inbox", ok(route="applescript", contains=['move theTodo to list "inbox"'])),
-    ("today", ok(route="applescript", contains=['move theTodo to list "today"'])),
+    ("inbox", ok(route="applescript", contains=['move theTodo to list id "TMInboxListSource"'])),
+    ("today", ok(route="applescript", contains=['move theTodo to list id "TMTodayListSource"'])),
     # hq-cag: 'upcoming' is rejected at validation (Things has no direct
     # Upcoming move target) - VALIDATION_ERROR with no AppleScript call.
     ("upcoming", write_error("VALIDATION_ERROR")),
-    ("anytime", ok(route="applescript", contains=['move theTodo to list "anytime"'])),
-    ("someday", ok(route="applescript", contains=['move theTodo to list "someday"'])),
+    ("anytime", ok(route="applescript", contains=['move theTodo to list id "TMNextListSource"'])),
+    ("someday", ok(route="applescript", contains=['move theTodo to list id "TMSomedayListSource"'])),
     # hq-edj: 'logbook' completes the to-do (the only documented way an
     # item reaches the Logbook); 'trash' uses the same `move ... to list`
     # verb as the other built-in lists.
     ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
-    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list id "TMTrashListSource"'])),
     ("project:PROJ123", ok(route="applescript", contains=['project id "PROJ123"'])),
     ("area:AREA123", ok(route="applescript", contains=['area id "AREA123"'])),
     ("project:", write_error("VALIDATION_ERROR")),
@@ -1330,7 +1330,7 @@ for dest, exp in [
     # hq-edj: same fix as move_record above - bulk_move delegates each id
     # to move_record, so 'logbook'/'trash' now succeed per-todo too.
     ("logbook", ok(route="applescript", contains=["set status of theTodo to completed"])),
-    ("trash", ok(route="applescript", contains=['move theTodo to list "trash"'])),
+    ("trash", ok(route="applescript", contains=['move theTodo to list id "TMTrashListSource"'])),
     ("project:PROJ123", ok(route="applescript", contains=["PROJ123"])),
     ("area:AREA123", ok(route="applescript", contains=["AREA123"])),
     ("project:", write_error("INVALID_DESTINATION")),

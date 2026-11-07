@@ -278,7 +278,7 @@ class TestDeleteTodoTypeDispatch:
         assert mock_applescript.execute_applescript.call_count == 3
         move_script = mock_applescript.execute_applescript.call_args_list[2][0][0]
         assert 'move' in move_script.lower()
-        assert 'to list "Trash"' in move_script
+        assert 'to list id "TMTrashListSource"' in move_script
 
     async def test_delete_and_move_to_trash_all_fail_returns_structured_error(self, tools, mock_applescript):
         """When delete AND move-to-Trash all fail, return a structured error."""

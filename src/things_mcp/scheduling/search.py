@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, Any, List, Optional
 
+from ..list_refs import BUILTIN_LIST_IDS, list_ref
 from .helpers import SchedulingHelpers
 from ..utils.applescript_utils import AppleScriptTemplates
 
@@ -32,21 +33,22 @@ class SearchOperations:
             AppleScript code for list selection
         """
         if list_name:
-            return f'set allTodos to to dos of list "{list_name}"\n'
+            ref = list_ref(list_name) if list_name.strip().lower() in BUILTIN_LIST_IDS else f'list "{list_name}"'
+            return f'set allTodos to to dos of {ref}\n'
 
         # Include active lists
-        script = '''
-                    set allTodos to allTodos & (to dos of list "Today")
-                    set allTodos to allTodos & (to dos of list "Upcoming")
-                    set allTodos to allTodos & (to dos of list "Anytime")
-                    set allTodos to allTodos & (to dos of list "Someday")
-                    set allTodos to allTodos & (to dos of list "Inbox")
+        script = f'''
+                    set allTodos to allTodos & (to dos of {list_ref("today")})
+                    set allTodos to allTodos & (to dos of {list_ref("upcoming")})
+                    set allTodos to allTodos & (to dos of {list_ref("anytime")})
+                    set allTodos to allTodos & (to dos of {list_ref("someday")})
+                    set allTodos to allTodos & (to dos of {list_ref("inbox")})
                 '''
 
         # Include Logbook if searching for completed or canceled todos
         if status and status.lower() in ['completed', 'canceled']:
-            script += '''
-                    set allTodos to allTodos & (to dos of list "Logbook")
+            script += f'''
+                    set allTodos to allTodos & (to dos of {list_ref("logbook")})
                     '''
 
         return script
@@ -343,7 +345,7 @@ class SearchOperations:
                     set resultCount to 0
 
                     -- Search only Inbox for now to avoid timeout
-                    repeat with aTodo in (to dos of list "Inbox")
+                    repeat with aTodo in (to dos of {list_ref("inbox")})
                         if creation date of aTodo is not missing value then
                             if creation date of aTodo >= pastDate then
                                 -- Build the info string directly

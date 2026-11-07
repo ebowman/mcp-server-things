@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..services.applescript_manager import AppleScriptManager
 from ..pure_applescript_scheduler import PureAppleScriptScheduler
+from ..list_refs import list_ref
 from ..services.validation_service import ValidationService
 from ..services.tag_service import TagValidationService
 from ..move_operations import MoveOperationsTools
@@ -383,7 +384,7 @@ class WriteOperations:
         script = f'''
         tell application "Things3"
             set targetItem to to do id "{escaped_id}"
-            move targetItem to list "Trash"
+            move targetItem to {list_ref("trash")}
             return "trashed"
         end tell
         '''
