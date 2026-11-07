@@ -60,6 +60,7 @@ docs/               # Documentation
 When working with AppleScript:
 1. **Escape quotes properly** - Use `_escape_applescript_string()` 
 2. **Handle errors gracefully** - AppleScript can fail silently
+3. **Never address built-in lists by name** - `list "Someday"` fails on non-English Things; use `list_ref()` from `list_refs.py` (`list id "TM…ListSource"`)
 3. **Test with real Things 3** - Mock tests don't catch all issues
 4. **Check permissions** - Automation access must be granted
 

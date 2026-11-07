@@ -13,6 +13,7 @@ import logging
 import time
 
 from .services.applescript_manager import AppleScriptManager
+from .list_refs import list_ref
 from .services.validation_service import ValidationService
 from .things_import import LazyThingsProxy
 
@@ -643,7 +644,7 @@ class MoveOperationsTools:
             "tell application \"Things3\"",
             "    try",
             f"        set theTodo to to do id \"{todo_id}\"",
-            f"        move theTodo to list \"{list_name}\"",
+            f"        move theTodo to {list_ref(list_name)}",
             f"        return \"MOVED to {list_name}\"",
             "    on error errMsg",
             "        return \"ERROR: \" & errMsg",

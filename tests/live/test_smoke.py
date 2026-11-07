@@ -282,3 +282,48 @@ async def test_completed_todo_has_completion_date(live_things_tools, smoke_sessi
     by_id = await live_things_tools.get_todo_by_id(todo_id)
     assert by_id.get("status") == "completed"
     assert by_id.get("completionDate") is not None
+
+
+# (j) Built-in list moves/scheduling must work on any Things UI language.
+# Scripts used to address lists by English name (`list "Someday"`), which
+# fails on e.g. a German install; they now use the locale-independent
+# `list id "TM…ListSource"`. Asserts the observable `start`/`startDate`
+# state after each move, so a regression fails on a non-English machine.
+@pytest.mark.asyncio
+async def test_builtin_list_moves_and_scheduling_are_locale_independent(live_things_tools, smoke_session):
+    from datetime import date
+
+    create = await live_things_tools.add_todo(
+        title="Smoke: locale-independent list moves",
+        list_id=smoke_session.project_id,
+    )
+    assert create.get("success"), create
+    todo_id = smoke_session.track(create["todo_id"])
+
+    async def start_state():
+        _settle()
+        return await live_things_tools.get_todo_by_id(todo_id)
+
+    for destination, expected_start in [
+        ("someday", "Someday"),
+        ("anytime", "Anytime"),
+        ("today", "Anytime"),
+        ("inbox", "Inbox"),
+    ]:
+        moved = await live_things_tools.move_record(todo_id, destination)
+        assert moved.get("success"), (destination, moved)
+        item = await start_state()
+        assert item.get("start") == expected_start, (destination, item)
+        if destination == "today":
+            assert item.get("startDate") == date.today().isoformat(), item
+
+    for when, expected_start in [("someday", "Someday"), ("anytime", "Anytime")]:
+        updated = await live_things_tools.update_todo(todo_id, when=when)
+        assert updated.get("success"), (when, updated)
+        item = await start_state()
+        assert item.get("start") == expected_start, (when, item)
+
+    trashed = await live_things_tools.move_record(todo_id, "trash")
+    assert trashed.get("success"), trashed
+    item = await start_state()
+    assert item.get("trashed") is True, item

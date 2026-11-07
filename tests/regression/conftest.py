@@ -250,7 +250,7 @@ def _delete_via_applescript(item_id: str) -> None:
         'tell application "Things3"\n'
         '    try\n'
         f'        set targetItem to to do id "{escaped}"\n'
-        '        move targetItem to list "Trash"\n'
+        '        move targetItem to list id "TMTrashListSource"\n'
         '    end try\n'
         'end tell'
     )

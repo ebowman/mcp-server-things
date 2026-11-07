@@ -61,7 +61,7 @@ class TestSearchAdvancedStatusFilter:
         script = call_args[0][0]
         assert 'status of aTodo is not equal to completed' in script
         # Verify Logbook is included when searching for completed todos
-        assert 'list "Logbook"' in script
+        assert 'list id "TMLogbookListSource"' in script
 
     @pytest.mark.asyncio
     async def test_search_advanced_incomplete_status(self, scheduler, mock_applescript_manager):
@@ -104,7 +104,7 @@ class TestSearchAdvancedStatusFilter:
         script = call_args[0][0]
         assert 'status of aTodo is not equal to canceled' in script
         # Verify Logbook is included when searching for canceled todos
-        assert 'list "Logbook"' in script
+        assert 'list id "TMLogbookListSource"' in script
 
     @pytest.mark.asyncio
     async def test_search_advanced_no_status_filter(self, scheduler, mock_applescript_manager):
@@ -204,10 +204,10 @@ class TestSearchAdvancedStatusFilter:
         script = call_args[0][0]
 
         # Verify Logbook is included
-        assert 'list "Logbook"' in script
+        assert 'list id "TMLogbookListSource"' in script
         # Verify standard lists are also included
-        assert 'list "Today"' in script
-        assert 'list "Inbox"' in script
+        assert 'list id "TMTodayListSource"' in script
+        assert 'list id "TMInboxListSource"' in script
 
     @pytest.mark.asyncio
     async def test_applescript_excludes_logbook_for_incomplete(self, scheduler, mock_applescript_manager):
@@ -224,7 +224,7 @@ class TestSearchAdvancedStatusFilter:
 
         # Verify Logbook is NOT included for incomplete searches
         # It should only appear once in the overall script structure, not added dynamically
-        logbook_count = script.count('list "Logbook"')
+        logbook_count = script.count('list id "TMLogbookListSource"')
         assert logbook_count == 0, "Logbook should not be included when searching for incomplete todos"
 
 

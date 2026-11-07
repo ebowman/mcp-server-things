@@ -23,6 +23,7 @@ This class now acts as a facade, delegating to specialized scheduling modules.
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
+from .list_refs import list_ref
 
 from .scheduling import SchedulingHelpers, SchedulingStrategies, TodoOperations, SearchOperations
 
@@ -144,7 +145,7 @@ class PureAppleScriptScheduler:
 
                     set resultList to {{}}
 
-                    repeat with aTodo in (to dos of list "Today")
+                    repeat with aTodo in (to dos of {list_ref("today")})
                         if due date of aTodo is not missing value then
                             if due date of aTodo <= targetDate then
                                 set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
@@ -159,7 +160,7 @@ class PureAppleScriptScheduler:
                         end if
                     end repeat
 
-                    repeat with aTodo in (to dos of list "Upcoming")
+                    repeat with aTodo in (to dos of {list_ref("upcoming")})
                         if due date of aTodo is not missing value then
                             if due date of aTodo <= targetDate then
                                 set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)
@@ -220,7 +221,7 @@ class PureAppleScriptScheduler:
 
                     set resultList to {{}}
 
-                    repeat with aTodo in (to dos of list "Upcoming")
+                    repeat with aTodo in (to dos of {list_ref("upcoming")})
                         if activation date of aTodo is not missing value then
                             if activation date of aTodo <= targetDate then
                                 set todoInfo to "ID:" & (id of aTodo) & "|TITLE:" & (name of aTodo)

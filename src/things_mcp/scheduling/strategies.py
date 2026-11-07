@@ -5,6 +5,7 @@ from datetime import datetime, date
 from typing import Dict, Any
 
 from ..locale_aware_dates import locale_handler
+from ..list_refs import list_ref
 from .helpers import SchedulingHelpers
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ class SchedulingStrategies:
             tell application "Things3"
                 try
                     set theTodo to to do id "{todo_id}"
-                    move theTodo to list "Today"
+                    move theTodo to {list_ref("today")}
                     return "scheduled_relative"
                 on error errMsg
                     return "error: " & errMsg
@@ -197,7 +198,7 @@ class SchedulingStrategies:
             tell application "Things3"
                 try
                     set theTodo to to do id "{todo_id}"
-                    move theTodo to list "Today"
+                    move theTodo to {list_ref("today")}
                     return "scheduled_objects"
                 on error errMsg
                     return "error: " & errMsg
@@ -302,7 +303,7 @@ class SchedulingStrategies:
         tell application "Things3"
             try
                 set theTodo to to do id "{todo_id}"
-                move theTodo to list "{target_list}"
+                move theTodo to {list_ref(target_list)}
                 return "moved_to_list"
             on error errMsg
                 return "error: " & errMsg
